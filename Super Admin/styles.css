@@ -1,0 +1,70 @@
+body { background: #228afd; }
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 270px;
+  background: #228afd;
+  color: #fff;
+  padding-top: 32px;
+  font-family: "Segoe UI", Arial, sans-serif;
+  z-index: 1040;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar h4 {
+  margin-bottom: 38px;
+  padding-left: 30px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+}
+.sidebar h4 i { margin-right: 8px; font-size: 1.36em; }
+.nav {
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.nav-link {
+  display: flex;
+  align-items: center;
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #e7efff;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  margin-bottom: 5px;
+  transition: background 0.15s, color 0.15s;
+  text-decoration: none;
+}
+.nav-link i {
+  font-size: 1.3em;
+  min-width: 24px;
+  text-align: center;
+}
+.nav-link.active, .nav-link:hover {
+  background: #198cf2;
+  color: #fff;
+}
+.nav-link.text-danger,
+.nav-link.text-danger i {
+  color: #f54538 !important;
+  margin-top: 40px;
+  font-weight: 600;
+}
+.nav-link.text-danger:hover {
+  background: none;
+  color: #e60000 !important;
+}
+/* Responsive adjustments */
+@media (max-width: 767.98px) {
+  .sidebar { position: relative; width: 100%; height: auto; flex-direction: row; padding: 0.5rem 1rem; }
+  .sidebar h4 { flex-basis: 100%; margin-bottom: 1rem; padding-left: 6px; }
+  .nav { flex-direction: row; flex-wrap: wrap; gap: 2px; padding-left: 5px; padding-right: 5px; }
+  .nav-link { padding: 8px 8px; font-size: 1rem; margin-bottom: 0; }
+}

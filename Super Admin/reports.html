@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reports - Physio Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet"/>
+  <style>
+    body { background: #228afd; }
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      height: 100vh; width: 270px;
+      background: #228afd; color: #fff;
+      padding-top: 32px;
+      font-family: "Segoe UI", Arial, sans-serif;
+      z-index: 1040;
+      display: flex; flex-direction: column;
+    }
+    .sidebar h4 {
+      margin-bottom: 38px; padding-left: 30px;
+      font-size: 1.5rem; font-weight: 600; letter-spacing: 0.5px;
+      display: flex; align-items: center;
+    }
+    .sidebar h4 i { margin-right: 8px; font-size: 1.36em; }
+    .nav { flex-direction: column; gap: 8px; padding: 0 14px; }
+    .nav-link {
+      display: flex; align-items: center;
+      font-size: 1.1rem; font-weight: 500;
+      color: #e7efff; gap: 12px;
+      padding: 10px 16px; border-radius: 8px;
+      margin-bottom: 5px; transition: background 0.15s, color 0.15s;
+      text-decoration: none;
+    }
+    .nav-link i { font-size: 1.3em; min-width: 24px; text-align: center; }
+    .nav-link.active, .nav-link:hover { background: #198cf2; color: #fff; }
+    .nav-link.text-danger, .nav-link.text-danger i {
+      color: #f54538 !important; margin-top: 40px; font-weight: 600;
+    }
+    .nav-link.text-danger:hover { background: none; color: #e60000 !important; }
+    .content-section {
+      margin-left: 270px; padding: 2rem; background: #f8f9fa; min-height: 100vh;
+    }
+    .report-card {
+      background: #fff; border-radius: 14px;
+      box-shadow: 0 6px 24px rgba(32,64,128,.13);
+      padding: 30px 22px; max-width: 900px;
+      margin: 25px auto 8px auto;
+      font-size: 1.05rem;
+    }
+    .report-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      border-bottom: 2px solid #eee; margin-bottom: 18px; padding-bottom: 10px;
+    }
+    .report-title {
+      font-weight: 700; font-size: 1.3rem; color: #0d6efd; letter-spacing: .5px;
+    }
+    .clinic-info {
+      text-align: right; font-size: 1rem;
+    }
+    .section-label {
+      color: #198cf2; font-weight: 600;
+      margin-top: 14px; margin-bottom: 7px;
+    }
+    .form-control[readonly], .form-control[disabled] { background: #f6fbff; }
+    .rom-summary-table {
+      width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 15px;
+    }
+    .rom-summary-table th, .rom-summary-table td {
+      border: 1px solid #bbb; padding: 6px 10px;
+      font-size: 1rem; text-align: left;
+    }
+    .rom-section { margin-top:18px; }
+    @media (max-width: 767.98px) {
+      .sidebar {
+        position: relative; width: 100%; height: auto;
+        flex-direction: row; padding: 0.5rem 1rem;
+      }
+      .sidebar h4 { flex-basis: 100%; margin-bottom: 1rem; padding-left: 6px; }
+      .nav { flex-direction: row; flex-wrap: wrap; gap: 2px; padding: 0 5px; }
+      .nav-link { padding: 8px 8px; font-size: 1rem; margin-bottom: 0; }
+      .content-section { margin-left: 0; padding: 1rem; }
+      .report-card { padding: 6px 2px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <nav class="sidebar" aria-label="Sidebar Navigation">
+    <h4><i class="fas fa-house-medical me-2"></i>Centre</h4>
+    <ul class="nav flex-column" role="menu">
+      <li class="nav-item" role="none">
+        <a href="dashboard.html" class="nav-link" role="menuitem"><i class="fas fa-home me-2"></i>Dashboard</a>
+      </li>
+      <li class="nav-item" role="none">
+        <a href="register.html" class="nav-link" role="menuitem"><i class="fas fa-user-plus me-2"></i>Register Patient</a>
+      </li>
+      <li class="nav-item" role="none">
+        <a href="appointments.html" class="nav-link" role="menuitem"><i class="fas fa-calendar-check me-2"></i>Appointments</a>
+      </li>
+      <li class="nav-item" role="none">
+        <a href="billing.html" class="nav-link" role="menuitem"><i class="fas fa-file-invoice-dollar me-2"></i>Billing</a>
+      </li>
+      <li class="nav-item" role="none">
+        <a href="reports.html" class="nav-link active" role="menuitem"><i class="fas fa-chart-line me-2"></i>Reports</a>
+      </li>
+      <li class="nav-item mt-auto" role="none">
+        <a href="index.html" class="nav-link text-danger" role="menuitem"><i class="fas fa-sign-out-alt me-2"></i>Logout</a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- Main content -->
+  <div class="content-section">
+    <h3 class="mb-4">Patient Reports</h3>
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead class="table-dark">
+          <tr><th>Patient ID</th><th>Name</th><th>Status</th><th>Assigned Doctor</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="reportTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal for detailed physiotherapy report -->
+  <div class="modal fade" id="reportModal" tabindex="-1" aria-labelledby="reportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="reportModalLabel">Physiotherapy Clinic Patient Report</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <form id="reportForm">
+          <div class="modal-body">
+            <div class="report-card px-1 py-3" style="box-shadow:none; margin:0; max-width:100%;">
+              <div class="report-header">
+                <span class="report-title">Physiotherapy Report</span>
+                <span class="clinic-info">
+                  <b>Clinic:</b> Centre For Sports Science, Kanteerava Stadium<br>
+                  <b>Date:</b> <span id="modalReportDate"></span>
+                </span>
+              </div>
+              <div class="row">
+                <div class="col-md-3 mb-3"><label for="modalPatientName">Patient Name</label><input type="text" class="form-control" id="modalPatientName" required readonly /></div>
+                <div class="col-md-3 mb-3"><label for="modalPatientId">Patient ID</label><input type="text" class="form-control" id="modalPatientId" required readonly /></div>
+                <div class="col-md-3 mb-3"><label for="modalPatientDob">Date of Birth</label><input type="date" class="form-control" id="modalPatientDob" readonly/></div>
+                <div class="col-md-3 mb-3"><label for="modalDoctor">Assigned Doctor</label><input type="text" class="form-control" id="modalDoctor" readonly /></div>
+              </div>
+
+              <div class="section-label">Assessment</div>
+              <div class="row">
+                <div class="col-md-6 mb-3"><label for="modalComplaint">Complaints</label><input type="text" class="form-control" id="modalComplaint" readonly /></div>
+                <div class="col-md-6 mb-3"><label for="modalPresentHistory">Present History</label><input type="text" class="form-control" id="modalPresentHistory" readonly /></div>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3"><label for="modalPastHistory">Past History</label><input type="text" class="form-control" id="modalPastHistory" readonly /></div>
+                <div class="col-md-6 mb-3"><label for="modalMedicalHistory">Medical History</label>
+                  <input type="text" class="form-control" id="modalMedicalHistory" readonly />
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3"><label for="modalSurgicalHistory">Surgical History</label><input type="text" class="form-control" id="modalSurgicalHistory" readonly /></div>
+                <div class="col-md-6 mb-3"><label for="modalPersonalHistory">Personal History</label><input type="text" class="form-control" id="modalPersonalHistory" readonly /></div>
+              </div>
+              <div class="row">
+                <div class="col-md-4 mb-3"><label for="modalSleepCycle">Sleep Cycle</label><input type="text" class="form-control" id="modalSleepCycle" readonly /></div>
+                <div class="col-md-4 mb-3"><label for="modalHydration">Hydration</label><input type="text" class="form-control" id="modalHydration" readonly /></div>
+                <div class="col-md-4 mb-3"><label for="modalNutrition">Nutrition</label><input type="text" class="form-control" id="modalNutrition" readonly /></div>
+              </div>
+
+              <div class="row">
+                <div class="col-md-4 mb-3"><label for="modalSiteSide">Site and Side</label><input type="text" class="form-control" id="modalSiteSide" readonly /></div>
+                <div class="col-md-4 mb-3"><label for="modalOnset">Onset</label><input type="text" class="form-control" id="modalOnset" readonly /></div>
+                <div class="col-md-4 mb-3"><label for="modalDuration">Duration</label><input type="text" class="form-control" id="modalDuration" readonly /></div>
+              </div>
+              <div class="row">
+                <div class="col-md-4 mb-3"><label for="modalNatureOfInjury">Nature of Injury</label><input type="text" class="form-control" id="modalNatureOfInjury" readonly /></div>
+                <div class="col-md-4 mb-3"><label for="modalTypeOfPain">Type of Pain</label><input type="text" class="form-control" id="modalTypeOfPain" readonly /></div>
+                <div class="col-md-4 mb-3">
+                  <label for="modalVASScale">VAS Scale</label>
+                  <input type="text" class="form-control" id="modalVASScale" readonly />
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3"><label for="modalAggravatingFactor">Aggravating Factor</label><input type="text" class="form-control" id="modalAggravatingFactor" readonly /></div>
+                <div class="col-md-6 mb-3"><label for="modalRelievingFactor">Relieving Factor</label><input type="text" class="form-control" id="modalRelievingFactor" readonly /></div>
+              </div>
+
+              <div id="modalRomView" class="rom-section"></div>
+
+              <div class="section-label">Treatment Provided</div>
+              <textarea class="form-control" rows="2" id="modalTreatment" readonly></textarea>
+
+              <div class="section-label">Progress Notes</div>
+              <textarea class="form-control" rows="2" id="modalProgress" readonly></textarea>
+
+              <div class="section-label">Physiotherapist Details</div>
+              <div class="row">
+                <div class="col-md-6 mb-3"><label for="modalPhysioName">Physio Name</label><input type="text" class="form-control" id="modalPhysioName" readonly /></div>
+                <div class="col-md-6 mb-3"><label for="modalPhysioId">Signature / ID</label><input type="text" class="form-control" id="modalPhysioId" readonly /></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="submit" class="btn btn-success">Save Report</button>
+            <button type="button" class="btn btn-outline-primary" id="printReportBtn">Print</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            <span id="modalSavedMsg" class="ms-3 text-success d-none"><i class="fas fa-check"></i> Saved!</span>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="reports.js"></script>
+</body>
+</html>

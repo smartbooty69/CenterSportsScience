@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Billing - Physio Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet" />
+  <style>
+    body { background: #228afd; }
+    .sidebar {
+      position: fixed; top: 0; left: 0; height: 100vh; width: 250px;
+      background: #228afd; color: #fff; padding-top: 32px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      z-index: 1040; display: flex; flex-direction: column;
+      box-shadow: 0 2px 10px rgba(30,80,200,0.06);
+    }
+    .sidebar h4 {
+      margin-bottom: 38px;
+      padding-left: 30px;
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+    }
+    .sidebar h4 i { margin-right: 8px; font-size: 1.36em; }
+    .nav { flex-direction: column; gap: 10px; padding-left: 14px; padding-right: 14px; }
+    .nav-link {
+      display: flex; align-items: center; font-size: 1.18rem; font-weight: 500;
+      color: #fff; gap: 12px; padding: 12px 16px; border-radius: 8px;
+      margin-bottom: 5px; transition: background 0.15s, color 0.15s;
+      text-decoration: none; background: transparent;
+      letter-spacing: 0.03em;
+    }
+    .nav-link.active, .nav-link:hover { background: #1a73e8; color: #fff !important; }
+    .nav-link.text-danger, .nav-link.text-danger i {
+      color: #f54538 !important; margin-top: 40px; font-weight: 600;
+    }
+    .nav-link.text-danger:hover { background: none; color: #e60000 !important; }
+    .dashboard-section { margin-left: 250px; padding: 2rem; background-color: #f8f9fa; min-height: 100vh; }
+    @media (max-width: 767.98px) {
+      .sidebar { position: relative; width: 100%; height: auto; flex-direction: row; padding: 0.5rem 1rem; box-shadow: none; }
+      .sidebar h4 { flex-basis: 100%; margin-bottom: 1rem; padding-left: 6px; font-size: 1.2rem; }
+      .nav { flex-direction: row; flex-wrap: wrap; gap: 2px; padding-left: 5px; padding-right: 5px; }
+      .nav-link { font-size: 1rem; padding: 8px 8px; margin-bottom: 0; border-radius: 8px; }
+      .dashboard-section { margin-left: 0; padding: 1rem; }
+    }
+    .nav-link.active { background: #126dc4 !important; color: #fff !important; font-weight: 700; }
+    .section-label { color: #198cf2; font-weight: 600; margin-top: 14px; margin-bottom: 7px;}
+  </style>
+</head>
+<body>
+  <nav class="sidebar" aria-label="Sidebar Navigation">
+    <h4><i class="fas fa-house-medical"></i>Centre</h4>
+    <ul class="nav flex-column" role="menu">
+      <li class="nav-item" role="none"><a href="dashboard.html" class="nav-link"><i class="fas fa-home"></i>Dashboard</a></li>
+      <li class="nav-item" role="none"><a href="register.html" class="nav-link"><i class="fas fa-user-plus"></i>Register Patient</a></li>
+      <li class="nav-item" role="none"><a href="appointments.html" class="nav-link"><i class="fas fa-calendar-check"></i>Appointments</a></li>
+      <li class="nav-item" role="none"><a href="billing.html" class="nav-link active"><i class="fas fa-file-invoice-dollar"></i>Billing</a></li>
+      <li class="nav-item" role="none"><a href="reports.html" class="nav-link"><i class="fas fa-chart-line"></i>Reports</a></li>
+      <li class="nav-item" role="none"><a href="index.html" class="nav-link text-danger"><i class="fas fa-sign-out-alt"></i>Logout</a></li>
+    </ul>
+  </nav>
+
+  <main class="dashboard-section">
+    <div class="mb-3">
+      <div id="billingTotal" style="font-weight:bold; font-size:1.2rem; margin-bottom:1rem;"></div>
+      <label for="billingFilter">Show records from:</label>
+      <select id="billingFilter" class="form-select" style="max-width:200px">
+        <option value="15">Last 15 days</option>
+        <option value="30">Last 1 month</option>
+        <option value="90">Last 3 months</option>
+        <option value="180">Last 6 months</option>
+        <option value="all">All time</option>
+      </select>
+    </div>
+    <div id="billingList"></div>
+  </main>
+
+  <!-- Modal for viewing patient report from billing -->
+  <div class="modal fade" id="reportModal" tabindex="-1" aria-labelledby="reportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="reportModalLabel">Physiotherapy Report</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="report-card px-1 py-3" style="box-shadow:none; margin:0; max-width:100%;">
+            <div class="report-header">
+              <span class="report-title">Physiotherapy Report</span>
+              <span class="clinic-info">
+                <b>Clinic:</b> XYZ Physiotherapy<br>
+                <b>Date:</b> <span id="modalReportDate"></span>
+              </span>
+            </div>
+            <div class="row">
+              <div class="col-md-3 mb-3"><label>Patient Name</label>
+                <input type="text" class="form-control" id="modalPatientName" readonly>
+              </div>
+              <div class="col-md-3 mb-3"><label>Patient ID</label>
+                <input type="text" class="form-control" id="modalPatientId" readonly>
+              </div>
+              <div class="col-md-3 mb-3"><label>Date of Birth</label>
+                <input type="date" class="form-control" id="modalPatientDob" readonly>
+              </div>
+              <div class="col-md-3 mb-3"><label>Assigned Doctor</label>
+                <input type="text" class="form-control" id="modalDoctor" readonly>
+              </div>
+            </div>
+            <div class="section-label">Assessment</div>
+            <div class="row">
+              <div class="col-md-6 mb-3"><label>Presenting Complaint</label>
+                <input type="text" class="form-control" id="modalComplaint" readonly>
+              </div>
+              <div class="col-md-6 mb-3"><label>Diagnosis</label>
+                <input type="text" class="form-control" id="modalDiagnosis" readonly>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3"><label>Clinical Findings</label>
+                <textarea class="form-control" rows="2" id="modalFindings" readonly></textarea></div>
+              <div class="col-md-6 mb-3"><label>Relevant Medical History</label>
+                <textarea class="form-control" rows="2" id="modalHistory" readonly></textarea></div>
+            </div>
+            <div class="section-label">Treatment Provided</div>
+            <textarea class="form-control mb-3" rows="2" id="modalTreatment" readonly></textarea>
+            <div class="section-label">Progress Notes</div>
+            <textarea class="form-control mb-3" rows="2" id="modalProgress" readonly></textarea>
+            <div class="section-label">Physiotherapist Details</div>
+            <div class="row">
+              <div class="col-md-6 mb-3"><label>Physio Name</label>
+                <input type="text" class="form-control" id="modalPhysioName" readonly></div>
+              <div class="col-md-6 mb-3"><label>Signature / ID</label>
+                <input type="text" class="form-control" id="modalPhysioId" readonly></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-primary" id="printReportBtn">Download/Print</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Payment Slip Modal -->
+  <div class="modal fade" id="paymentSlipModal" tabindex="-1" aria-labelledby="paymentSlipLabel" aria-hidden="true">
+    <div class="modal-dialog modal-md modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="paymentSlipLabel">Payment Receipt / Acknowledgement</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="p-2 rounded" id="paymentSlipCard" style="background-color: #fff; border: 2px solid #f7d701;">
+            <div style="text-align:center; font-size:1.12rem; font-weight:700; color:#198cf2;">
+              CENTRE FOR SPORTS SCIENCE
+            </div>
+            <div style="text-align:center; font-size: .95rem;">SPORTS BUSINESS SOLUTIONS PVT. LTD.</div>
+            <div class="row mt-3 mb-2">
+              <div class="col-6"><b>Receipt No:</b> <span id="slipReceiptId"></span></div>
+              <div class="col-6 text-end"><b>Date:</b> <span id="slipDate"></span></div>
+            </div>
+            <hr>
+            <div>
+              <b>Received with thanks from:</b> <span id="slipPatient"></span>
+            </div>
+            <div class="mb-2">
+              <b>The sum of Rupees:</b>
+              ₹<span id="slipAmount"></span> (<span id="slipAmountWords" style="font-style:italic;"></span>)
+            </div>
+            <div>
+              <b>Towards:</b> <span id="slipPurpose"></span>
+            </div>
+            <div>
+              <b>Mode of Payment:</b> <span id="slipPaymentMode"></span>
+            </div>
+            <div style="margin-top:40px; text-align:right;">
+              <span style="font-size:.97rem;">For CENTRE FOR SPORTS SCIENCE</span><br>
+              <span style="font-size:.93rem; font-style:italic;">(Signature)</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" id="downloadSlipBtn">Download / Print</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="billing.js"></script>
+</body>
+</html>
