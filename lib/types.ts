@@ -39,3 +39,43 @@ export interface BillingRecord {
 	date: string;
 }
 
+export type NotificationCategory =
+	| 'appointment'
+	| 'reminder'
+	| 'system'
+	| 'patient'
+	| 'billing'
+	| 'other';
+
+export type NotificationStatus = 'unread' | 'read';
+
+export interface NotificationChannelSettings {
+	email: boolean;
+	sms: boolean;
+	whatsapp: boolean;
+	inApp: boolean;
+}
+
+export interface NotificationRecord {
+	id: string;
+	userId: string;
+	title: string;
+	message: string;
+	category: NotificationCategory;
+	status: NotificationStatus;
+	createdAt: string;
+	readAt?: string | null;
+	metadata?: Record<string, unknown>;
+	channels?: Partial<NotificationChannelSettings>;
+	acknowledgedBy?: string[];
+	source?: string;
+}
+
+export interface NotificationPreference {
+	userId: string;
+	channels: NotificationChannelSettings;
+	reminderLeadTimeHours: number;
+	digestEnabled: boolean;
+	updatedAt: string;
+}
+
