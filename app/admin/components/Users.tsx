@@ -1,20 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-	addDoc,
-	collection,
-	deleteDoc,
-	doc,
-	onSnapshot,
-	serverTimestamp,
-	updateDoc,
-} from 'firebase/firestore';
-
-import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import { auth } from '@/lib/firebase';
 
-type EmployeeRole = 'FrontDesk' | 'ClinicalTeam' | 'Admin';
+type EmployeeRole = 'FrontDesk' | 'ClinicalTeam' | 'Admin' | 'admin';
 type EmployeeStatus = 'Active' | 'Inactive';
 
 interface Employee {
@@ -24,18 +14,21 @@ interface Employee {
 	role: EmployeeRole;
 	status: EmployeeStatus;
 	createdAt?: string | null;
+	disabled?: boolean;
+	uid?: string;
 }
 
 interface FormState {
 	userName: string;
 	userEmail: string;
-	userRole: Extract<EmployeeRole, 'FrontDesk' | 'ClinicalTeam'>;
+	userRole: Extract<EmployeeRole, 'FrontDesk' | 'ClinicalTeam' | 'Admin'>;
 	userStatus: EmployeeStatus;
 	password: string;
 }
 
 const ROLE_LABELS: Record<EmployeeRole, string> = {
 	Admin: 'Admin',
+	admin: 'Admin',
 	FrontDesk: 'Front Desk',
 	ClinicalTeam: 'Clinical Team',
 };
@@ -43,6 +36,7 @@ const ROLE_LABELS: Record<EmployeeRole, string> = {
 const ROLE_OPTIONS: Array<{ value: FormState['userRole']; label: string }> = [
 	{ value: 'FrontDesk', label: 'Front Desk' },
 	{ value: 'ClinicalTeam', label: 'Clinical Team (Physiotherapist & Strength Conditioning)' },
+	{ value: 'Admin', label: 'Admin' },
 ];
 
 const INITIAL_FORM: FormState = {
@@ -75,43 +69,47 @@ export default function Users() {
 	const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 	const [formState, setFormState] = useState<FormState>(INITIAL_FORM);
 
-	useEffect(() => {
+	async function getToken(): Promise<string> {
+		const user = auth.currentUser;
+		if (!user) throw new Error('Not authenticated');
+		return await user.getIdToken();
+	}
+
+	const loadUsers = async () => {
 		setLoading(true);
-
-		const unsubscribe = onSnapshot(
-			collection(db, 'staff'),
-			snapshot => {
-				const records: Employee[] = snapshot.docs
-					.map(docSnap => {
-						const data = docSnap.data() as Record<string, unknown>;
-						const created = (data.createdAt as { toDate?: () => Date } | undefined)?.toDate?.();
-						return {
-							id: docSnap.id,
-							userName: String(data.userName ?? ''),
-							userEmail: String(data.userEmail ?? ''),
-							role: (data.role as EmployeeRole) ?? 'FrontDesk',
-							status: (data.status as EmployeeStatus) ?? 'Active',
-							createdAt: created
-								? created.toISOString()
-								: typeof data.createdAt === 'string'
-									? (data.createdAt as string)
-									: null,
-						};
-					})
-					.filter(record => record.role === 'FrontDesk' || record.role === 'ClinicalTeam')
-					.sort((a, b) => a.userName.localeCompare(b.userName));
-
-				setEmployees(records);
-				setLoading(false);
-			},
-			err => {
-				console.error('Failed to load employees', err);
-				setError('Unable to load employees. Please try again later.');
-				setLoading(false);
+		setError(null);
+		try {
+			const token = await getToken();
+			const res = await fetch('/api/admin/users', {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				throw new Error(data?.message || 'Failed to load users');
 			}
-		);
+			const data = await res.json();
+			const users: Employee[] = (data.users as any[]).map(u => ({
+				id: u.uid,
+				uid: u.uid,
+				userName: u.displayName || '',
+				userEmail: u.email || '',
+				role: (u.role || (u.customClaims?.role as string) || '') as EmployeeRole,
+				status: u.disabled ? 'Inactive' : 'Active',
+				createdAt: null,
+				disabled: Boolean(u.disabled),
+			}));
+			setEmployees(users);
+		} catch (e: any) {
+			console.error(e);
+			setError(e?.message || 'Unable to load users');
+		} finally {
+			setLoading(false);
+		}
+	};
 
-		return () => unsubscribe();
+	useEffect(() => {
+		loadUsers();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	const filteredEmployees = useMemo(() => {
@@ -121,7 +119,7 @@ export default function Users() {
 			return (
 				employee.userName.toLowerCase().includes(query) ||
 				employee.userEmail.toLowerCase().includes(query) ||
-				ROLE_LABELS[employee.role].toLowerCase().includes(query)
+				ROLE_LABELS[employee.role]?.toLowerCase().includes(query)
 			);
 		});
 	}, [employees, searchTerm]);
@@ -138,8 +136,8 @@ export default function Users() {
 		setFormState({
 			userName: employee.userName,
 			userEmail: employee.userEmail,
-			userRole: employee.role === 'Admin' ? 'FrontDesk' : (employee.role as FormState['userRole']),
-			userStatus: employee.status,
+			userRole: (employee.role as FormState['userRole']) || 'FrontDesk',
+			userStatus: employee.disabled ? 'Inactive' : 'Active',
 			password: '',
 		});
 		setIsDialogOpen(true);
@@ -153,19 +151,50 @@ export default function Users() {
 		setFormState(INITIAL_FORM);
 	};
 
-	const handleDelete = async (employee: Employee) => {
-		const confirmed = window.confirm(
-			`Are you sure you want to remove ${employee.userName || employee.userEmail}?`
-		);
-		if (!confirmed) return;
-
+	const handleDeactivateToggle = async (employee: Employee, disabled: boolean) => {
 		setSaving(true);
 		setError(null);
 		try {
-			await deleteDoc(doc(db, 'staff', employee.id));
-		} catch (err) {
-			console.error('Failed to delete employee', err);
-			setError('Unable to delete employee. Please try again.');
+			const token = await getToken();
+			const res = await fetch('/api/admin/users', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+				body: JSON.stringify({ uid: employee.uid || employee.id, disabled }),
+			});
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				throw new Error(data?.message || 'Failed to update status');
+			}
+			await loadUsers();
+		} catch (e: any) {
+			console.error(e);
+			setError(e?.message || 'Unable to update status');
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const handleResetPassword = async (employee: Employee) => {
+		const confirmed = window.confirm(`Reset password for ${employee.userEmail}?`);
+		if (!confirmed) return;
+		setSaving(true);
+		setError(null);
+		try {
+			const token = await getToken();
+			const res = await fetch('/api/admin/users/reset-password', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+				body: JSON.stringify({ uid: employee.uid || employee.id }),
+			});
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				throw new Error(data?.message || 'Failed to reset password');
+			}
+			const data = await res.json();
+			alert(`Temporary password: ${data.tempPwd}\nPlease share securely and ask user to change on next login.`);
+		} catch (e: any) {
+			console.error(e);
+			setError(e?.message || 'Unable to reset password');
 		} finally {
 			setSaving(false);
 		}
@@ -181,7 +210,7 @@ export default function Users() {
 
 		if (!trimmedName || !trimmedEmail) {
 			setError('Name and email are required.');
-			return;
+		 return;
 		}
 
 		if (!editingEmployee && !trimmedPassword) {
@@ -191,29 +220,41 @@ export default function Users() {
 
 		setSaving(true);
 		try {
+			const token = await getToken();
 			if (editingEmployee) {
-				await updateDoc(doc(db, 'staff', editingEmployee.id), {
-					userName: trimmedName,
-					role: formState.userRole,
-					status: formState.userStatus,
+				const disabled = formState.userStatus === 'Inactive';
+				const role = formState.userRole === 'Admin' ? 'admin' : formState.userRole;
+				const res = await fetch('/api/admin/users', {
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+					body: JSON.stringify({ uid: editingEmployee.uid || editingEmployee.id, role, disabled }),
 				});
+				if (!res.ok) {
+					const data = await res.json().catch(() => ({}));
+					throw new Error(data?.message || 'Failed to update user');
+				}
 			} else {
-				await addDoc(collection(db, 'staff'), {
-					userName: trimmedName,
-					userEmail: trimmedEmail,
-					role: formState.userRole,
-					status: formState.userStatus,
-					createdAt: serverTimestamp(),
+				const role = formState.userRole === 'Admin' ? 'admin' : formState.userRole;
+				const res = await fetch('/api/admin/users', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+					body: JSON.stringify({
+						email: trimmedEmail,
+						password: trimmedPassword,
+						displayName: trimmedName,
+						role,
+					}),
 				});
+				if (!res.ok) {
+					const data = await res.json().catch(() => ({}));
+					throw new Error(data?.message || 'Failed to create user');
+				}
 			}
 			closeDialog();
-		} catch (err) {
+			await loadUsers();
+		} catch (err: any) {
 			console.error('Failed to save employee', err);
-			setError(
-				err instanceof Error
-					? err.message
-					: 'Unable to save employee. Please check the details and try again.'
-			);
+			setError(err?.message || 'Unable to save employee. Please check the details and try again.');
 		} finally {
 			setSaving(false);
 		}
@@ -224,8 +265,8 @@ export default function Users() {
 			<div className="mx-auto max-w-6xl space-y-10">
 				<PageHeader
 					badge="Admin"
-					title="Employee Management"
-					description="Register and manage Front Desk and Clinical Team staff members."
+					title="User Management"
+					description="Manage platform users, roles, and access."
 				/>
 
 				<div className="border-t border-slate-200" />
@@ -234,7 +275,7 @@ export default function Users() {
 				<div>
 					<h2 className="text-xl font-semibold text-sky-700">All Employees</h2>
 					<p className="mt-1 text-sm text-sky-700/80">
-						Search the directory or create a new employee profile.
+						Search, create, edit roles, deactivate, and reset passwords.
 					</p>
 				</div>
 				<div className="mt-4 flex flex-col items-center justify-end gap-3 sm:mt-0 sm:flex-row">
@@ -322,12 +363,21 @@ export default function Users() {
 												</button>
 												<button
 													type="button"
-													onClick={() => handleDelete(employee)}
-													className="ml-2 inline-flex items-center rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:border-rose-400 hover:text-rose-700 focus-visible:border-rose-400 focus-visible:text-rose-700 focus-visible:outline-none"
+													onClick={() => handleDeactivateToggle(employee, !employee.disabled)}
+													className="ml-2 inline-flex items-center rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-800 focus-visible:border-amber-400 focus-visible:text-amber-800 focus-visible:outline-none"
 													disabled={saving}
 												>
-													<i className="fas fa-trash mr-1 text-[11px]" aria-hidden="true" />
-													Delete
+													<i className="fas fa-user-slash mr-1 text-[11px]" aria-hidden="true" />
+													{employee.disabled ? 'Enable' : 'Deactivate'}
+												</button>
+												<button
+													type="button"
+													onClick={() => handleResetPassword(employee)}
+													className="ml-2 inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 focus-visible:border-slate-400 focus-visible:text-slate-900 focus-visible:outline-none"
+													disabled={saving}
+												>
+													<i className="fas fa-key mr-1 text-[11px]" aria-hidden="true" />
+													Reset Password
 												</button>
 											</td>
 										</tr>

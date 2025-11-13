@@ -3,6 +3,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { auth } from '@/lib/firebase';
+import ImportPatients from './ImportPatients';
 
 import {
 	type AdminGenderOption,
@@ -65,6 +67,8 @@ export default function Patients() {
 	const [loading, setLoading] = useState(true);
 	const [searchTerm, setSearchTerm] = useState('');
 	const [statusFilter, setStatusFilter] = useState<'all' | AdminPatientStatus>('all');
+	const [selectedIds, setSelectedIds] = useState<string[]>([]);
+	const [importOpen, setImportOpen] = useState(false);
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [formState, setFormState] = useState<Omit<AdminPatientRecord, 'registeredAt'>>({
@@ -128,6 +132,21 @@ export default function Patients() {
 				return matchesSearch && matchesStatus;
 			});
 	}, [patients, searchTerm, statusFilter]);
+
+	const toggleSelected = (id: string, checked: boolean) => {
+		setSelectedIds(current => (checked ? Array.from(new Set([...current, id])) : current.filter(x => x !== id)));
+	};
+
+	const allVisibleIds = useMemo(() => filteredPatients.map(f => f.id).filter(Boolean), [filteredPatients]);
+	const toggleSelectAll = (checked: boolean) => {
+		setSelectedIds(checked ? allVisibleIds : []);
+	};
+
+	async function getToken(): Promise<string> {
+		const user = auth.currentUser;
+		if (!user) throw new Error('Not authenticated');
+		return await user.getIdToken();
+	}
 
 	const openDialogForCreate = () => {
 		setEditingId(null);
@@ -243,45 +262,53 @@ export default function Patients() {
 		}
 	};
 
-	const handleExportCsv = () => {
-		if (!patients.length) {
-			alert('No patients found to export.');
+	const handleExportCsv = async () => {
+		try {
+			const token = await getToken();
+			const res = await fetch('/api/patients/export', {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				throw new Error(data?.message || 'Export failed');
+			}
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `patients_${new Date().toISOString().slice(0, 10)}.csv`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} catch (e: any) {
+			alert(e?.message || 'Export failed');
+		}
+	};
+
+	const handleBulkDeactivate = async () => {
+		if (!selectedIds.length) {
+			alert('Select at least one patient.');
 			return;
 		}
-
-		const headers = [
-			'patientId',
-			'name',
-			'dob',
-			'gender',
-			'phone',
-			'email',
-			'address',
-			'complaint',
-			'status',
-			'registeredAt',
-		] as const;
-
-		const rows = patients.map(patient =>
-			headers
-				.map(key => {
-					const value = patient[key] ?? '';
-					return `"${String(value).replace(/"/g, '""')}"`;
-				})
-				.join(',')
-		);
-
-		const csvContent = [headers.join(','), ...rows].join('\n');
-		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-		const url = URL.createObjectURL(blob);
-
-		const tempLink = document.createElement('a');
-		tempLink.href = url;
-		tempLink.setAttribute('download', `patients-${new Date().toISOString().slice(0, 10)}.csv`);
-		document.body.appendChild(tempLink);
-		tempLink.click();
-		document.body.removeChild(tempLink);
-		URL.revokeObjectURL(url);
+		const confirmed = window.confirm(`Deactivate ${selectedIds.length} selected patients?`);
+		if (!confirmed) return;
+		try {
+			const token = await getToken();
+			const res = await fetch('/api/patients/bulk', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+				body: JSON.stringify({ action: 'deactivate', ids: selectedIds }),
+			});
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				throw new Error(data?.message || 'Bulk deactivate failed');
+			}
+			alert('Selected patients deactivated.');
+			setSelectedIds([]);
+		} catch (e: any) {
+			alert(e?.message || 'Bulk deactivate failed');
+		}
 	};
 
 	return (
@@ -333,6 +360,23 @@ export default function Patients() {
 						</button>
 						<button
 							type="button"
+							onClick={() => setImportOpen(true)}
+							className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-500 focus-visible:bg-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+						>
+							<i className="fas fa-file-import text-xs" aria-hidden="true" />
+							Import CSV
+						</button>
+						<button
+							type="button"
+							onClick={handleBulkDeactivate}
+							className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-500 focus-visible:bg-amber-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-60"
+							disabled={selectedIds.length === 0}
+						>
+							<i className="fas fa-user-slash text-xs" aria-hidden="true" />
+							Bulk Deactivate
+						</button>
+						<button
+							type="button"
 							onClick={openDialogForCreate}
 							className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus-visible:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
 						>
@@ -364,6 +408,14 @@ export default function Patients() {
 							<table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-700">
 								<thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
 									<tr>
+										<th className="px-4 py-3">
+											<input
+												type="checkbox"
+												aria-label="Select all"
+												checked={selectedIds.length > 0 && selectedIds.length === allVisibleIds.length}
+												onChange={e => toggleSelectAll(e.currentTarget.checked)}
+											/>
+										</th>
 										<th className="px-4 py-3 font-semibold">#</th>
 										<th className="px-4 py-3 font-semibold">Patient ID</th>
 										<th className="px-4 py-3 font-semibold">Name</th>
@@ -379,6 +431,13 @@ export default function Patients() {
 								<tbody className="divide-y divide-slate-100">
 									{filteredPatients.map(({ patient, index, id }, row) => (
 										<tr key={`${patient.patientId}-${id}`}>
+											<td className="px-4 py-4">
+												<input
+													type="checkbox"
+													checked={selectedIds.includes(id)}
+													onChange={e => toggleSelected(id, e.currentTarget.checked)}
+												/>
+											</td>
 											<td className="px-4 py-4 text-xs text-slate-500">{row + 1}</td>
 											<td className="px-4 py-4 text-sm font-semibold text-slate-800">{patient.patientId || '—'}</td>
 											<td className="px-4 py-4 text-sm text-slate-700">{patient.name || 'Unnamed patient'}</td>
@@ -431,6 +490,8 @@ export default function Patients() {
 					)}
 				</div>
 			</section>
+
+			{importOpen && <ImportPatients onClose={() => setImportOpen(false)} />}
 
 			{isDialogOpen && (
 				<div
