@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import type { AdminAppointmentStatus } from '@/lib/adminMockData';
 import { sendEmailNotification } from '@/lib/email';
+import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 
 type AppointmentStatusFilter = 'all' | AdminAppointmentStatus;
 
@@ -295,6 +296,33 @@ export default function Appointments() {
 				} catch (emailError) {
 					// Log error but don't fail status update
 					console.error('Failed to send status change email:', emailError);
+				}
+			}
+
+			// Send SMS notification if status changed and patient has valid phone
+			if (oldStatus !== status && patientDetails?.phone && isValidPhoneNumber(patientDetails.phone)) {
+				try {
+					if (status === 'cancelled') {
+						// Send cancellation SMS
+						await sendSMSNotification({
+							to: patientDetails.phone,
+							template: 'appointment-cancelled',
+							data: {
+								patientName: appointment.patient,
+								patientPhone: patientDetails.phone,
+								patientId: appointment.patientId,
+								doctor: appointment.doctor,
+								date: appointment.date,
+								time: appointment.time,
+								appointmentId: appointment.appointmentId,
+							},
+						});
+					}
+					// Note: We don't have an SMS template for other status changes (ongoing, completed)
+					// Only sending SMS for cancellations as per available templates
+				} catch (smsError) {
+					// Log error but don't fail status update
+					console.error('Failed to send status change SMS:', smsError);
 				}
 			}
 		} catch (error) {

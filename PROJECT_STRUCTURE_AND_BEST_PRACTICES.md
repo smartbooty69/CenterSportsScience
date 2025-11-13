@@ -1,335 +1,163 @@
-# Project Structure and Best Practices Guide
+# Project Rules and Standards
 
-This document outlines the norms, best practices, and structural patterns used in this project that can be applied to other projects.
-
-## Table of Contents
-1. [Project Architecture](#project-architecture)
-2. [Directory Structure](#directory-structure)
-3. [Code Organization Patterns](#code-organization-patterns)
-4. [TypeScript Configuration](#typescript-configuration)
-5. [Styling Approach](#styling-approach)
-6. [Component Patterns](#component-patterns)
-7. [API Route Patterns](#api-route-patterns)
-8. [Custom Hooks Pattern](#custom-hooks-pattern)
-9. [Utility Functions](#utility-functions)
-10. [Authentication Pattern](#authentication-pattern)
-11. [Error Handling](#error-handling)
-12. [Naming Conventions](#naming-conventions)
-13. [File Organization](#file-organization)
-
----
-
-## Project Architecture
+## Architecture Rules
 
 ### Framework Stack
-- **Next.js 15** (App Router) with TypeScript
-- **React 18** with Server Components
-- **Sanity CMS** for content management
-- **NextAuth.js v5** for authentication
-- **Tailwind CSS** for styling
-- **shadcn/ui** for UI components
+- **MUST** use Next.js 15 App Router with TypeScript
+- **MUST** use React 18 with Server Components as default
+- **MUST** use Tailwind CSS for styling
+- **MUST** use shadcn/ui for UI components
+- **MUST** use NextAuth.js v5 for authentication
 
-### Key Architectural Decisions
-1. **App Router**: Uses Next.js 15 App Router with route groups `(root)` for organization
-2. **Server-First**: Leverages Server Components by default, using `'use client'` only when needed
-3. **Type Safety**: Strict TypeScript configuration with path aliases
-4. **Component Library**: shadcn/ui components with custom styling
-5. **Monorepo Structure**: Clear separation of concerns with dedicated directories
-
----
-
-## Directory Structure
-
-```
-project-root/
-├── app/                      # Next.js App Router
-│   ├── (root)/              # Route group for main pages
-│   │   ├── page.tsx         # Home page
-│   │   ├── layout.tsx       # Layout for route group
-│   │   └── [feature]/       # Feature-based routes
-│   ├── api/                 # API routes
-│   │   └── [feature]/       # Feature-based API routes
-│   │       └── route.ts     # Route handlers
-│   ├── admin/               # Admin-only routes
-│   ├── layout.tsx           # Root layout
-│   ├── globals.css          # Global styles
-│   └── fonts/               # Local font files
-├── components/              # React components
-│   ├── ui/                 # shadcn/ui components
-│   ├── [Feature].tsx       # Feature components
-│   └── Providers.tsx       # Context providers
-├── lib/                    # Utility functions & services
-│   ├── utils.ts            # General utilities
-│   ├── [service].ts        # Service modules
-│   └── validation.ts       # Validation functions
-├── hooks/                  # Custom React hooks
-│   └── use[Feature].ts     # Feature-specific hooks
-├── sanity/                 # Sanity CMS configuration
-├── public/                 # Static assets
-├── scripts/                # Build/utility scripts
-└── docs/                   # Documentation
-```
-
-### Key Patterns:
-- **Route Groups**: Use parentheses `(root)` to organize routes without affecting URLs
-- **Feature-Based Organization**: Group related files by feature/domain
-- **Co-location**: Keep related files close together (e.g., `components/chat/` for chat components)
+### Architectural Decisions
+1. **MUST** use Server Components by default
+2. **MUST** add `'use client'` directive only when needed (interactivity, hooks, browser APIs)
+3. **MUST** use strict TypeScript configuration
+4. **MUST** use path aliases (`@/*`) for imports
+5. **MUST** organize routes using route groups `(root)` when needed
 
 ---
 
-## Code Organization Patterns
+## Directory Structure Rules
 
-### 1. Path Aliases
-Configured in `tsconfig.json`:
-```json
-{
-  "paths": {
-    "@/*": ["./*"]
-  }
-}
+### Required Structure
+```
+app/                    # Next.js App Router
+├── api/               # API routes (feature-based)
+├── (auth)/            # Route groups for organization
+├── layout.tsx         # Root layout
+└── globals.css        # Global styles
+
+components/            # React components
+├── ui/               # shadcn/ui components
+└── Providers.tsx     # Context providers
+
+lib/                  # Utilities & services
+hooks/                # Custom React hooks
+public/               # Static assets
 ```
 
-Usage:
-```typescript
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { useNotifications } from "@/hooks/useNotifications";
-```
-
-### 2. Server vs Client Components
-- **Default**: Server Components (no directive needed)
-- **Client Components**: Explicitly mark with `'use client'` at the top
-- **Pattern**: Keep Server Components as default, extract interactive parts to Client Components
-
-Example:
-```typescript
-// Server Component (default)
-export default async function Page() {
-  const data = await fetchData();
-  return <ClientComponent data={data} />;
-}
-
-// Client Component
-'use client';
-export function ClientComponent({ data }) {
-  const [state, setState] = useState();
-  // Interactive logic
-}
-```
-
-### 3. Providers Pattern
-Centralize all context providers in a single component:
-
-```typescript
-// components/Providers.tsx
-"use client";
-
-import { SessionProvider } from "next-auth/react";
-import { ThemeProvider } from "./ThemeProvider";
-
-export default function Providers({ children }: { children: React.ReactNode }) {
-  return (
-    <SessionProvider>
-      <ThemeProvider>
-        {children}
-      </ThemeProvider>
-    </SessionProvider>
-  );
-}
-```
-
-Used in root layout:
-```typescript
-// app/layout.tsx
-export default function RootLayout({ children }) {
-  return (
-    <html>
-      <body>
-        <Providers>
-          {children}
-        </Providers>
-      </body>
-    </html>
-  );
-}
-```
+### Organization Rules
+- **MUST** use feature-based organization for related files
+- **MUST** co-locate related files (components, types, hooks)
+- **MUST** use route groups `(root)` to organize without affecting URLs
+- **MUST** group API routes by feature in `/api/[feature]/route.ts`
 
 ---
 
-## TypeScript Configuration
+## Code Organization Rules
 
-### Strict Configuration
-```json
-{
-  "compilerOptions": {
-    "strict": true,
-    "target": "ES2017",
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "jsx": "preserve",
-    "paths": {
-      "@/*": ["./*"]
-    }
-  }
-}
-```
+### Path Aliases
+- **MUST** use `@/*` for all internal imports
+- **MUST** configure in `tsconfig.json`: `"@/*": ["./*"]`
+- **MUST NOT** use relative imports (`../../`) beyond one level
+
+### Server vs Client Components
+- **MUST** default to Server Components (no directive)
+- **MUST** add `'use client'` at the top when using:
+  - React hooks (`useState`, `useEffect`, etc.)
+  - Browser APIs (`window`, `document`, etc.)
+  - Event handlers (`onClick`, `onChange`, etc.)
+  - Context providers/consumers
+- **MUST** extract interactive parts to separate Client Components
+
+### Providers Pattern
+- **MUST** centralize all context providers in `components/Providers.tsx`
+- **MUST** wrap root layout with `<Providers>`
+- **MUST** mark Providers component with `'use client'`
+
+---
+
+## TypeScript Rules
+
+### Configuration
+- **MUST** use strict TypeScript (`"strict": true`)
+- **MUST** define interfaces for all component props
+- **MUST** export types when reused across files
+- **MUST** use PascalCase for types/interfaces
+- **MUST** name props interfaces as `ComponentNameProps`
 
 ### Type Definitions
-- Use TypeScript interfaces for component props
-- Export types from components when reused
-- Use Sanity type generation for CMS types
-
-Example:
-```typescript
-// components/StartupCard.tsx
-export type StartupTypeCard = Omit<Startup, "author"> & { author?: Author };
-
-interface StartupCardProps {
-  post: StartupTypeCard;
-  isLoggedIn?: boolean;
-  userId?: string;
-}
-```
+- **MUST** use TypeScript interfaces (not `type`) for component props
+- **MUST** use optional props (`?`) for non-required props
+- **MUST** destructure props in function signature
+- **SHOULD** export reusable types from components
 
 ---
 
-## Styling Approach
+## Styling Rules
 
-### 1. Tailwind CSS with Custom Utilities
-- Use Tailwind utility classes primarily
-- Create custom utility classes in `globals.css` for repeated patterns
-- Use CSS variables for theming
+### Tailwind CSS
+- **MUST** use Tailwind utility classes primarily
+- **MUST** create custom utility classes in `globals.css` for repeated patterns
+- **MUST** use `cn()` utility from `@/lib/utils` for conditional classes
+- **MUST** accept `className` prop in components for customization
+- **MUST** use CSS variables for theming
 
-### 2. Custom Utility Classes
-Defined in `globals.css`:
-```css
-@layer utilities {
-  .text-30-semibold {
-    @apply font-semibold text-[30px] text-black;
-  }
-  
-  .section_container {
-    @apply px-6 py-10 max-w-7xl mx-auto;
-  }
-  
-  .card_grid {
-    @apply grid md:grid-cols-3 sm:grid-cols-2 gap-5;
-  }
-}
-```
+### Custom Classes
+- **MUST** define custom utilities in `@layer utilities` in `globals.css`
+- **MUST** use kebab-case for custom class names (e.g., `section_container`)
+- **MUST** use `@apply` directive for Tailwind utilities in custom classes
 
-### 3. Component Styling Pattern
-```typescript
-import { cn } from "@/lib/utils";
-
-export function Component({ className }: { className?: string }) {
-  return (
-    <div className={cn("base-classes", className)}>
-      {/* content */}
-    </div>
-  );
-}
-```
-
-### 4. Tailwind Configuration
-- Custom colors defined in theme
-- Custom breakpoints (e.g., `xs: "475px"`)
-- Custom shadows and border radius
-- Dark mode support via class strategy
+### Component Styling
+- **MUST** use `cn("base-classes", className)` pattern
+- **MUST** allow className override via props
 
 ---
 
-## Component Patterns
+## Component Rules
 
-### 1. Component Structure
-```typescript
-'use client'; // Only if needed
+### Component Structure
+1. **MUST** order sections:
+   - `'use client'` directive (if needed)
+   - Imports (React → Third-party → Internal → Types)
+   - Type definitions
+   - Component implementation
+   - State declarations
+   - Effects
+   - Handlers
+   - Render/return
 
-import { useState, useEffect } from 'react';
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+2. **MUST** use TypeScript interfaces for props
+3. **MUST** destructure props in function signature
+4. **MUST** use default export for page components
+5. **SHOULD** use named exports for reusable components
 
-// Type definitions
-interface ComponentProps {
-  prop1: string;
-  prop2?: number;
-}
+### Component Composition
+- **MUST** break down large components into smaller pieces
+- **MUST** extract logic into custom hooks
+- **SHOULD** use compound components pattern for complex UI
 
-// Component implementation
-export default function Component({ prop1, prop2 }: ComponentProps) {
-  // State
-  const [state, setState] = useState();
-  
-  // Effects
-  useEffect(() => {
-    // Side effects
-  }, []);
-  
-  // Handlers
-  const handleClick = () => {
-    // Handler logic
-  };
-  
-  // Render
-  return (
-    <div className={cn("base-classes")}>
-      {/* JSX */}
-    </div>
-  );
-}
-```
-
-### 2. Component Composition
-- Break down large components into smaller, reusable pieces
-- Use compound components pattern for complex UI
-- Extract logic into custom hooks
-
-### 3. Props Pattern
-- Use TypeScript interfaces for all props
-- Provide default values where appropriate
-- Use optional props with `?` for non-required props
-- Destructure props in function signature
+### Props
+- **MUST** define all props with TypeScript interfaces
+- **MUST** mark optional props with `?`
+- **SHOULD** provide default values where appropriate
 
 ---
 
-## API Route Patterns
+## API Route Rules
 
-### 1. Route Handler Structure
-```typescript
-import { NextResponse } from 'next/server';
-import { auth } from '@/auth';
-import { client } from '@/sanity/lib/client';
+### Route Handler Structure
+1. **MUST** use try-catch blocks for all operations
+2. **MUST** validate input parameters
+3. **MUST** check authentication for protected routes
+4. **MUST** return consistent response format
+5. **MUST** log errors for debugging
+6. **MUST NOT** expose internal errors to clients
 
-export async function GET(req: Request) {
-  try {
-    // Extract query params
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
-    
-    // Validate
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'Missing id' },
-        { status: 400 }
-      );
-    }
-    
-    // Fetch data
-    const data = await client.fetch(query, { id });
-    
-    // Return response
-    return NextResponse.json({ success: true, data });
-  } catch (error) {
-    console.error('Error in GET:', error);
-    return NextResponse.json(
-      { success: false, message: 'Internal server error' },
-      { status: 500 }
-    );
-  }
-}
+### Response Format
+- **MUST** use consistent structure:
+  ```typescript
+  // Success
+  { success: true, data: {...} }
+  
+  // Error
+  { success: false, message: "Error message" }
+  ```
 
-export async function POST(req: Request) {
-  // Authentication check
+### Authentication
+- **MUST** check session for protected routes:
+  ```typescript
   const session = await auth();
   if (!session) {
     return NextResponse.json(
@@ -337,285 +165,89 @@ export async function POST(req: Request) {
       { status: 401 }
     );
   }
-  
-  try {
-    // Parse body
-    const body = await req.json();
-    
-    // Validate
-    // Process
-    // Return response
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Error in POST:', error);
-    return NextResponse.json(
-      { success: false, message: 'Internal server error' },
-      { status: 500 }
-    );
-  }
-}
-```
+  ```
 
-### 2. Error Handling Pattern
-- Always use try-catch blocks
-- Return consistent error response format
-- Log errors for debugging
-- Don't expose internal errors to clients
-
-### 3. Authentication Pattern
-```typescript
-const session = await auth();
-if (!session) {
-  return NextResponse.json(
-    { success: false, message: 'Unauthorized' },
-    { status: 401 }
-  );
-}
-```
-
-### 4. Response Format
-Consistent response structure:
-```typescript
-// Success
-{ success: true, data: {...} }
-
-// Error
-{ success: false, message: "Error message" }
-```
+### Error Handling
+- **MUST** wrap operations in try-catch
+- **MUST** return user-friendly error messages
+- **MUST** log detailed errors to console
+- **MUST** use appropriate HTTP status codes
 
 ---
 
-## Custom Hooks Pattern
+## Custom Hooks Rules
 
-### 1. Hook Structure
-```typescript
-import { useState, useEffect, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+### Hook Structure
+- **MUST** prefix hook names with `use` (e.g., `useNotifications`)
+- **MUST** export return type interface
+- **MUST** handle loading and error states
+- **MUST** use `useCallback` for memoized functions
+- **MUST** use `useEffect` for side effects
 
-// Type definitions
-export interface UseFeatureReturn {
-  data: DataType[];
-  loading: boolean;
-  error: string | null;
-  fetchData: () => Promise<void>;
-  updateData: (id: string) => Promise<void>;
-}
-
-// Hook implementation
-export function useFeature(): UseFeatureReturn {
-  const { data: session } = useSession();
-  const [data, setData] = useState<DataType[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const fetchData = useCallback(async () => {
-    if (!session?.user?.id) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await fetch('/api/feature');
-      const result = await response.json();
-      
-      if (result.success) {
-        setData(result.data);
-      } else {
-        setError(result.message || 'Failed to fetch');
-      }
-    } catch (err) {
-      setError('Failed to fetch data');
-      console.error('Error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [session?.user?.id]);
-  
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-  
-  return {
-    data,
-    loading,
-    error,
-    fetchData,
-  };
-}
-```
-
-### 2. Hook Naming
-- Prefix with `use` (e.g., `useNotifications`, `useBadges`)
-- Export return type interface
-- Use `useCallback` for memoized functions
-- Handle loading and error states
+### Hook Pattern
+- **MUST** return object with: `{ data, loading, error, ...functions }`
+- **MUST** check session/auth before API calls
+- **MUST** handle errors gracefully
 
 ---
 
-## Utility Functions
+## Utility Functions Rules
 
-### 1. Utility File Structure
-```typescript
-// lib/utils.ts
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+### File Organization
+- **MUST** place general utilities in `lib/utils.ts`
+- **MUST** create service modules for related functionality:
+  - `lib/email.ts` - Email services
+  - `lib/validation.ts` - Validation functions
+  - `lib/[service].ts` - Other services
 
-// Class name utility
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-// Date formatting
-export function formatDate(date: string) {
-  const dateObj = new Date(date);
-  const utcDate = new Date(Date.UTC(
-    dateObj.getUTCFullYear(),
-    dateObj.getUTCMonth(),
-    dateObj.getUTCDate()
-  ));
-  
-  return utcDate.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC"
-  });
-}
-
-// Server action response parser
-export function parseServerActionResponse<T>(response: T) {
-  return JSON.parse(JSON.stringify(response));
-}
-```
-
-### 2. Service Modules
-Organize related functionality in service files:
-- `lib/ai-services.ts` - AI-related services
-- `lib/email.ts` - Email functionality
-- `lib/validation.ts` - Validation functions
-- `lib/storage.ts` - File storage operations
+### Function Naming
+- **MUST** use camelCase for function names
+- **MUST** use descriptive names
+- **MUST** export all utility functions
 
 ---
 
-## Authentication Pattern
+## Authentication Rules
 
-### 1. NextAuth Configuration
-```typescript
-// auth.ts
-import NextAuth from "next-auth"
-import GitHub from "next-auth/providers/github"
+### Server Components
+- **MUST** use `await auth()` from `@/auth`
+- **MUST** check session before protected operations
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [GitHub],
-  callbacks: {
-    async signIn({ user, profile }) {
-      // User creation/update logic
-      return true;
-    },
-    async jwt({ token, profile }) {
-      // JWT token customization
-      return token;
-    },
-    async session({ session, token }) {
-      // Session customization
-      session.user.id = token.id;
-      return session;
-    },
-  },
-});
-```
+### Client Components
+- **MUST** use `useSession()` from `next-auth/react`
+- **MUST** handle loading state
 
-### 2. Using Auth in Components
-```typescript
-// Server Component
-import { auth } from '@/auth';
-
-export default async function Page() {
-  const session = await auth();
-  // Use session
-}
-
-// Client Component
-'use client';
-import { useSession } from 'next-auth/react';
-
-export function Component() {
-  const { data: session } = useSession();
-  // Use session
-}
-```
-
-### 3. Protected Routes
-```typescript
-// API Route
-const session = await auth();
-if (!session) {
-  return NextResponse.json(
-    { success: false, message: 'Unauthorized' },
-    { status: 401 }
-  );
-}
-```
+### Protected Routes
+- **MUST** check authentication in API routes
+- **MUST** return 401 status for unauthorized requests
 
 ---
 
-## Error Handling
+## Error Handling Rules
 
-### 1. API Route Error Handling
-```typescript
-try {
-  // Operation
-} catch (error) {
-  console.error('Error description:', error);
-  return NextResponse.json(
-    { success: false, message: 'User-friendly error message' },
-    { status: 500 }
-  );
-}
-```
+### API Routes
+- **MUST** use try-catch blocks
+- **MUST** return user-friendly error messages
+- **MUST** log errors with `console.error`
+- **MUST** use appropriate HTTP status codes
 
-### 2. Component Error Handling
-```typescript
-const [error, setError] = useState<string | null>(null);
+### Components
+- **MUST** manage error state with `useState`
+- **MUST** display user-friendly error messages
+- **MUST** log errors to console
 
-try {
-  // Operation
-} catch (err) {
-  setError('User-friendly error message');
-  console.error('Error:', err);
-}
-```
-
-### 3. Global Error Boundary
-```typescript
-// app/global-error.tsx
-export default function GlobalError({
-  error,
-  reset,
-}: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
-  return (
-    <html>
-      <body>
-        <h2>Something went wrong!</h2>
-        <button onClick={() => reset()}>Try again</button>
-      </body>
-    </html>
-  );
-}
-```
+### Global Error Boundary
+- **SHOULD** implement `app/global-error.tsx` for global error handling
 
 ---
 
 ## Naming Conventions
 
 ### Files and Directories
-- **Components**: PascalCase (e.g., `StartupCard.tsx`, `UserProfile.tsx`)
-- **Hooks**: camelCase with `use` prefix (e.g., `useNotifications.ts`, `useBadges.ts`)
+- **Components**: PascalCase (e.g., `StartupCard.tsx`)
+- **Hooks**: camelCase with `use` prefix (e.g., `useNotifications.ts`)
 - **Utilities**: camelCase (e.g., `utils.ts`, `validation.ts`)
-- **API Routes**: lowercase with hyphens (e.g., `route.ts` in `/api/feature-name/`)
+- **API Routes**: `route.ts` in `/api/[feature-name]/`
 - **Pages**: `page.tsx`, `layout.tsx`, `loading.tsx`, `error.tsx`
 
 ### Code
@@ -626,85 +258,62 @@ export default function GlobalError({
 - **Props Interfaces**: `ComponentNameProps`
 
 ### CSS Classes
-- Use Tailwind utility classes primarily
-- Custom classes: kebab-case (e.g., `section_container`, `card_grid`)
-- Component-specific: prefix with component name (e.g., `startup-card`, `startup-form`)
+- **MUST** use Tailwind utility classes primarily
+- **Custom classes**: kebab-case (e.g., `section_container`)
+- **Component-specific**: prefix with component name (e.g., `startup-card`)
 
 ---
 
-## File Organization
+## File Organization Rules
 
-### 1. Feature-Based Organization
-Group related files by feature:
-```
-components/
-  chat/
-    ChatView.tsx
-    ChatModal.tsx
-  messages/
-    MessagesScreen.tsx
-    MessagesSidebar.tsx
-```
+### Feature-Based Organization
+- **MUST** group related files by feature/domain
+- **MUST** co-locate related files (components, types, hooks)
 
-### 2. Co-location
-Keep related files together:
-- Component and its types in the same directory
-- API routes grouped by feature
-- Hooks grouped by domain
-
-### 3. Import Organization
-Order imports:
-1. React/Next.js imports
-2. Third-party libraries
-3. Internal utilities
-4. Components
-5. Types
-6. Styles
-
-Example:
-```typescript
-import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import type { ComponentProps } from './types';
-```
+### Import Organization
+- **MUST** order imports:
+  1. React/Next.js imports
+  2. Third-party libraries
+  3. Internal utilities (`@/lib/*`)
+  4. Components (`@/components/*`)
+  5. Types (`import type ...`)
+  6. Styles
 
 ---
 
-## Best Practices Summary
+## Best Practices Checklist
 
-### 1. Type Safety
+### Type Safety
 - ✅ Use TypeScript strictly
 - ✅ Define interfaces for all props
-- ✅ Use type inference where appropriate
 - ✅ Export reusable types
+- ✅ Use type inference where appropriate
 
-### 2. Performance
+### Performance
 - ✅ Use Server Components by default
 - ✅ Minimize client-side JavaScript
 - ✅ Use `useCallback` and `useMemo` appropriately
 - ✅ Lazy load heavy components
 
-### 3. Code Quality
+### Code Quality
 - ✅ Consistent error handling
 - ✅ Meaningful variable names
 - ✅ Small, focused functions
 - ✅ DRY (Don't Repeat Yourself)
 
-### 4. User Experience
+### User Experience
 - ✅ Loading states
 - ✅ Error states
 - ✅ Optimistic updates where appropriate
 - ✅ Accessible components
 
-### 5. Security
+### Security
 - ✅ Server-side authentication checks
 - ✅ Input validation
 - ✅ Sanitize user input
 - ✅ Use environment variables for secrets
 
-### 6. Maintainability
+### Maintainability
 - ✅ Clear file structure
 - ✅ Comprehensive documentation
 - ✅ Consistent patterns
@@ -712,88 +321,100 @@ import type { ComponentProps } from './types';
 
 ---
 
-## Configuration Files
+## Configuration Rules
 
-### package.json Scripts
-```json
-{
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "predev": "npm run typegen",
-    "prebuild": "npm run typegen",
-    "typegen": "sanity schema extract --path=./sanity/extract.json && sanity typegen generate --schema-path=./sanity/extract.json"
+### Environment Variables
+- **MUST** use `.env.local` for local development
+- **MUST NOT** commit secrets to version control
+- **MUST** use `NEXT_PUBLIC_` prefix for client-side variables
+- **SHOULD** validate environment variables on startup
+
+### Metadata
+- **SHOULD** export `metadata` object from pages/layouts
+- **SHOULD** export `viewport` object for responsive design
+
+---
+
+## Quick Reference
+
+### Component Template
+```typescript
+'use client'; // Only if needed
+
+import { useState } from 'react';
+import { cn } from "@/lib/utils";
+
+interface ComponentProps {
+  prop1: string;
+  prop2?: number;
+}
+
+export default function Component({ prop1, prop2 }: ComponentProps) {
+  const [state, setState] = useState();
+  
+  return (
+    <div className={cn("base-classes")}>
+      {/* JSX */}
+    </div>
+  );
+}
+```
+
+### API Route Template
+```typescript
+import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
+
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    // Validate, process, return
+    return NextResponse.json({ success: true, data: {} });
+  } catch (error) {
+    console.error('Error:', error);
+    return NextResponse.json(
+      { success: false, message: 'Error message' },
+      { status: 500 }
+    );
   }
 }
 ```
 
-### next.config.ts
-- TypeScript configuration
-- Image optimization settings
-- Experimental features
-- Sentry integration
+### Hook Template
+```typescript
+import { useState, useEffect, useCallback } from 'react';
 
-### tailwind.config.ts
-- Custom theme configuration
-- Custom utilities
-- Plugin configuration
+export interface UseFeatureReturn {
+  data: DataType[];
+  loading: boolean;
+  error: string | null;
+  fetchData: () => Promise<void>;
+}
 
-### components.json (shadcn/ui)
-- Component library configuration
-- Path aliases
-- Style preferences
+export function useFeature(): UseFeatureReturn {
+  const [data, setData] = useState<DataType[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch logic
+    } catch (err) {
+      setError('Error message');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+  
+  return { data, loading, error, fetchData };
+}
+```
 
 ---
 
-## Additional Patterns
-
-### 1. Metadata Pattern
-```typescript
-// app/layout.tsx or page.tsx
-export const metadata: Metadata = {
-  title: "Page Title",
-  description: "Page description",
-  // ... other metadata
-};
-
-export const viewport: Viewport = {
-  themeColor: "#5409DA",
-  width: "device-width",
-  initialScale: 1,
-};
-```
-
-### 2. Font Loading
-```typescript
-import localFont from "next/font/local";
-
-const customFont = localFont({
-  src: [
-    { path: './fonts/Font-Regular.ttf', weight: "400" },
-    // ... more weights
-  ],
-  variable: "--font-custom",
-});
-```
-
-### 3. Environment Variables
-- Use `.env.local` for local development
-- Never commit secrets
-- Use `NEXT_PUBLIC_` prefix for client-side variables
-- Validate environment variables on startup
-
----
-
-## Conclusion
-
-This project follows modern Next.js best practices with:
-- Clear separation of concerns
-- Type-safe codebase
-- Scalable architecture
-- Consistent patterns
-- Maintainable structure
-
-Apply these patterns to new projects for a solid foundation.
-
+**Remember**: These rules ensure consistency, maintainability, and scalability across the project. When in doubt, follow the patterns established in existing code.

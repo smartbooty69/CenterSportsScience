@@ -11,6 +11,7 @@ import {
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
+import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 
 const statusLabels: Record<AdminAppointmentStatus, string> = {
 	pending: 'Pending',
@@ -262,6 +263,51 @@ export default function Appointments() {
 					} catch (emailError) {
 						console.error('Failed to send status change email:', emailError);
 					}
+				}
+			}
+
+			// Send SMS notification if patient has valid phone and details changed
+			if (patient?.phone && isValidPhoneNumber(patient.phone) && oldAppointment) {
+				const dateChanged = oldAppointment.date !== formData.date;
+				const timeChanged = oldAppointment.time !== formData.time;
+				const statusChanged = oldAppointment.status !== formData.status;
+				const doctorChanged = oldAppointment.doctor !== formData.doctor;
+
+				try {
+					if (dateChanged || timeChanged || doctorChanged) {
+						// Appointment details updated - send update SMS
+						await sendSMSNotification({
+							to: patient.phone,
+							template: 'appointment-updated',
+							data: {
+								patientName: appointment.patient || patient.name,
+								patientPhone: patient.phone,
+								patientId: appointment.patientId,
+								doctor: formData.doctor,
+								date: formData.date,
+								time: formData.time,
+								appointmentId: appointment.appointmentId,
+							},
+						});
+					} else if (statusChanged && formData.status === 'cancelled') {
+						// Appointment cancelled - send cancellation SMS
+						await sendSMSNotification({
+							to: patient.phone,
+							template: 'appointment-cancelled',
+							data: {
+								patientName: appointment.patient || patient.name,
+								patientPhone: patient.phone,
+								patientId: appointment.patientId,
+								doctor: formData.doctor || appointment.doctor,
+								date: formData.date,
+								time: formData.time,
+								appointmentId: appointment.appointmentId,
+							},
+						});
+					}
+				} catch (smsError) {
+					// Log error but don't fail appointment update
+					console.error('Failed to send appointment update SMS:', smsError);
 				}
 			}
 

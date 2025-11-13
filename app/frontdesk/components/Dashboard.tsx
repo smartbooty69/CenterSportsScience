@@ -62,7 +62,11 @@ interface StaffMember {
 }
 
 
-export default function Dashboard() {
+interface DashboardProps {
+	onNavigate?: (page: string) => void;
+}
+
+export default function Dashboard({ onNavigate }: DashboardProps) {
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -266,6 +270,42 @@ export default function Dashboard() {
 		},
 	];
 
+	const quickLinks = [
+		{
+			href: '#register',
+			icon: 'fas fa-user-plus',
+			title: 'Register Patient',
+			summary: 'Add new patients to the system.',
+		},
+		{
+			href: '#appointments',
+			icon: 'fas fa-calendar-check',
+			title: 'Appointments',
+			summary: 'Schedule and manage appointments.',
+		},
+		{
+			href: '#billing',
+			icon: 'fas fa-file-invoice-dollar',
+			title: 'Billing',
+			summary: 'Process payments and invoices.',
+		},
+		{
+			href: '#reports',
+			icon: 'fas fa-chart-line',
+			title: 'Reports',
+			summary: 'View and export patient reports.',
+		},
+	];
+
+	const handleQuickLinkClick = (href: string) => {
+		if (onNavigate) {
+			onNavigate(href);
+		}
+	};
+
+	const ICON_WRAPPER =
+		'flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-600 transition group-hover:bg-sky-600 group-hover:text-white group-focus-visible:bg-sky-600 group-focus-visible:text-white';
+
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
@@ -322,92 +362,6 @@ export default function Dashboard() {
 							</button>
 						))}
 					</div>
-				</section>
-
-				{/* Divider */}
-				<div className="border-t border-slate-200" />
-
-				{/* Appointment Analytics Section */}
-				<section>
-					<div className="mb-6">
-						<h2 className="text-xl font-semibold text-slate-900">Appointment Analytics</h2>
-						<p className="mt-1 text-sm text-slate-500">
-							Track appointments, staff workload, and scheduling metrics
-						</p>
-					</div>
-					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<div className="flex items-center justify-between">
-								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-600" aria-hidden="true">
-									<i className="fas fa-calendar-day" />
-								</span>
-								<span className="text-3xl font-bold text-slate-900">{stats.appointments.today}</span>
-							</div>
-							<div className="mt-4">
-								<p className="text-sm font-semibold text-slate-900">Appointments Today</p>
-								<p className="mt-1 text-xs text-slate-500">Scheduled for today</p>
-							</div>
-						</div>
-
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<div className="flex items-center justify-between">
-								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600" aria-hidden="true">
-									<i className="fas fa-calendar-week" />
-								</span>
-								<span className="text-3xl font-bold text-slate-900">{stats.appointments.thisWeek}</span>
-							</div>
-							<div className="mt-4">
-								<p className="text-sm font-semibold text-slate-900">This Week</p>
-								<p className="mt-1 text-xs text-slate-500">Last 7 days</p>
-							</div>
-						</div>
-
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<div className="flex items-center justify-between">
-								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-100 text-rose-600" aria-hidden="true">
-									<i className="fas fa-times-circle" />
-								</span>
-								<span className="text-3xl font-bold text-slate-900">{stats.appointments.cancelledThisWeek}</span>
-							</div>
-							<div className="mt-4">
-								<p className="text-sm font-semibold text-slate-900">Cancelled This Week</p>
-								<p className="mt-1 text-xs text-slate-500">Last 7 days</p>
-							</div>
-						</div>
-
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<div className="flex items-center justify-between">
-								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100 text-purple-600" aria-hidden="true">
-									<i className="fas fa-user-md" />
-								</span>
-								<span className="text-3xl font-bold text-slate-900">{stats.activeStaff}</span>
-							</div>
-							<div className="mt-4">
-								<p className="text-sm font-semibold text-slate-900">Active Staff</p>
-								<p className="mt-1 text-xs text-slate-500">Available clinicians</p>
-							</div>
-						</div>
-					</div>
-
-					{/* Appointments by Staff */}
-					{stats.appointments.byStaff.length > 0 && (
-						<div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<h3 className="text-lg font-semibold text-slate-900 mb-4">Appointments by Staff</h3>
-							<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-								{stats.appointments.byStaff
-									.sort((a, b) => b.count - a.count)
-									.map(({ staffName, count }) => (
-										<div key={staffName} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-											<div>
-												<p className="text-sm font-semibold text-slate-800">{staffName}</p>
-												<p className="text-xs text-slate-500">Active appointments</p>
-											</div>
-											<span className="text-2xl font-bold text-slate-900">{count}</span>
-										</div>
-									))}
-							</div>
-						</div>
-					)}
 				</section>
 
 				{/* Divider */}

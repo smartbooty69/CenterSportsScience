@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import { generatePhysiotherapyReportPDF } from '@/lib/pdfGenerator';
 
 interface PatientRecord {
 	patientId: string;
@@ -40,6 +41,41 @@ interface PatientRecord {
 	progressNotes?: string;
 	physioName?: string;
 	physioId?: string;
+
+	// New fields from the image form
+	dateOfConsultation?: string;
+	referredBy?: string;
+	chiefComplaint?: string;
+	onsetType?: 'Acute' | 'Chronic' | 'Post-surgical' | 'Traumatic';
+	mechanismOfInjury?: string;
+	painType?: string; // Sharp/Dull/Burning
+	painIntensity?: string; // VAS/NPRS
+	clinicalDiagnosis?: string;
+	
+	// Treatment Plan (table data)
+	treatmentPlan?: Array<{
+		therapy: string;
+		frequency: string;
+		remarks: string;
+	}>;
+	
+	// Follow-Up Visits (table data)
+	followUpVisits?: Array<{
+		visitDate: string;
+		painLevel: string;
+		findings: string;
+	}>;
+	
+	// Current Status
+	currentPainStatus?: 'Improved' | 'Same' | 'Worsened';
+	currentRom?: string; // "Improved by _*"
+	currentStrength?: string; // "_% improvement noted"
+	currentFunctionalAbility?: 'Improved' | 'Restricted';
+	complianceWithHEP?: 'Excellent' | 'Moderate' | 'Poor';
+	
+	// Recommendations
+	recommendations?: string;
+	physiotherapistRemarks?: string;
 }
 
 const ROM_MOTIONS: Record<string, Array<{ motion: string }>> = {
@@ -157,6 +193,23 @@ export default function Reports() {
 						progressNotes: data.progressNotes ? String(data.progressNotes) : undefined,
 						physioName: data.physioName ? String(data.physioName) : undefined,
 						physioId: data.physioId ? String(data.physioId) : undefined,
+						dateOfConsultation: data.dateOfConsultation ? String(data.dateOfConsultation) : undefined,
+						referredBy: data.referredBy ? String(data.referredBy) : undefined,
+						chiefComplaint: data.chiefComplaint ? String(data.chiefComplaint) : undefined,
+						onsetType: data.onsetType ? String(data.onsetType) : undefined,
+						mechanismOfInjury: data.mechanismOfInjury ? String(data.mechanismOfInjury) : undefined,
+						painType: data.painType ? String(data.painType) : undefined,
+						painIntensity: data.painIntensity ? String(data.painIntensity) : undefined,
+						clinicalDiagnosis: data.clinicalDiagnosis ? String(data.clinicalDiagnosis) : undefined,
+						treatmentPlan: data.treatmentPlan as Array<{ therapy: string; frequency: string; remarks: string }> | undefined,
+						followUpVisits: data.followUpVisits as Array<{ visitDate: string; painLevel: string; findings: string }> | undefined,
+						currentPainStatus: data.currentPainStatus ? String(data.currentPainStatus) : undefined,
+						currentRom: data.currentRom ? String(data.currentRom) : undefined,
+						currentStrength: data.currentStrength ? String(data.currentStrength) : undefined,
+						currentFunctionalAbility: data.currentFunctionalAbility ? String(data.currentFunctionalAbility) : undefined,
+						complianceWithHEP: data.complianceWithHEP ? String(data.complianceWithHEP) : undefined,
+						recommendations: data.recommendations ? String(data.recommendations) : undefined,
+						physiotherapistRemarks: data.physiotherapistRemarks ? String(data.physiotherapistRemarks) : undefined,
 					} as PatientRecord;
 				});
 				setPatients(mapped);
@@ -369,6 +422,42 @@ export default function Reports() {
 			</table>
 		);
 	}
+
+	const handleDownloadPDF = (patient: PatientRecord) => {
+		generatePhysiotherapyReportPDF({
+			patientName: patient.name,
+			patientId: patient.patientId,
+			referredBy: patient.assignedDoctor || '',
+			age: patient.dob ? new Date().getFullYear() - new Date(patient.dob).getFullYear() + '' : '',
+			gender: '', // No gender field in PatientRecord
+			dateOfConsultation: patient.dateOfConsultation || new Date().toISOString().split('T')[0],
+			contact: '', // No phone/email fields in PatientRecord
+			email: '',
+			chiefComplaint: patient.chiefComplaint || patient.complaints || '',
+			onsetType: patient.onsetType || '',
+			duration: patient.duration || '',
+			mechanismOfInjury: patient.mechanismOfInjury || '',
+			painType: patient.painType || patient.typeOfPain || '',
+			painIntensity: patient.painIntensity || patient.vasScale || '',
+			aggravatingFactor: patient.aggravatingFactor || '',
+			relievingFactor: patient.relievingFactor || '',
+			medicalHistory: getMedicalHistoryText(patient),
+			surgicalHistory: patient.surgicalHistory || '',
+			medications: patient.drugsText || '',
+			clinicalDiagnosis: patient.clinicalDiagnosis || '',
+			treatmentPlan: patient.treatmentPlan || [],
+			followUpVisits: patient.followUpVisits || [],
+			currentPainStatus: patient.currentPainStatus || '',
+			currentRom: patient.currentRom || '',
+			currentStrength: patient.currentStrength || '',
+			currentFunctionalAbility: patient.currentFunctionalAbility || '',
+			complianceWithHEP: patient.complianceWithHEP || '',
+			recommendations: patient.recommendations || '',
+			physiotherapistRemarks: patient.physiotherapistRemarks || patient.progressNotes || '',
+			physioName: patient.physioName || '',
+			physioRegNo: patient.physioId || '',
+		});
+	};
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -730,6 +819,14 @@ export default function Reports() {
 									Saved!
 								</span>
 							)}
+							<button
+								type="button"
+								onClick={() => selectedPatient && handleDownloadPDF(selectedPatient)}
+								className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
+							>
+								<i className="fas fa-download mr-2" aria-hidden="true" />
+								Download PDF
+							</button>
 							<button
 								type="button"
 								onClick={handlePrint}

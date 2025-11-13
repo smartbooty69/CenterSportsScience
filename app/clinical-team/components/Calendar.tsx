@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
-import type { DateSelectArg, EventClickArg } from '@fullcalendar/core';
-import { collection, onSnapshot, type QuerySnapshot } from 'firebase/firestore';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
+import type { DateSelectArg, EventClickArg, EventChangeArg, ViewApi } from '@fullcalendar/core';
+import { collection, doc, onSnapshot, updateDoc, type QuerySnapshot } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
@@ -43,6 +45,13 @@ interface CalendarEvent {
 	appointment: AppointmentRecord;
 	patient: PatientRecord | undefined;
 	dateKey: string;
+}
+
+interface StaffMember {
+	id: string;
+	userName: string;
+	role: string;
+	status: string;
 }
 
 const statusColors: Record<string, string> = {
@@ -94,9 +103,13 @@ export default function Calendar() {
 	const { user } = useAuth();
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
+	const [staff, setStaff] = useState<StaffMember[]>([]);
 
 	const [selectedDate, setSelectedDate] = useState<string | null>(null);
 	const [modalStatus, setModalStatus] = useState<'all' | string>('all');
+	const [doctorFilter, setDoctorFilter] = useState<'all' | string>('all');
+	const [currentView, setCurrentView] = useState<string>('dayGridMonth');
+	const [isRescheduling, setIsRescheduling] = useState<string | null>(null);
 
 	const [detailEvent, setDetailEvent] = useState<CalendarEvent | null>(null);
 	const calendarRef = useRef<FullCalendar>(null);
@@ -157,9 +170,30 @@ export default function Calendar() {
 			}
 		);
 
+		const unsubscribeStaff = onSnapshot(
+			collection(db, 'staff'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					return {
+						id: docSnap.id,
+						userName: data.userName ? String(data.userName) : '',
+						role: data.role ? String(data.role) : '',
+						status: data.status ? String(data.status) : '',
+					};
+				});
+				setStaff(mapped);
+			},
+			error => {
+				console.error('Failed to load staff', error);
+				setStaff([]);
+			}
+		);
+
 		return () => {
 			unsubscribePatients();
 			unsubscribeAppointments();
+			unsubscribeStaff();
 		};
 	}, []);
 
@@ -173,11 +207,33 @@ export default function Calendar() {
 		return map;
 	}, [patients]);
 
-	// Filter appointments to only show those assigned to the current clinician
+	// Get unique doctors from appointments for filter
+	const doctorOptions = useMemo(() => {
+		const set = new Set<string>();
+		appointments.forEach(appointment => {
+			if (appointment.doctor) {
+				set.add(appointment.doctor);
+			}
+		});
+		return Array.from(set).sort();
+	}, [appointments]);
+
+	// Filter appointments by doctor and clinician
 	const assignedAppointments = useMemo(() => {
-		if (!clinicianName) return appointments;
-		return appointments.filter(appointment => normalize(appointment.doctor) === clinicianName);
-	}, [appointments, clinicianName]);
+		let filtered = appointments;
+		
+		// Filter by current clinician if name is available
+		if (clinicianName) {
+			filtered = filtered.filter(appointment => normalize(appointment.doctor) === clinicianName);
+		}
+		
+		// Apply doctor filter if set
+		if (doctorFilter !== 'all') {
+			filtered = filtered.filter(appointment => normalize(appointment.doctor) === normalize(doctorFilter));
+		}
+		
+		return filtered;
+	}, [appointments, clinicianName, doctorFilter]);
 
 	const events = useMemo<CalendarEvent[]>(() => {
 		return assignedAppointments.map(appointment => {
@@ -281,18 +337,67 @@ export default function Calendar() {
 	};
 
 	const calendarEvents = useMemo(() => {
-		return events.map(event => ({
-			id: event.id,
-			title: `${event.patient?.name || event.appointment.patient || 'Patient'}`,
-			start: event.appointment.date,
-			extendedProps: {
-				appointment: event.appointment,
-				patient: event.patient,
-			},
-			backgroundColor: statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending,
-			borderColor: statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending,
-		}));
+		return events.map(event => {
+			const startDateTime = event.appointment.time
+				? `${event.appointment.date}T${event.appointment.time}`
+				: event.appointment.date;
+			
+			return {
+				id: event.id,
+				title: `${event.patient?.name || event.appointment.patient || 'Patient'}`,
+				start: startDateTime,
+				extendedProps: {
+					appointment: event.appointment,
+					patient: event.patient,
+				},
+				backgroundColor: statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending,
+				borderColor: statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending,
+				editable: true,
+				startEditable: true,
+				durationEditable: false,
+			};
+		});
 	}, [events]);
+
+	const handleViewChange = (view: ViewApi) => {
+		setCurrentView(view.type);
+	};
+
+	const handleEventDrop = async (changeInfo: EventChangeArg) => {
+		const eventId = changeInfo.event.id;
+		const newStart = changeInfo.event.start;
+		
+		if (!newStart) {
+			changeInfo.revert();
+			return;
+		}
+
+		// Extract date and time from the new start (using local time)
+		const year = newStart.getFullYear();
+		const month = String(newStart.getMonth() + 1).padStart(2, '0');
+		const day = String(newStart.getDate()).padStart(2, '0');
+		const hours = String(newStart.getHours()).padStart(2, '0');
+		const minutes = String(newStart.getMinutes()).padStart(2, '0');
+		
+		const newDate = `${year}-${month}-${day}`;
+		const newTime = `${hours}:${minutes}`;
+
+		setIsRescheduling(eventId);
+		
+		try {
+			const appointmentRef = doc(db, 'appointments', eventId);
+			await updateDoc(appointmentRef, {
+				date: newDate,
+				time: newTime,
+			});
+		} catch (error) {
+			console.error('Failed to reschedule appointment', error);
+			alert('Failed to reschedule appointment. Please try again.');
+			changeInfo.revert();
+		} finally {
+			setIsRescheduling(null);
+		}
+	};
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -313,34 +418,135 @@ export default function Calendar() {
 
 				<section className="flex flex-col gap-6 lg:flex-row">
 				<div className="flex-1 rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
-					<div className="mb-4 flex items-center justify-between">
-						<button
-							type="button"
-							onClick={handleToday}
-							className="rounded-full border border-slate-200 px-4 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
-						>
-							Today
-						</button>
+					<div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+						<div className="flex items-center gap-3">
+							<button
+								type="button"
+								onClick={handleToday}
+								className="rounded-full border border-slate-200 px-4 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
+							>
+								Today
+							</button>
+							<div className="flex items-center gap-1 rounded-lg border border-slate-200 p-1">
+								<button
+									type="button"
+									onClick={() => {
+										const calendarApi = calendarRef.current?.getApi();
+										if (calendarApi) {
+											calendarApi.changeView('dayGridMonth');
+											setCurrentView('dayGridMonth');
+										}
+									}}
+									className={`rounded px-3 py-1 text-xs font-medium transition ${
+										currentView === 'dayGridMonth'
+											? 'bg-sky-100 text-sky-700'
+											: 'text-slate-600 hover:bg-slate-50'
+									}`}
+								>
+									Month
+								</button>
+								<button
+									type="button"
+									onClick={() => {
+										const calendarApi = calendarRef.current?.getApi();
+										if (calendarApi) {
+											calendarApi.changeView('timeGridWeek');
+											setCurrentView('timeGridWeek');
+										}
+									}}
+									className={`rounded px-3 py-1 text-xs font-medium transition ${
+										currentView === 'timeGridWeek'
+											? 'bg-sky-100 text-sky-700'
+											: 'text-slate-600 hover:bg-slate-50'
+									}`}
+								>
+									Week
+								</button>
+								<button
+									type="button"
+									onClick={() => {
+										const calendarApi = calendarRef.current?.getApi();
+										if (calendarApi) {
+											calendarApi.changeView('timeGridDay');
+											setCurrentView('timeGridDay');
+										}
+									}}
+									className={`rounded px-3 py-1 text-xs font-medium transition ${
+										currentView === 'timeGridDay'
+											? 'bg-sky-100 text-sky-700'
+											: 'text-slate-600 hover:bg-slate-50'
+									}`}
+								>
+									Day
+								</button>
+							</div>
+						</div>
+						<div className="flex items-center gap-2">
+							<label htmlFor="doctor-filter" className="text-sm font-medium text-slate-700">
+								Doctor:
+							</label>
+							<select
+								id="doctor-filter"
+								value={doctorFilter}
+								onChange={event => setDoctorFilter(event.target.value)}
+								className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+							>
+								<option value="all">All Doctors</option>
+								{doctorOptions.map(doctor => (
+									<option key={doctor} value={doctor}>
+										{doctor}
+									</option>
+								))}
+							</select>
+						</div>
 					</div>
-					<div className="[&_.fc-toolbar-title]:text-lg [&_.fc-button]:border-slate-300 [&_.fc-button]:text-slate-700 [&_.fc-button:hover]:border-slate-400 [&_.fc-button:hover]:bg-slate-50 [&_.fc-button-active]:bg-sky-100 [&_.fc-button-active]:border-sky-300 [&_.fc-button-active]:text-sky-700 [&_.fc-daygrid-day-number]:text-slate-700 [&_.fc-col-header-cell]:bg-slate-50 [&_.fc-col-header-cell]:text-slate-600 [&_.fc-day-today]:bg-sky-50">
+					<div className="[&_.fc-toolbar-title]:text-lg [&_.fc-button]:border-slate-300 [&_.fc-button]:text-slate-700 [&_.fc-button:hover]:border-slate-400 [&_.fc-button:hover]:bg-slate-50 [&_.fc-button-active]:bg-sky-100 [&_.fc-button-active]:border-sky-300 [&_.fc-button-active]:text-sky-700 [&_.fc-daygrid-day-number]:text-slate-700 [&_.fc-col-header-cell]:bg-slate-50 [&_.fc-col-header-cell]:text-slate-600 [&_.fc-day-today]:bg-sky-50 [&_.fc-timegrid-slot]:min-h-[2.5em]">
 						<FullCalendar
 							ref={calendarRef}
-							plugins={[dayGridPlugin]}
+							plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
 							initialView="dayGridMonth"
 							headerToolbar={{
 								left: 'prev,next',
 								center: 'title',
 								right: '',
 							}}
+							views={{
+								dayGridMonth: {
+									dayMaxEvents: 3,
+								},
+								timeGridWeek: {
+									slotMinTime: '08:00:00',
+									slotMaxTime: '20:00:00',
+								},
+								timeGridDay: {
+									slotMinTime: '08:00:00',
+									slotMaxTime: '20:00:00',
+								},
+							}}
 							events={calendarEvents}
 							dateClick={handleDateSelect}
 							eventClick={handleEventClick}
+							eventDrop={handleEventDrop}
+							viewDidMount={handleViewChange}
 							fixedWeekCount={false}
 							height="auto"
 							eventDisplay="block"
-							editable={false}
+							editable={true}
+							droppable={false}
+							selectable={true}
+							selectMirror={true}
+							dayMaxEvents={true}
+							weekNumbers={false}
+							nowIndicator={true}
+							slotDuration="00:30:00"
+							slotLabelInterval="01:00:00"
 						/>
 					</div>
+					{isRescheduling && (
+						<div className="mt-3 rounded-md bg-amber-50 px-4 py-2 text-sm text-amber-800">
+							Updating appointment...
+						</div>
+					)}
 				</div>
 
 				<aside className="h-fit w-full rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)] lg:w-[280px]">
