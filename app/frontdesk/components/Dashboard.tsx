@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, type QuerySnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import type { AdminAppointmentStatus } from '@/lib/adminMockData';
 
 type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
 
@@ -41,9 +42,30 @@ interface DashboardCardConfig {
 	count: number;
 }
 
+interface AppointmentRecord {
+	id: string;
+	appointmentId: string;
+	patientId: string;
+	patient: string;
+	doctor: string;
+	date: string;
+	time: string;
+	status: AdminAppointmentStatus;
+	createdAt: string;
+}
+
+interface StaffMember {
+	id: string;
+	userName: string;
+	role: string;
+	status: string;
+}
+
 
 export default function Dashboard() {
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
+	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
+	const [staff, setStaff] = useState<StaffMember[]>([]);
 	const [modal, setModal] = useState<ModalType>(null);
 
 	useEffect(() => {
@@ -79,18 +101,105 @@ export default function Dashboard() {
 		return () => unsubscribe();
 	}, []);
 
+	// Load appointments from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'appointments'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					const created = (data.createdAt as Timestamp | undefined)?.toDate?.();
+					return {
+						id: docSnap.id,
+						appointmentId: data.appointmentId ? String(data.appointmentId) : '',
+						patientId: data.patientId ? String(data.patientId) : '',
+						patient: data.patient ? String(data.patient) : '',
+						doctor: data.doctor ? String(data.doctor) : '',
+						date: data.date ? String(data.date) : '',
+						time: data.time ? String(data.time) : '',
+						status: (data.status as AdminAppointmentStatus) ?? 'pending',
+						createdAt: created ? created.toISOString() : (data.createdAt as string | undefined) || new Date().toISOString(),
+					} as AppointmentRecord;
+				});
+				setAppointments(mapped);
+			},
+			error => {
+				console.error('Failed to load appointments', error);
+				setAppointments([]);
+			}
+		);
+
+		return () => unsubscribe();
+	}, []);
+
+	// Load staff from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'staff'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					return {
+						id: docSnap.id,
+						userName: data.userName ? String(data.userName) : '',
+						role: data.role ? String(data.role) : '',
+						status: data.status ? String(data.status) : '',
+					} as StaffMember;
+				});
+				setStaff(mapped.filter(s => s.status === 'Active'));
+			},
+			error => {
+				console.error('Failed to load staff', error);
+				setStaff([]);
+			}
+		);
+
+		return () => unsubscribe();
+	}, []);
+
 	const stats = useMemo(() => {
 		const pending = patients.filter(p => (p.status ?? 'pending') === 'pending');
 		const ongoing = patients.filter(p => p.status === 'ongoing');
 		const completed = patients.filter(p => p.status === 'completed');
+
+		// Appointment statistics
+		const today = new Date().toISOString().split('T')[0];
+		const todayAppointments = appointments.filter(apt => apt.date === today && apt.status !== 'cancelled');
+		const thisWeekAppointments = appointments.filter(apt => {
+			const aptDate = new Date(apt.date);
+			const weekAgo = new Date();
+			weekAgo.setDate(weekAgo.getDate() - 7);
+			return aptDate >= weekAgo && apt.status !== 'cancelled';
+		});
+		const cancelledThisWeek = appointments.filter(apt => {
+			if (apt.status !== 'cancelled') return false;
+			const aptDate = new Date(apt.date);
+			const weekAgo = new Date();
+			weekAgo.setDate(weekAgo.getDate() - 7);
+			return aptDate >= weekAgo;
+		});
+
+		// Appointments by staff
+		const appointmentsByStaff = staff.map(member => ({
+			staffName: member.userName,
+			count: appointments.filter(apt => apt.doctor === member.userName && apt.status !== 'cancelled').length,
+		}));
 
 		return {
 			total: patients.length,
 			pending,
 			ongoing,
 			completed,
+			appointments: {
+				today: todayAppointments.length,
+				thisWeek: thisWeekAppointments.length,
+				cancelledThisWeek: cancelledThisWeek.length,
+				byStaff: appointmentsByStaff,
+				total: appointments.filter(apt => apt.status !== 'cancelled').length,
+			},
+			activeStaff: staff.length,
 		};
-	}, [patients]);
+	}, [patients, appointments, staff]);
 
 	const modalTitle = useMemo(() => {
 		switch (modal) {
@@ -163,13 +272,13 @@ export default function Dashboard() {
 				<PageHeader
 					badge="Front Desk"
 					title="Front Desk Dashboard"
-					description="Stay on top of patient flow. Use the cards below to drill into the latest registries and statuses in seconds."
+					description="Stay on top of patient flow and appointment scheduling. Use the cards below to drill into the latest registries, statuses, and appointment analytics."
 					statusCard={{
-						label: 'Active Patients',
-						value: `${stats.total} records synced from the registry.`,
+						label: 'Today\'s Overview',
+						value: `${stats.appointments.today} appointment${stats.appointments.today === 1 ? '' : 's'} today`,
 						subtitle: (
 							<>
-								Pending today: <span className="font-semibold">{stats.pending.length}</span>
+								{stats.activeStaff} active staff · {stats.appointments.total} total appointments
 							</>
 						),
 					}}
@@ -181,7 +290,7 @@ export default function Dashboard() {
 				{/* Statistics Overview Section */}
 				<section>
 					<div className="mb-6">
-						<h2 className="text-xl font-semibold text-slate-900">Overview</h2>
+						<h2 className="text-xl font-semibold text-slate-900">Patient Overview</h2>
 						<p className="mt-1 text-sm text-slate-500">
 							Quick access to patient statistics and status breakdowns
 						</p>
@@ -213,6 +322,92 @@ export default function Dashboard() {
 							</button>
 						))}
 					</div>
+				</section>
+
+				{/* Divider */}
+				<div className="border-t border-slate-200" />
+
+				{/* Appointment Analytics Section */}
+				<section>
+					<div className="mb-6">
+						<h2 className="text-xl font-semibold text-slate-900">Appointment Analytics</h2>
+						<p className="mt-1 text-sm text-slate-500">
+							Track appointments, staff workload, and scheduling metrics
+						</p>
+					</div>
+					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div className="flex items-center justify-between">
+								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-600" aria-hidden="true">
+									<i className="fas fa-calendar-day" />
+								</span>
+								<span className="text-3xl font-bold text-slate-900">{stats.appointments.today}</span>
+							</div>
+							<div className="mt-4">
+								<p className="text-sm font-semibold text-slate-900">Appointments Today</p>
+								<p className="mt-1 text-xs text-slate-500">Scheduled for today</p>
+							</div>
+						</div>
+
+						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div className="flex items-center justify-between">
+								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600" aria-hidden="true">
+									<i className="fas fa-calendar-week" />
+								</span>
+								<span className="text-3xl font-bold text-slate-900">{stats.appointments.thisWeek}</span>
+							</div>
+							<div className="mt-4">
+								<p className="text-sm font-semibold text-slate-900">This Week</p>
+								<p className="mt-1 text-xs text-slate-500">Last 7 days</p>
+							</div>
+						</div>
+
+						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div className="flex items-center justify-between">
+								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-100 text-rose-600" aria-hidden="true">
+									<i className="fas fa-times-circle" />
+								</span>
+								<span className="text-3xl font-bold text-slate-900">{stats.appointments.cancelledThisWeek}</span>
+							</div>
+							<div className="mt-4">
+								<p className="text-sm font-semibold text-slate-900">Cancelled This Week</p>
+								<p className="mt-1 text-xs text-slate-500">Last 7 days</p>
+							</div>
+						</div>
+
+						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div className="flex items-center justify-between">
+								<span className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100 text-purple-600" aria-hidden="true">
+									<i className="fas fa-user-md" />
+								</span>
+								<span className="text-3xl font-bold text-slate-900">{stats.activeStaff}</span>
+							</div>
+							<div className="mt-4">
+								<p className="text-sm font-semibold text-slate-900">Active Staff</p>
+								<p className="mt-1 text-xs text-slate-500">Available clinicians</p>
+							</div>
+						</div>
+					</div>
+
+					{/* Appointments by Staff */}
+					{stats.appointments.byStaff.length > 0 && (
+						<div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<h3 className="text-lg font-semibold text-slate-900 mb-4">Appointments by Staff</h3>
+							<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+								{stats.appointments.byStaff
+									.sort((a, b) => b.count - a.count)
+									.map(({ staffName, count }) => (
+										<div key={staffName} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+											<div>
+												<p className="text-sm font-semibold text-slate-800">{staffName}</p>
+												<p className="text-xs text-slate-500">Active appointments</p>
+											</div>
+											<span className="text-2xl font-bold text-slate-900">{count}</span>
+										</div>
+									))}
+							</div>
+						</div>
+					)}
 				</section>
 
 				{/* Divider */}
@@ -285,7 +480,7 @@ export default function Dashboard() {
 
 			{modal && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
-					<div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+					<div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-2xl flex max-h-[85vh] flex-col">
 						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
 							<div>
 								<h2 className="text-lg font-semibold text-slate-900">{modalTitle}</h2>
@@ -302,7 +497,7 @@ export default function Dashboard() {
 								<i className="fas fa-times" aria-hidden="true" />
 							</button>
 						</header>
-						<div className="max-h-[480px] overflow-y-auto px-6 py-4">
+						<div className="flex-1 overflow-y-auto px-6 py-4">
 							{modalRows.length === 0 ? (
 								<p className="py-10 text-center text-sm text-slate-500">No records available.</p>
 							) : (
@@ -356,6 +551,16 @@ export default function Dashboard() {
 								</div>
 							)}
 						</div>
+						<footer className="flex items-center justify-end border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={() => setModal(null)}
+								className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200 focus-visible:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+							>
+								<i className="fas fa-arrow-left" aria-hidden="true" />
+								Back to Dashboard
+							</button>
+						</footer>
 					</div>
 				</div>
 			)}

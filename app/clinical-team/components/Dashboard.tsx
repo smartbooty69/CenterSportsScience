@@ -402,7 +402,7 @@ export default function Dashboard() {
 
 			{modal && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
-					<div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+					<div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-2xl flex max-h-[85vh] flex-col">
 						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
 							<div>
 								<h2 className="text-lg font-semibold text-slate-900">{modalTitle}</h2>
@@ -419,7 +419,7 @@ export default function Dashboard() {
 								<i className="fas fa-times" aria-hidden="true" />
 							</button>
 						</header>
-						<div className="max-h-[480px] overflow-y-auto px-6 py-4">
+						<div className="flex-1 overflow-y-auto px-6 py-4">
 							{modalRows.length === 0 ? (
 								<p className="py-10 text-center text-sm text-slate-500">No records available.</p>
 							) : modal === 'caseload' || modal === 'pending' ? (
@@ -510,6 +510,16 @@ export default function Dashboard() {
 								</div>
 							)}
 						</div>
+						<footer className="flex items-center justify-end border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={() => setModal(null)}
+								className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200 focus-visible:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+							>
+								<i className="fas fa-arrow-left" aria-hidden="true" />
+								Back to Dashboard
+							</button>
+						</footer>
 					</div>
 				</div>
 			)}
