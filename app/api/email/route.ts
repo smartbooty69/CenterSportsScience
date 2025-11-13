@@ -52,25 +52,39 @@ export async function POST(request: NextRequest) {
 		const fromName = process.env.RESEND_FROM_NAME || 'Centre For Sports Science';
 
 		// Send email via Resend
-		const result = await resend.emails.send({
-			from: `${fromName} <${fromEmail}>`,
-			to: emailData.to,
-			subject,
-			html,
-		});
+		try {
+			const result = await resend.emails.send({
+				from: `${fromName} <${fromEmail}>`,
+				to: emailData.to,
+				subject,
+				html,
+			});
 
-		if (result.error) {
-			console.error('Resend API error:', result.error);
+			if (result.error) {
+				console.error('Resend API error:', result.error);
+				const errorMessage = result.error.message || JSON.stringify(result.error) || 'Failed to send email';
+				return NextResponse.json(
+					{ error: errorMessage },
+					{ status: 500 }
+				);
+			}
+
+			return NextResponse.json({ 
+				success: true, 
+				messageId: result.data?.id 
+			});
+		} catch (resendError) {
+			console.error('Resend send error:', resendError);
+			const errorMessage = resendError instanceof Error 
+				? resendError.message 
+				: typeof resendError === 'string' 
+					? resendError 
+					: 'Failed to send email via Resend API';
 			return NextResponse.json(
-				{ error: result.error.message || 'Failed to send email' },
+				{ error: errorMessage },
 				{ status: 500 }
 			);
 		}
-
-		return NextResponse.json({ 
-			success: true, 
-			messageId: result.data?.id 
-		});
 	} catch (error) {
 		console.error('Email API error:', error);
 		return NextResponse.json(
