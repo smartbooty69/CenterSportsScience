@@ -1,0 +1,570 @@
+'use client';
+
+import { useState } from 'react';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+
+
+// Dummy staff data
+const dummyStaff = [
+	{
+		userName: 'Dr. Sarah Johnson',
+		userEmail: 'sarah.johnson@clinic.com',
+		role: 'Physiotherapist',
+		status: 'Active',
+	},
+	{
+		userName: 'Dr. Michael Chen',
+		userEmail: 'michael.chen@clinic.com',
+		role: 'Physiotherapist',
+		status: 'Active',
+	},
+	{
+		userName: 'James Wilson',
+		userEmail: 'james.wilson@clinic.com',
+		role: 'StrengthAndConditioning',
+		status: 'Active',
+	},
+	{
+		userName: 'Emma Davis',
+		userEmail: 'emma.davis@clinic.com',
+		role: 'StrengthAndConditioning',
+		status: 'Active',
+	},
+	{
+		userName: 'Dr. Robert Taylor',
+		userEmail: 'robert.taylor@clinic.com',
+		role: 'ClinicalTeam',
+		status: 'Active',
+	},
+	{
+		userName: 'Lisa Anderson',
+		userEmail: 'lisa.anderson@clinic.com',
+		role: 'FrontDesk',
+		status: 'Active',
+	},
+	{
+		userName: 'Admin User',
+		userEmail: 'admin@clinic.com',
+		role: 'Admin',
+		status: 'Active',
+	},
+];
+
+// Dummy patient data
+const dummyPatients = [
+	{
+		patientId: 'CSS2025A1B2C3D',
+		name: 'John Smith',
+		dob: '1985-03-15',
+		gender: 'Male',
+		phone: '9876543210',
+		email: 'john.smith@email.com',
+		address: '123 Main Street, Bangalore',
+		complaint: 'Lower back pain',
+		status: 'ongoing',
+		assignedDoctor: 'Dr. Sarah Johnson',
+		paymentType: 'with',
+		paymentDescription: 'Senior citizen concession',
+	},
+	{
+		patientId: 'CSS2025E4F5G6H',
+		name: 'Priya Sharma',
+		dob: '1992-07-22',
+		gender: 'Female',
+		phone: '9876543211',
+		email: 'priya.sharma@email.com',
+		address: '456 Park Avenue, Bangalore',
+		complaint: 'Knee injury from sports',
+		status: 'ongoing',
+		assignedDoctor: 'Dr. Michael Chen',
+		paymentType: 'without',
+		paymentDescription: '',
+	},
+	{
+		patientId: 'CSS2025I7J8K9L',
+		name: 'Rajesh Kumar',
+		dob: '1978-11-08',
+		gender: 'Male',
+		phone: '9876543212',
+		email: 'rajesh.kumar@email.com',
+		address: '789 MG Road, Bangalore',
+		complaint: 'Shoulder rehabilitation',
+		status: 'ongoing',
+		assignedDoctor: 'James Wilson',
+		paymentType: 'with',
+		paymentDescription: 'Insurance coverage',
+	},
+	{
+		patientId: 'CSS2025M1N2O3P',
+		name: 'Anita Reddy',
+		dob: '1995-05-30',
+		gender: 'Female',
+		phone: '9876543213',
+		email: 'anita.reddy@email.com',
+		address: '321 Brigade Road, Bangalore',
+		complaint: 'Ankle sprain',
+		status: 'pending',
+		assignedDoctor: '',
+		paymentType: 'without',
+		paymentDescription: '',
+	},
+	{
+		patientId: 'CSS2025Q4R5S6T',
+		name: 'Vikram Singh',
+		dob: '1989-09-14',
+		gender: 'Male',
+		phone: '9876543214',
+		email: 'vikram.singh@email.com',
+		address: '654 Indira Nagar, Bangalore',
+		complaint: 'Neck pain',
+		status: 'ongoing',
+		assignedDoctor: 'Emma Davis',
+		paymentType: 'with',
+		paymentDescription: 'Employee health scheme',
+	},
+	{
+		patientId: 'CSS2025U7V8W9X',
+		name: 'Meera Patel',
+		dob: '1990-12-25',
+		gender: 'Female',
+		phone: '9876543215',
+		email: 'meera.patel@email.com',
+		address: '987 Koramangala, Bangalore',
+		complaint: 'Post-surgical rehabilitation',
+		status: 'ongoing',
+		assignedDoctor: 'Dr. Robert Taylor',
+		paymentType: 'without',
+		paymentDescription: '',
+	},
+	{
+		patientId: 'CSS2025Y1Z2A3B',
+		name: 'Arjun Menon',
+		dob: '1993-02-18',
+		gender: 'Male',
+		phone: '9876543216',
+		email: 'arjun.menon@email.com',
+		address: '147 Whitefield, Bangalore',
+		complaint: 'Hip flexor tightness',
+		status: 'pending',
+		assignedDoctor: '',
+		paymentType: 'without',
+		paymentDescription: '',
+	},
+	{
+		patientId: 'CSS2025C4D5E6F',
+		name: 'Sneha Iyer',
+		dob: '1987-06-10',
+		gender: 'Female',
+		phone: '9876543217',
+		email: 'sneha.iyer@email.com',
+		address: '258 Jayanagar, Bangalore',
+		complaint: 'Tennis elbow',
+		status: 'completed',
+		assignedDoctor: 'Dr. Sarah Johnson',
+		paymentType: 'with',
+		paymentDescription: 'Corporate wellness program',
+	},
+	{
+		patientId: 'CSS2025G7H8I9J',
+		name: 'Rahul Nair',
+		dob: '1991-08-05',
+		gender: 'Male',
+		phone: '9876543218',
+		email: 'rahul.nair@email.com',
+		address: '369 Malleswaram, Bangalore',
+		complaint: 'Wrist injury',
+		status: 'ongoing',
+		assignedDoctor: 'Dr. Michael Chen',
+		paymentType: 'without',
+		paymentDescription: '',
+	},
+	{
+		patientId: 'CSS2025K1L2M3N',
+		name: 'Divya Rao',
+		dob: '1994-04-20',
+		gender: 'Female',
+		phone: '9876543219',
+		email: 'divya.rao@email.com',
+		address: '741 Basavanagudi, Bangalore',
+		complaint: 'Lower back pain',
+		status: 'ongoing',
+		assignedDoctor: 'James Wilson',
+		paymentType: 'with',
+		paymentDescription: 'Student discount',
+	},
+];
+
+// Dummy appointment data
+const dummyAppointments = [
+	{
+		appointmentId: 'APT-ABC12',
+		patientId: 'CSS2025A1B2C3D',
+		patient: 'John Smith',
+		doctor: 'Dr. Sarah Johnson',
+		date: '2025-01-20',
+		time: '10:00',
+		status: 'ongoing',
+		notes: 'Follow-up session for lower back pain',
+	},
+	{
+		appointmentId: 'APT-DEF34',
+		patientId: 'CSS2025E4F5G6H',
+		patient: 'Priya Sharma',
+		doctor: 'Dr. Michael Chen',
+		date: '2025-01-20',
+		time: '11:30',
+		status: 'ongoing',
+		notes: 'Knee rehabilitation session',
+	},
+	{
+		appointmentId: 'APT-GHI56',
+		patientId: 'CSS2025I7J8K9L',
+		patient: 'Rajesh Kumar',
+		doctor: 'James Wilson',
+		date: '2025-01-20',
+		time: '14:00',
+		status: 'ongoing',
+		notes: 'Strength training session',
+	},
+	{
+		appointmentId: 'APT-JKL78',
+		patientId: 'CSS2025U7V8W9X',
+		patient: 'Meera Patel',
+		doctor: 'Dr. Robert Taylor',
+		date: '2025-01-21',
+		time: '09:00',
+		status: 'pending',
+		notes: 'Post-surgical check-up',
+	},
+	{
+		appointmentId: 'APT-MNO90',
+		patientId: 'CSS2025Q4R5S6T',
+		patient: 'Vikram Singh',
+		doctor: 'Emma Davis',
+		date: '2025-01-21',
+		time: '15:30',
+		status: 'pending',
+		notes: 'Neck pain assessment',
+	},
+	{
+		appointmentId: 'APT-PQR12',
+		patientId: 'CSS2025G7H8I9J',
+		patient: 'Rahul Nair',
+		doctor: 'Dr. Michael Chen',
+		date: '2025-01-19',
+		time: '16:00',
+		status: 'completed',
+		notes: 'Wrist injury follow-up - completed',
+	},
+	{
+		appointmentId: 'APT-STU34',
+		patientId: 'CSS2025K1L2M3N',
+		patient: 'Divya Rao',
+		doctor: 'James Wilson',
+		date: '2025-01-22',
+		time: '10:30',
+		status: 'pending',
+		notes: 'Lower back pain initial consultation',
+	},
+];
+
+export default function Seed() {
+	const [seeding, setSeeding] = useState(false);
+	const [progress, setProgress] = useState<string>('');
+	const [results, setResults] = useState<{ staff: number; patients: number; appointments: number } | null>(null);
+
+	const handleSeedAll = async () => {
+		setSeeding(true);
+		setProgress('Starting seed process...');
+		setResults(null);
+
+		let staffCount = 0;
+		let patientsCount = 0;
+		let appointmentsCount = 0;
+
+		try {
+			// Seed staff
+			setProgress('Seeding staff members...');
+			for (const staff of dummyStaff) {
+				try {
+					await addDoc(collection(db, 'staff'), {
+						...staff,
+						createdAt: serverTimestamp(),
+					});
+					staffCount++;
+				} catch (error) {
+					console.error('Error seeding staff:', staff.userName, error);
+				}
+			}
+
+			// Seed patients
+			setProgress('Seeding patients...');
+			for (const patient of dummyPatients) {
+				try {
+					await addDoc(collection(db, 'patients'), {
+						...patient,
+						registeredAt: serverTimestamp(),
+					});
+					patientsCount++;
+				} catch (error) {
+					console.error('Error seeding patient:', patient.name, error);
+				}
+			}
+
+			// Seed appointments
+			setProgress('Seeding appointments...');
+			for (const appointment of dummyAppointments) {
+				try {
+					await addDoc(collection(db, 'appointments'), {
+						...appointment,
+						createdAt: serverTimestamp(),
+					});
+					appointmentsCount++;
+				} catch (error) {
+					console.error('Error seeding appointment:', appointment.appointmentId, error);
+				}
+			}
+
+			setProgress('Seed process completed!');
+			setResults({
+				staff: staffCount,
+				patients: patientsCount,
+				appointments: appointmentsCount,
+			});
+		} catch (error) {
+			console.error('Error during seed process:', error);
+			setProgress(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setSeeding(false);
+		}
+	};
+
+	const handleSeedStaff = async () => {
+		setSeeding(true);
+		setProgress('Seeding staff members...');
+		let count = 0;
+
+		try {
+			for (const staff of dummyStaff) {
+				try {
+					await addDoc(collection(db, 'staff'), {
+						...staff,
+						createdAt: serverTimestamp(),
+					});
+					count++;
+				} catch (error) {
+					console.error('Error seeding staff:', staff.userName, error);
+				}
+			}
+			setProgress(`Successfully seeded ${count} staff members!`);
+		} catch (error) {
+			console.error('Error seeding staff:', error);
+			setProgress(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setSeeding(false);
+		}
+	};
+
+	const handleSeedPatients = async () => {
+		setSeeding(true);
+		setProgress('Seeding patients...');
+		let count = 0;
+
+		try {
+			for (const patient of dummyPatients) {
+				try {
+					await addDoc(collection(db, 'patients'), {
+						...patient,
+						registeredAt: serverTimestamp(),
+					});
+					count++;
+				} catch (error) {
+					console.error('Error seeding patient:', patient.name, error);
+				}
+			}
+			setProgress(`Successfully seeded ${count} patients!`);
+		} catch (error) {
+			console.error('Error seeding patients:', error);
+			setProgress(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setSeeding(false);
+		}
+	};
+
+	const handleSeedAppointments = async () => {
+		setSeeding(true);
+		setProgress('Seeding appointments...');
+		let count = 0;
+
+		try {
+			for (const appointment of dummyAppointments) {
+				try {
+					await addDoc(collection(db, 'appointments'), {
+						...appointment,
+						createdAt: serverTimestamp(),
+					});
+					count++;
+				} catch (error) {
+					console.error('Error seeding appointment:', appointment.appointmentId, error);
+				}
+			}
+			setProgress(`Successfully seeded ${count} appointments!`);
+		} catch (error) {
+			console.error('Error seeding appointments:', error);
+			setProgress(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setSeeding(false);
+		}
+	};
+
+	return (
+		<div className="min-h-svh bg-slate-50 px-6 py-10">
+			<div className="mx-auto flex max-w-4xl flex-col gap-8">
+				<header className="flex flex-col gap-3">
+					<div>
+						<p className="text-sm font-semibold uppercase tracking-wide text-sky-600">Admin Control Center</p>
+						<h1 className="mt-1 text-3xl font-semibold text-slate-900">Seed Dummy Data</h1>
+						<p className="mt-2 text-sm text-slate-600">
+							Populate Firestore with sample data for development and testing purposes.
+						</p>
+					</div>
+				</header>
+
+				<div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+					<i className="fas fa-exclamation-triangle mr-2" aria-hidden="true" />
+					<strong>Warning:</strong> This will add new documents to your Firestore database. Existing documents will not be
+					overwritten, but duplicate entries may be created.
+				</div>
+
+				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+					<h2 className="mb-4 text-lg font-semibold text-slate-900">Seed Options</h2>
+
+					<div className="space-y-4">
+						<div>
+							<h3 className="mb-2 text-sm font-medium text-slate-700">Seed All Data</h3>
+							<p className="mb-3 text-xs text-slate-500">
+								Seeds {dummyStaff.length} staff members, {dummyPatients.length} patients, and{' '}
+								{dummyAppointments.length} appointments.
+							</p>
+							<button type="button" onClick={handleSeedAll} disabled={seeding} className="btn-primary">
+								<i className="fas fa-database text-xs" aria-hidden="true" />
+								{seeding ? 'Seeding...' : 'Seed All Data'}
+							</button>
+						</div>
+
+						<div className="border-t border-slate-200 pt-4">
+							<h3 className="mb-4 text-sm font-medium text-slate-700">Seed Individual Collections</h3>
+							<div className="grid gap-4 sm:grid-cols-3">
+								<div>
+									<p className="mb-2 text-xs text-slate-500">Staff Members</p>
+									<button
+										type="button"
+										onClick={handleSeedStaff}
+										disabled={seeding}
+										className="btn-secondary"
+									>
+										<i className="fas fa-users text-xs" aria-hidden="true" />
+										Seed Staff ({dummyStaff.length})
+									</button>
+								</div>
+								<div>
+									<p className="mb-2 text-xs text-slate-500">Patients</p>
+									<button
+										type="button"
+										onClick={handleSeedPatients}
+										disabled={seeding}
+										className="btn-secondary"
+									>
+										<i className="fas fa-user-injured text-xs" aria-hidden="true" />
+										Seed Patients ({dummyPatients.length})
+									</button>
+								</div>
+								<div>
+									<p className="mb-2 text-xs text-slate-500">Appointments</p>
+									<button
+										type="button"
+										onClick={handleSeedAppointments}
+										disabled={seeding}
+										className="btn-secondary"
+									>
+										<i className="fas fa-calendar-alt text-xs" aria-hidden="true" />
+										Seed Appointments ({dummyAppointments.length})
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</section>
+
+				{progress && (
+					<div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+						<div className="flex items-center gap-3">
+							{seeding && (
+								<div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-sky-500" />
+							)}
+							<p className="text-sm text-slate-700">{progress}</p>
+						</div>
+					</div>
+				)}
+
+				{results && (
+					<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+						<h3 className="mb-3 text-base font-semibold text-emerald-900">Seed Results</h3>
+						<div className="grid gap-3 sm:grid-cols-3">
+							<div>
+								<p className="text-xs text-emerald-700">Staff Members</p>
+								<p className="text-2xl font-bold text-emerald-900">{results.staff}</p>
+							</div>
+							<div>
+								<p className="text-xs text-emerald-700">Patients</p>
+								<p className="text-2xl font-bold text-emerald-900">{results.patients}</p>
+							</div>
+							<div>
+								<p className="text-xs text-emerald-700">Appointments</p>
+								<p className="text-2xl font-bold text-emerald-900">{results.appointments}</p>
+							</div>
+						</div>
+					</div>
+				)}
+
+				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+					<h2 className="mb-4 text-lg font-semibold text-slate-900">Data Preview</h2>
+					<div className="space-y-4">
+						<div>
+							<h3 className="mb-2 text-sm font-medium text-slate-700">Staff ({dummyStaff.length})</h3>
+							<div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+								{dummyStaff.map((staff, idx) => (
+									<div key={idx} className="mb-1">
+										{staff.userName} - {staff.role}
+									</div>
+								))}
+							</div>
+						</div>
+						<div>
+							<h3 className="mb-2 text-sm font-medium text-slate-700">Patients ({dummyPatients.length})</h3>
+							<div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+								{dummyPatients.map((patient, idx) => (
+									<div key={idx} className="mb-1">
+										{patient.name} ({patient.patientId}) - {patient.status}
+									</div>
+								))}
+							</div>
+						</div>
+						<div>
+							<h3 className="mb-2 text-sm font-medium text-slate-700">Appointments ({dummyAppointments.length})</h3>
+							<div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+								{dummyAppointments.map((appointment, idx) => (
+									<div key={idx} className="mb-1">
+										{appointment.appointmentId}: {appointment.patient} with {appointment.doctor} on {appointment.date}
+									</div>
+								))}
+							</div>
+						</div>
+					</div>
+				</section>
+			</div>
+		</div>
+	);
+}
+
