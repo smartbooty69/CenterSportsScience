@@ -29,7 +29,7 @@ export default function FrontdeskLayout({ children }: { children: React.ReactNod
 	const renderPage = () => {
 		switch (activePage) {
 			case 'dashboard':
-				return <Dashboard />;
+				return <Dashboard onNavigate={handleLinkClick} />;
 			case 'register':
 				return <Register />;
 			case 'appointments':
@@ -39,7 +39,7 @@ export default function FrontdeskLayout({ children }: { children: React.ReactNod
 			case 'reports':
 				return <Reports />;
 			default:
-				return <Dashboard />;
+				return <Dashboard onNavigate={handleLinkClick} />;
 		}
 	};
 

@@ -29,7 +29,7 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 	const renderPage = () => {
 		switch (activePage) {
 			case 'dashboard':
-				return <Dashboard />;
+				return <Dashboard onNavigate={handleLinkClick} />;
 			case 'calendar':
 				return <Calendar />;
 			case 'edit-report':
@@ -39,7 +39,7 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 			case 'transfer':
 				return <Transfer />;
 			default:
-				return <Dashboard />;
+				return <Dashboard onNavigate={handleLinkClick} />;
 		}
 	};
 

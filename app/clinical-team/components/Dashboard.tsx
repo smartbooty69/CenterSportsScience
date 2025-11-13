@@ -87,7 +87,11 @@ function formatTimeLabel(date?: string, time?: string) {
 	return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(parsed);
 }
 
-export default function Dashboard() {
+interface DashboardProps {
+	onNavigate?: (page: string) => void;
+}
+
+export default function Dashboard({ onNavigate }: DashboardProps) {
 	const { user } = useAuth();
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
@@ -209,7 +213,7 @@ export default function Dashboard() {
 			case 'pending':
 				return 'Patients Awaiting Care';
 			case 'today':
-				return 'Today’s Schedule';
+				return "Today's Schedule";
 			case 'completed':
 				return 'Completed In The Last 7 Days';
 			default:
@@ -257,7 +261,7 @@ export default function Dashboard() {
 		},
 		{
 			key: 'today',
-			title: 'Today’s Sessions',
+			title: "Today's Sessions",
 			subtitle: 'Appointments scheduled for today',
 			icon: 'fas fa-calendar-day',
 			count: todaysAppointments.length,
@@ -270,6 +274,42 @@ export default function Dashboard() {
 			count: completedThisWeek.length,
 		},
 	];
+
+	const quickLinks = [
+		{
+			href: '#calendar',
+			icon: 'fas fa-calendar-week',
+			title: 'Calendar',
+			summary: 'View and manage your appointment schedule.',
+		},
+		{
+			href: '#edit-report',
+			icon: 'fas fa-notes-medical',
+			title: 'View/Edit Reports',
+			summary: 'Access and update patient treatment reports.',
+		},
+		{
+			href: '#availability',
+			icon: 'fas fa-calendar-check',
+			title: 'My Availability',
+			summary: 'Set your working hours and availability.',
+		},
+		{
+			href: '#transfer',
+			icon: 'fas fa-exchange-alt',
+			title: 'Transfer Patients',
+			summary: 'Transfer patient care to another clinician.',
+		},
+	];
+
+	const handleQuickLinkClick = (href: string) => {
+		if (onNavigate) {
+			onNavigate(href);
+		}
+	};
+
+	const ICON_WRAPPER =
+		'flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-600 transition group-hover:bg-sky-600 group-hover:text-white group-focus-visible:bg-sky-600 group-focus-visible:text-white';
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -334,6 +374,45 @@ export default function Dashboard() {
 						))}
 					</div>
 				</section>
+
+				{/* Divider */}
+				<div className="border-t border-slate-200" />
+
+				{/* Quick Actions Section */}
+				{onNavigate && (
+					<section>
+						<div className="mb-6">
+							<h2 className="text-xl font-semibold text-slate-900">Quick Actions</h2>
+							<p className="mt-1 text-sm text-slate-500">
+								Access core clinical tools and functions
+							</p>
+						</div>
+						<div
+							className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+							aria-label="Clinical team quick actions"
+						>
+							{quickLinks.map(link => (
+								<button
+									key={link.href}
+									type="button"
+									onClick={() => handleQuickLinkClick(link.href)}
+									className="group card-base gap-3"
+								>
+									<span className={ICON_WRAPPER} aria-hidden="true">
+										<i className={link.icon} />
+									</span>
+									<div>
+										<h3 className="text-lg font-semibold text-slate-900">{link.title}</h3>
+										<p className="mt-1 text-sm text-slate-500">{link.summary}</p>
+									</div>
+									<span className="mt-auto inline-flex items-center text-sm font-semibold text-sky-600 group-hover:text-sky-700 group-focus-visible:text-sky-700">
+										Open <i className="fas fa-arrow-right ml-2 text-xs" aria-hidden="true" />
+									</span>
+								</button>
+							))}
+						</div>
+					</section>
+				)}
 
 				{/* Divider */}
 				<div className="border-t border-slate-200" />
