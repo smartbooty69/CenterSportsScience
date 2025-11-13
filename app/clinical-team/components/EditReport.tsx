@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 
 import { db } from '@/lib/firebase';
 import type { AdminGenderOption, AdminPatientStatus } from '@/lib/adminMockData';
+import { generatePhysiotherapyReportPDF } from '@/lib/pdfGenerator';
 
 interface PatientRecord {
 	id: string;
@@ -50,6 +51,41 @@ interface PatientRecord {
 	progressNotes?: string;
 	physioName?: string;
 	physioId?: string;
+
+	// New fields from the image form
+	dateOfConsultation?: string;
+	referredBy?: string;
+	chiefComplaint?: string;
+	onsetType?: 'Acute' | 'Chronic' | 'Post-surgical' | 'Traumatic';
+	mechanismOfInjury?: string;
+	painType?: string; // Sharp/Dull/Burning
+	painIntensity?: string; // VAS/NPRS
+	clinicalDiagnosis?: string;
+	
+	// Treatment Plan (table data)
+	treatmentPlan?: Array<{
+		therapy: string;
+		frequency: string;
+		remarks: string;
+	}>;
+	
+	// Follow-Up Visits (table data)
+	followUpVisits?: Array<{
+		visitDate: string;
+		painLevel: string;
+		findings: string;
+	}>;
+	
+	// Current Status
+	currentPainStatus?: 'Improved' | 'Same' | 'Worsened';
+	currentRom?: string; // "Improved by _*"
+	currentStrength?: string; // "_% improvement noted"
+	currentFunctionalAbility?: 'Improved' | 'Restricted';
+	complianceWithHEP?: 'Excellent' | 'Moderate' | 'Poor';
+	
+	// Recommendations
+	recommendations?: string;
+	physiotherapistRemarks?: string;
 }
 
 const ROM_MOTIONS: Record<string, Array<{ motion: string }>> = {
@@ -192,6 +228,23 @@ export default function EditReport() {
 						progressNotes: data.progressNotes ? String(data.progressNotes) : undefined,
 						physioName: data.physioName ? String(data.physioName) : undefined,
 						physioId: data.physioId ? String(data.physioId) : undefined,
+						dateOfConsultation: data.dateOfConsultation ? String(data.dateOfConsultation) : undefined,
+						referredBy: data.referredBy ? String(data.referredBy) : undefined,
+						chiefComplaint: data.chiefComplaint ? String(data.chiefComplaint) : undefined,
+						onsetType: data.onsetType ? String(data.onsetType) : undefined,
+						mechanismOfInjury: data.mechanismOfInjury ? String(data.mechanismOfInjury) : undefined,
+						painType: data.painType ? String(data.painType) : undefined,
+						painIntensity: data.painIntensity ? String(data.painIntensity) : undefined,
+						clinicalDiagnosis: data.clinicalDiagnosis ? String(data.clinicalDiagnosis) : undefined,
+						treatmentPlan: data.treatmentPlan ? (data.treatmentPlan as Array<any>) : undefined,
+						followUpVisits: data.followUpVisits ? (data.followUpVisits as Array<any>) : undefined,
+						currentPainStatus: data.currentPainStatus ? String(data.currentPainStatus) : undefined,
+						currentRom: data.currentRom ? String(data.currentRom) : undefined,
+						currentStrength: data.currentStrength ? String(data.currentStrength) : undefined,
+						currentFunctionalAbility: data.currentFunctionalAbility ? String(data.currentFunctionalAbility) : undefined,
+						complianceWithHEP: data.complianceWithHEP ? String(data.complianceWithHEP) : undefined,
+						recommendations: data.recommendations ? String(data.recommendations) : undefined,
+						physiotherapistRemarks: data.physiotherapistRemarks ? String(data.physiotherapistRemarks) : undefined,
 					} as PatientRecord;
 				});
 				setPatients(mapped);
@@ -315,6 +368,23 @@ export default function EditReport() {
 				progressNotes: formData.progressNotes || '',
 				physioName: formData.physioName || '',
 				physioId: formData.physioId || '',
+				dateOfConsultation: formData.dateOfConsultation || '',
+				referredBy: formData.referredBy || '',
+				chiefComplaint: formData.chiefComplaint || '',
+				onsetType: formData.onsetType || '',
+				mechanismOfInjury: formData.mechanismOfInjury || '',
+				painType: formData.painType || '',
+				painIntensity: formData.painIntensity || '',
+				clinicalDiagnosis: formData.clinicalDiagnosis || '',
+				treatmentPlan: formData.treatmentPlan || [],
+				followUpVisits: formData.followUpVisits || [],
+				currentPainStatus: formData.currentPainStatus || '',
+				currentRom: formData.currentRom || '',
+				currentStrength: formData.currentStrength || '',
+				currentFunctionalAbility: formData.currentFunctionalAbility || '',
+				complianceWithHEP: formData.complianceWithHEP || '',
+				recommendations: formData.recommendations || '',
+				physiotherapistRemarks: formData.physiotherapistRemarks || '',
 				updatedAt: serverTimestamp(),
 			};
 
@@ -500,6 +570,44 @@ export default function EditReport() {
 			</div>
 		);
 	}
+
+	const handleDownloadPDF = () => {
+		if (!selectedPatient) return;
+		
+		generatePhysiotherapyReportPDF({
+			patientName: selectedPatient.name,
+			patientId: selectedPatient.patientId,
+			referredBy: selectedPatient.assignedDoctor || formData.referredBy || '',
+			age: selectedPatient.dob ? new Date().getFullYear() - new Date(selectedPatient.dob).getFullYear() + '' : '',
+			gender: selectedPatient.gender || '',
+			dateOfConsultation: formData.dateOfConsultation || new Date().toISOString().split('T')[0],
+			contact: selectedPatient.phone || '',
+			email: selectedPatient.email || '',
+			chiefComplaint: formData.chiefComplaint || formData.complaints || '',
+			onsetType: formData.onsetType || '',
+			duration: formData.duration || '',
+			mechanismOfInjury: formData.mechanismOfInjury || '',
+			painType: formData.painType || formData.typeOfPain || '',
+			painIntensity: formData.painIntensity || formData.vasScale || '',
+			aggravatingFactor: formData.aggravatingFactor || '',
+			relievingFactor: formData.relievingFactor || '',
+			medicalHistory: getMedicalHistoryText(selectedPatient),
+			surgicalHistory: formData.surgicalHistory || '',
+			medications: formData.drugsText || '',
+			clinicalDiagnosis: formData.clinicalDiagnosis || '',
+			treatmentPlan: formData.treatmentPlan || [],
+			followUpVisits: formData.followUpVisits || [],
+			currentPainStatus: formData.currentPainStatus || '',
+			currentRom: formData.currentRom || '',
+			currentStrength: formData.currentStrength || '',
+			currentFunctionalAbility: formData.currentFunctionalAbility || '',
+			complianceWithHEP: formData.complianceWithHEP || '',
+			recommendations: formData.recommendations || '',
+			physiotherapistRemarks: formData.physiotherapistRemarks || formData.progressNotes || '',
+			physioName: formData.physioName || '',
+			physioRegNo: formData.physioId || '',
+		});
+	};
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -901,6 +1009,279 @@ export default function EditReport() {
 						</div>
 					</div>
 
+					{/* New Section: Clinical History - Detailed */}
+					<div className="mb-8">
+						<h3 className="mb-4 text-sm font-semibold text-sky-600">1. Clinical History (Detailed)</h3>
+						<div className="grid gap-4 sm:grid-cols-2">
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Chief Complaint</label>
+								<textarea
+									value={formData.chiefComplaint || ''}
+									onChange={e => handleFieldChange('chiefComplaint', e.target.value)}
+									className="textarea-base"
+									rows={2}
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Onset & Duration</label>
+								<select
+									value={formData.onsetType || ''}
+									onChange={e => handleFieldChange('onsetType', e.target.value)}
+									className="select-base"
+								>
+									<option value="">Select type</option>
+									<option value="Acute">Acute</option>
+									<option value="Chronic">Chronic</option>
+									<option value="Post-surgical">Post-surgical</option>
+									<option value="Traumatic">Traumatic</option>
+								</select>
+								<input
+									type="text"
+									value={formData.duration || ''}
+									onChange={e => handleFieldChange('duration', e.target.value)}
+									className="input-base mt-2"
+									placeholder="Duration details"
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Mechanism of Injury</label>
+								<textarea
+									value={formData.mechanismOfInjury || ''}
+									onChange={e => handleFieldChange('mechanismOfInjury', e.target.value)}
+									className="textarea-base"
+									rows={2}
+									placeholder="Describe activity, posture, incident."
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Pain Characteristics</label>
+								<input
+									type="text"
+									value={formData.painType || ''}
+									onChange={e => handleFieldChange('painType', e.target.value)}
+									className="input-base mb-2"
+									placeholder="Type (Sharp/Dull/Burning)"
+								/>
+								<input
+									type="text"
+									value={formData.painIntensity || ''}
+									onChange={e => handleFieldChange('painIntensity', e.target.value)}
+									className="input-base"
+									placeholder="Intensity (VAS/NPRS)"
+								/>
+							</div>
+						</div>
+					</div>
+
+					{/* Diagnosis Section */}
+					<div className="mb-8">
+						<h3 className="mb-4 text-sm font-semibold text-sky-600">3. Diagnosis/Impression</h3>
+						<div>
+							<label className="block text-xs font-medium text-slate-500">Clinical Diagnosis</label>
+							<textarea
+								value={formData.clinicalDiagnosis || ''}
+								onChange={e => handleFieldChange('clinicalDiagnosis', e.target.value)}
+								className="textarea-base"
+								rows={2}
+							/>
+						</div>
+					</div>
+
+					{/* Treatment Plan Section */}
+					<div className="mb-8">
+						<h3 className="mb-4 text-sm font-semibold text-sky-600">4. Treatment Plan - Initial Consultation</h3>
+						<table className="min-w-full divide-y divide-slate-200 border border-slate-300 text-left text-sm">
+							<thead className="bg-slate-100">
+								<tr>
+									<th className="px-3 py-2 font-semibold text-slate-700">Therapy / Modality</th>
+									<th className="px-3 py-2 font-semibold text-slate-700">Frequency / Duration</th>
+									<th className="px-3 py-2 font-semibold text-slate-700">Remarks</th>
+								</tr>
+							</thead>
+							<tbody className="divide-y divide-slate-200 bg-white">
+								{['IF1 / TENS / Ultrasound', 'Manual Therapy / Mobilization', 'Stretching / Strengthening', 'Posture Correction / Ergonomics', 'Home Exercise Program (HEP)'].map((therapy, idx) => {
+									const planItem = formData.treatmentPlan?.[idx] || { therapy, frequency: '', remarks: '' };
+									return (
+										<tr key={idx}>
+											<td className="px-3 py-2 text-slate-700">{therapy}</td>
+											<td className="px-3 py-2">
+												<input
+													type="text"
+													value={planItem.frequency}
+													onChange={e => {
+														const newPlan = [...(formData.treatmentPlan || [])];
+														newPlan[idx] = { ...planItem, frequency: e.target.value };
+														handleFieldChange('treatmentPlan', newPlan);
+													}}
+													className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+												/>
+											</td>
+											<td className="px-3 py-2">
+												<input
+													type="text"
+													value={planItem.remarks}
+													onChange={e => {
+														const newPlan = [...(formData.treatmentPlan || [])];
+														newPlan[idx] = { ...planItem, remarks: e.target.value };
+														handleFieldChange('treatmentPlan', newPlan);
+													}}
+													className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+												/>
+											</td>
+										</tr>
+									);
+								})}
+							</tbody>
+						</table>
+					</div>
+
+					{/* Follow-Up Visit Summary */}
+					<div className="mb-8">
+						<h3 className="mb-4 text-sm font-semibold text-sky-600">5. Follow-Up Visit Summary</h3>
+						<table className="min-w-full divide-y divide-slate-200 border border-slate-300 text-left text-sm">
+							<thead className="bg-slate-100">
+								<tr>
+									<th className="px-3 py-2 font-semibold text-slate-700">Visit Date</th>
+									<th className="px-3 py-2 font-semibold text-slate-700">Pain Level (VAS)</th>
+									<th className="px-3 py-2 font-semibold text-slate-700">Findings/Progress</th>
+								</tr>
+							</thead>
+							<tbody className="divide-y divide-slate-200 bg-white">
+								{[1, 2, 3, 4].map((visitNum) => {
+									const visit = formData.followUpVisits?.[visitNum - 1] || { visitDate: '', painLevel: '', findings: '' };
+									return (
+										<tr key={visitNum}>
+											<td className="px-3 py-2">
+												<input
+													type="date"
+													value={visit.visitDate}
+													onChange={e => {
+														const newVisits = [...(formData.followUpVisits || [])];
+														newVisits[visitNum - 1] = { ...visit, visitDate: e.target.value };
+														handleFieldChange('followUpVisits', newVisits);
+													}}
+													className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+												/>
+											</td>
+											<td className="px-3 py-2">
+												<input
+													type="text"
+													value={visit.painLevel}
+													onChange={e => {
+														const newVisits = [...(formData.followUpVisits || [])];
+														newVisits[visitNum - 1] = { ...visit, painLevel: e.target.value };
+														handleFieldChange('followUpVisits', newVisits);
+													}}
+													className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+												/>
+											</td>
+											<td className="px-3 py-2">
+												<input
+													type="text"
+													value={visit.findings}
+													onChange={e => {
+														const newVisits = [...(formData.followUpVisits || [])];
+														newVisits[visitNum - 1] = { ...visit, findings: e.target.value };
+														handleFieldChange('followUpVisits', newVisits);
+													}}
+													className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+												/>
+											</td>
+										</tr>
+									);
+								})}
+							</tbody>
+						</table>
+					</div>
+
+					{/* Current Status */}
+					<div className="mb-8">
+						<h3 className="mb-4 text-sm font-semibold text-sky-600">6. Current Status (as on last visit)</h3>
+						<div className="grid gap-4 sm:grid-cols-2">
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Pain</label>
+								<select
+									value={formData.currentPainStatus || ''}
+									onChange={e => handleFieldChange('currentPainStatus', e.target.value)}
+									className="select-base"
+								>
+									<option value="">Select</option>
+									<option value="Improved">Improved</option>
+									<option value="Same">Same</option>
+									<option value="Worsened">Worsened</option>
+								</select>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">ROM</label>
+								<input
+									type="text"
+									value={formData.currentRom || ''}
+									onChange={e => handleFieldChange('currentRom', e.target.value)}
+									className="input-base"
+									placeholder="Improved by _*"
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Strength</label>
+								<input
+									type="text"
+									value={formData.currentStrength || ''}
+									onChange={e => handleFieldChange('currentStrength', e.target.value)}
+									className="input-base"
+									placeholder="_% improvement noted"
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Functional Ability</label>
+								<select
+									value={formData.currentFunctionalAbility || ''}
+									onChange={e => handleFieldChange('currentFunctionalAbility', e.target.value)}
+									className="select-base"
+								>
+									<option value="">Select</option>
+									<option value="Improved">Improved</option>
+									<option value="Restricted">Restricted</option>
+								</select>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Compliance with HEP</label>
+								<select
+									value={formData.complianceWithHEP || ''}
+									onChange={e => handleFieldChange('complianceWithHEP', e.target.value)}
+									className="select-base"
+								>
+									<option value="">Select</option>
+									<option value="Excellent">Excellent</option>
+									<option value="Moderate">Moderate</option>
+									<option value="Poor">Poor</option>
+								</select>
+							</div>
+						</div>
+					</div>
+
+					{/* Recommendations */}
+					<div className="mb-8">
+						<h3 className="mb-4 text-sm font-semibold text-sky-600">7. Recommendations</h3>
+						<textarea
+							value={formData.recommendations || ''}
+							onChange={e => handleFieldChange('recommendations', e.target.value)}
+							className="textarea-base"
+							rows={3}
+							placeholder="• Continue therapy for _ more sessions&#10;• Add strengthening for _&#10;• Avoid _ activities"
+						/>
+					</div>
+
+					{/* Physiotherapist's Remarks */}
+					<div className="mb-8">
+						<h3 className="mb-4 text-sm font-semibold text-sky-600">8. Physiotherapist's Remarks</h3>
+						<textarea
+							value={formData.physiotherapistRemarks || ''}
+							onChange={e => handleFieldChange('physiotherapistRemarks', e.target.value)}
+							className="textarea-base"
+							rows={4}
+						/>
+					</div>
+
 					{/* Save Button */}
 					<div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-6">
 						<button
@@ -912,6 +1293,15 @@ export default function EditReport() {
 							className="btn-secondary"
 						>
 							Cancel
+						</button>
+						<button
+							type="button"
+							onClick={handleDownloadPDF}
+							className="btn-secondary"
+							disabled={!selectedPatient}
+						>
+							<i className="fas fa-download text-xs" aria-hidden="true" />
+							Download PDF
 						</button>
 						<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
 							<i className="fas fa-save text-xs" aria-hidden="true" />
