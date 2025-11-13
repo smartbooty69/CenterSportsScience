@@ -34,8 +34,15 @@ interface StaffMember {
 	status: string;
 }
 
+type FirestoreAppointmentRecord = AdminAppointmentRecord & {
+	id: string;
+	appointmentId?: string;
+	notes?: string;
+	createdAt?: string;
+};
+
 export default function Appointments() {
-	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string })[]>([]);
+	const [appointments, setAppointments] = useState<FirestoreAppointmentRecord[]>([]);
 	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 
@@ -69,7 +76,7 @@ export default function Appointments() {
 						notes: data.notes ? String(data.notes) : undefined,
 						billing: data.billing ? (data.billing as { amount?: string; date?: string }) : undefined,
 						createdAt: created ? created.toISOString() : (data.createdAt as string | undefined) || new Date().toISOString(),
-					} as AdminAppointmentRecord & { id: string };
+					} as FirestoreAppointmentRecord;
 				});
 				setAppointments(mapped);
 			},
@@ -198,8 +205,14 @@ export default function Appointments() {
 
 		try {
 			const appointment = appointments.find(a => a.id === editingId);
-			const oldAppointment = appointment ? { ...appointment } : null;
-			const patient = appointment?.patientId ? patientLookup.get(appointment.patientId) : undefined;
+			if (!appointment) {
+				console.error(`Appointment with id ${editingId} not found in local state.`);
+				alert('Unable to locate the selected appointment. Please refresh and try again.');
+				return;
+			}
+
+			const oldAppointment = { ...appointment };
+			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
 
 			const updateData: Record<string, unknown> = {
 				doctor: formData.doctor || null,

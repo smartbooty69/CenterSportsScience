@@ -10,6 +10,7 @@ import { collection, doc, onSnapshot, updateDoc, type QuerySnapshot } from 'fire
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import NotificationCenter, { type UpcomingReminder } from '@/components/notifications/NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 
 type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
@@ -260,28 +261,46 @@ export default function Calendar() {
 		return map;
 	}, [events]);
 
-	const notifications = useMemo(() => {
+	const upcomingReminders = useMemo<UpcomingReminder[]>(() => {
 		const now = new Date();
-		const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		const limit = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-		return events
-			.filter(event => {
-				if (!event.appointment.date) return false;
-				const dateTime = event.appointment.time
-					? new Date(`${event.appointment.date}T${event.appointment.time}`)
-					: new Date(event.appointment.date);
-				if (Number.isNaN(dateTime.getTime())) return false;
-				return dateTime >= now && dateTime <= tomorrow;
-			})
-			.sort((a, b) => {
-				const dateA = a.appointment.time
-					? new Date(`${a.appointment.date}T${a.appointment.time}`)
-					: new Date(a.appointment.date || '');
-				const dateB = b.appointment.time
-					? new Date(`${b.appointment.date}T${b.appointment.time}`)
-					: new Date(b.appointment.date || '');
-				return dateA.getTime() - dateB.getTime();
+		const reminders: UpcomingReminder[] = [];
+
+		for (const event of events) {
+			if (!event.appointment.date) continue;
+
+			const scheduledAt = event.appointment.time
+				? new Date(`${event.appointment.date}T${event.appointment.time}`)
+				: new Date(event.appointment.date);
+
+			if (Number.isNaN(scheduledAt.getTime())) continue;
+			if (scheduledAt < now || scheduledAt > limit) continue;
+
+			const title =
+				event.patient?.name || event.appointment.patient || event.appointment.patientId || 'Appointment';
+
+			const subtitleParts: string[] = [];
+			if (event.appointment.doctor) {
+				subtitleParts.push(`with ${event.appointment.doctor}`);
+			}
+			if (event.patient?.complaint) {
+				subtitleParts.push(event.patient.complaint);
+			} else if (event.appointment.notes) {
+				subtitleParts.push(event.appointment.notes);
+			}
+
+			reminders.push({
+				id: event.id,
+				title,
+				subtitle: subtitleParts.length ? subtitleParts.join(' · ') : undefined,
+				scheduledAt,
+				status: event.appointment.status ?? 'pending',
+				source: 'Calendar',
 			});
+		}
+
+		return reminders.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
 	}, [events]);
 
 	const modalEvents = useMemo(() => {
@@ -405,7 +424,7 @@ export default function Calendar() {
 				<PageHeader
 					badge="Clinical Team"
 					title="My Calendar & Notifications"
-					description="View your scheduled appointments and upcoming notifications in the next 24 hours."
+					description="View your scheduled appointments and manage upcoming reminders and notifications."
 				/>
 
 				{!clinicianName && (
@@ -549,33 +568,12 @@ export default function Calendar() {
 					)}
 				</div>
 
-				<aside className="h-fit w-full rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)] lg:w-[280px]">
-					<h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-						<i className="fas fa-bell text-amber-500" aria-hidden="true" />
-						Upcoming (24h)
-					</h3>
-					<div className="mt-4 space-y-4 text-sm">
-						{notifications.length === 0 ? (
-							<p className="text-slate-500">No upcoming appointments in the next 24 hours.</p>
-						) : (
-							notifications.map(event => (
-								<div key={`notification-${event.id}`} className="border-b border-slate-100 pb-3 last:border-b-0">
-									<p className="font-semibold text-slate-800">
-										{event.patient?.name || event.appointment.patient || event.appointment.patientId}
-									</p>
-									<p className="text-xs text-slate-500">
-										{formatDateTime(event.appointment.date, event.appointment.time)}
-									</p>
-									<span
-										className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending}`}
-									>
-										{(event.appointment.status ?? 'pending').toUpperCase()}
-									</span>
-								</div>
-							))
-						)}
-					</div>
-				</aside>
+				<NotificationCenter
+					userId={user?.uid}
+					upcomingReminders={upcomingReminders}
+					className="h-fit w-full lg:w-[320px]"
+					emptyStateHint="New notifications will appear here as appointments and system alerts are generated."
+				/>
 			</section>
 
 			{selectedDate && (
