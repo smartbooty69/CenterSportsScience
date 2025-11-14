@@ -1,16 +1,10 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/auth';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { generateRecurringDates } from '@/lib/appointmentUtils';
 
 export async function POST(req: Request) {
 	try {
-		const session = await auth();
-		if (!session) {
-			return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
-		}
-
 		const body = await req.json();
 		const {
 			patientId,

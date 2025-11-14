@@ -10,8 +10,6 @@ import { collection, doc, onSnapshot, updateDoc, type QuerySnapshot } from 'fire
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import NotificationCenter, { type UpcomingReminder } from '@/components/notifications/NotificationCenter';
-import { useAuth } from '@/contexts/AuthContext';
 
 type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
 
@@ -101,21 +99,20 @@ function normalize(value?: string | null) {
 }
 
 export default function Calendar() {
-	const { user } = useAuth();
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
+	const [loading, setLoading] = useState(true);
 
 	const [selectedDate, setSelectedDate] = useState<string | null>(null);
 	const [modalStatus, setModalStatus] = useState<'all' | string>('all');
+	const [doctorFilter, setDoctorFilter] = useState<'all' | string>('all');
 	const [currentView, setCurrentView] = useState<string>('dayGridMonth');
 	const [isRescheduling, setIsRescheduling] = useState<string | null>(null);
-	const [loading, setLoading] = useState(true);
 
 	const [detailEvent, setDetailEvent] = useState<CalendarEvent | null>(null);
 	const calendarRef = useRef<FullCalendar>(null);
-
-	const clinicianName = useMemo(() => normalize(user?.displayName ?? ''), [user?.displayName]);
+	const [seeding, setSeeding] = useState(false);
 
 	useEffect(() => {
 		let appointmentsLoaded = false;
@@ -179,6 +176,10 @@ export default function Calendar() {
 				});
 				setAppointments(mapped);
 				appointmentsLoaded = true;
+				console.log('Loaded appointments:', mapped.length);
+				if (mapped.length > 0) {
+					console.log('Sample appointment:', mapped[0]);
+				}
 				checkAllLoaded();
 			},
 			error => {
@@ -236,16 +237,27 @@ export default function Calendar() {
 		return map;
 	}, [patients]);
 
-	// Filter appointments by current clinician only (show only their schedule)
-	const assignedAppointments = useMemo(() => {
-		if (!clinicianName) {
-			return [];
+	// Get unique doctors from appointments for filter
+	const doctorOptions = useMemo(() => {
+		const set = new Set<string>();
+		appointments.forEach(appointment => {
+			if (appointment.doctor) {
+				set.add(appointment.doctor);
+			}
+		});
+		return Array.from(set).sort();
+	}, [appointments]);
+
+	// Filter appointments by doctor only (show ALL clinical team schedules by default)
+	const filteredAppointments = useMemo(() => {
+		if (doctorFilter === 'all') {
+			return appointments;
 		}
-		return appointments.filter(appointment => normalize(appointment.doctor) === clinicianName);
-	}, [appointments, clinicianName]);
+		return appointments.filter(appointment => normalize(appointment.doctor) === normalize(doctorFilter));
+	}, [appointments, doctorFilter]);
 
 	const events = useMemo<CalendarEvent[]>(() => {
-		return assignedAppointments.map(appointment => {
+		const mappedEvents = filteredAppointments.map(appointment => {
 			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
 			return {
 				id: appointment.id,
@@ -254,7 +266,9 @@ export default function Calendar() {
 				dateKey: appointment.date || '',
 			};
 		});
-	}, [assignedAppointments, patientLookup]);
+		console.log('Events mapped:', mappedEvents.length, 'from', filteredAppointments.length, 'appointments');
+		return mappedEvents;
+	}, [filteredAppointments, patientLookup]);
 
 	const eventsByDate = useMemo(() => {
 		const map = new Map<string, CalendarEvent[]>();
@@ -267,48 +281,6 @@ export default function Calendar() {
 			map.get(key)!.push(event);
 		}
 		return map;
-	}, [events]);
-
-	const upcomingReminders = useMemo<UpcomingReminder[]>(() => {
-		const now = new Date();
-		const limit = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-		const reminders: UpcomingReminder[] = [];
-
-		for (const event of events) {
-			if (!event.appointment.date) continue;
-
-			const scheduledAt = event.appointment.time
-				? new Date(`${event.appointment.date}T${event.appointment.time}`)
-				: new Date(event.appointment.date);
-
-			if (Number.isNaN(scheduledAt.getTime())) continue;
-			if (scheduledAt < now || scheduledAt > limit) continue;
-
-			const title =
-				event.patient?.name || event.appointment.patient || event.appointment.patientId || 'Appointment';
-
-			const subtitleParts: string[] = [];
-			if (event.appointment.doctor) {
-				subtitleParts.push(`with ${event.appointment.doctor}`);
-			}
-			if (event.patient?.complaint) {
-				subtitleParts.push(event.patient.complaint);
-			} else if (event.appointment.notes) {
-				subtitleParts.push(event.appointment.notes);
-			}
-
-			reminders.push({
-				id: event.id,
-				title,
-				subtitle: subtitleParts.length ? subtitleParts.join(' · ') : undefined,
-				scheduledAt,
-				status: event.appointment.status ?? 'pending',
-				source: 'Calendar',
-			});
-		}
-
-		return reminders.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
 	}, [events]);
 
 	const modalEvents = useMemo(() => {
@@ -324,6 +296,20 @@ export default function Calendar() {
 		const calendarApi = calendarRef.current?.getApi();
 		if (calendarApi) {
 			calendarApi.today();
+		}
+	};
+
+	const handlePrev = () => {
+		const calendarApi = calendarRef.current?.getApi();
+		if (calendarApi) {
+			calendarApi.prev();
+		}
+	};
+
+	const handleNext = () => {
+		const calendarApi = calendarRef.current?.getApi();
+		if (calendarApi) {
+			calendarApi.next();
 		}
 	};
 
@@ -364,81 +350,93 @@ export default function Calendar() {
 	};
 
 	const calendarEvents = useMemo(() => {
-		return events
-			.filter(event => {
-				// Filter out events without valid dates
-				if (!event.appointment.date) return false;
+		const validEvents = events.filter(event => {
+			// Filter out events without valid dates
+			if (!event.appointment.date) {
+				console.log('Event filtered: no date', event);
+				return false;
+			}
+			
+			// Validate date format (should be YYYY-MM-DD)
+			const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+			if (!dateRegex.test(event.appointment.date)) {
+				console.log('Event filtered: invalid date format', event.appointment.date, event);
+				return false;
+			}
+			
+			return true;
+		});
+
+		console.log('Total events:', events.length, 'Valid events:', validEvents.length);
+
+		const calendarEvents = validEvents.map(event => {
+			// Format date and time for FullCalendar
+			let startDateTime: string;
+			
+			if (event.appointment.time) {
+				// Time format should be HH:MM or HH:MM:SS
+				// FullCalendar accepts both, but we'll ensure it's properly formatted
+				let timeStr = event.appointment.time.trim();
 				
-				// Validate date format (should be YYYY-MM-DD)
-				const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-				if (!dateRegex.test(event.appointment.date)) return false;
-				
-				return true;
-			})
-			.map(event => {
-				// Format date and time for FullCalendar
-				let startDateTime: string;
-				
-				if (event.appointment.time) {
-					let timeStr = event.appointment.time.trim();
-					
-					// If time doesn't have seconds, add them for ISO format
-					const timeParts = timeStr.split(':');
-					if (timeParts.length === 2) {
-						timeStr = `${timeStr}:00`;
-					} else if (timeParts.length === 1) {
-						timeStr = `${timeStr}:00:00`;
-					}
-					
-					startDateTime = `${event.appointment.date}T${timeStr}`;
-				} else {
-					startDateTime = event.appointment.date || '';
+				// If time doesn't have seconds, add them for ISO format
+				const timeParts = timeStr.split(':');
+				if (timeParts.length === 2) {
+					// Format: HH:MM -> HH:MM:00
+					timeStr = `${timeStr}:00`;
+				} else if (timeParts.length === 1) {
+					// Format: HH -> HH:00:00
+					timeStr = `${timeStr}:00:00`;
 				}
+				// If already has 3 parts (HH:MM:SS), use as is
 				
-				// Extract color class name to actual color value
-				const statusColorClass = statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending;
-				const colorMap: Record<string, string> = {
-					'bg-amber-400': '#fbbf24',
-					'bg-sky-500': '#0ea5e9',
-					'bg-emerald-500': '#10b981',
-					'bg-rose-500': '#f43f5e',
-				};
-				const backgroundColor = colorMap[statusColorClass] || '#fbbf24';
-				const borderColor = colorMap[statusColorClass] || '#fbbf24';
-				
-				return {
-					id: event.id,
-					title: `${event.patient?.name || event.appointment.patient || 'Patient'}`,
-					start: startDateTime,
-					extendedProps: {
-						appointment: event.appointment,
-						patient: event.patient,
-					},
-					backgroundColor,
-					borderColor,
-					editable: true,
-					startEditable: true,
-					durationEditable: false,
-				};
-			});
+				startDateTime = `${event.appointment.date}T${timeStr}`;
+			} else {
+				// All-day event
+				startDateTime = event.appointment.date || '';
+			}
+			
+			// Include doctor name in title for frontdesk view
+			const patientName = event.patient?.name || event.appointment.patient || 'Patient';
+			const doctorName = event.appointment.doctor ? ` - ${event.appointment.doctor}` : '';
+			const title: string = `${patientName}${doctorName}`;
+			
+			// Extract color class name to actual color value
+			const statusColorClass = statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending;
+			// Convert Tailwind classes to hex colors
+			const colorMap: Record<string, string> = {
+				'bg-amber-400': '#fbbf24',
+				'bg-sky-500': '#0ea5e9',
+				'bg-emerald-500': '#10b981',
+				'bg-rose-500': '#f43f5e',
+			};
+			const backgroundColor = colorMap[statusColorClass] || '#fbbf24';
+			const borderColor = colorMap[statusColorClass] || '#fbbf24';
+
+			const calendarEvent = {
+				id: event.id,
+				title,
+				start: startDateTime,
+				extendedProps: {
+					appointment: event.appointment,
+					patient: event.patient,
+				},
+				backgroundColor,
+				borderColor,
+				editable: true,
+				startEditable: true,
+				durationEditable: false,
+			};
+
+			console.log('Calendar event created:', calendarEvent);
+			return calendarEvent;
+		});
+
+		console.log('Final calendar events count:', calendarEvents.length);
+		return calendarEvents;
 	}, [events]);
 
 	const handleViewChange = (view: ViewMountArg) => {
 		setCurrentView(view.view.type);
-	};
-
-	const handlePrev = () => {
-		const calendarApi = calendarRef.current?.getApi();
-		if (calendarApi) {
-			calendarApi.prev();
-		}
-	};
-
-	const handleNext = () => {
-		const calendarApi = calendarRef.current?.getApi();
-		if (calendarApi) {
-			calendarApi.next();
-		}
 	};
 
 	// Auto-navigate to the month with the earliest appointment
@@ -455,16 +453,19 @@ export default function Calendar() {
 				const eventDate = new Date(earliestEvent.start);
 				const currentDate = calendarApi.getDate();
 				
+				// Only navigate if we're not already viewing a month with appointments
 				const currentMonth = currentDate.getMonth();
 				const currentYear = currentDate.getFullYear();
 				const eventMonth = eventDate.getMonth();
 				const eventYear = eventDate.getFullYear();
 
+				// Check if any events are in the current month
 				const hasEventsInCurrentMonth = calendarEvents.some(event => {
 					const evtDate = new Date(event.start);
 					return evtDate.getMonth() === currentMonth && evtDate.getFullYear() === currentYear;
 				});
 
+				// If no events in current month, navigate to the month with the earliest event
 				if (!hasEventsInCurrentMonth) {
 					calendarApi.gotoDate(eventDate);
 				}
@@ -508,6 +509,31 @@ export default function Calendar() {
 		}
 	};
 
+	const handleSeedAppointments = async () => {
+		if (!window.confirm('This will create sample appointments for the next 14 days. Continue?')) {
+			return;
+		}
+
+		setSeeding(true);
+		try {
+			const response = await fetch('/api/appointments/seed', {
+				method: 'POST',
+			});
+			const result = await response.json();
+			
+			if (result.success) {
+				alert(`Successfully created ${result.data.count} sample appointments!`);
+			} else {
+				alert(`Failed to seed appointments: ${result.message}`);
+			}
+		} catch (error) {
+			console.error('Failed to seed appointments:', error);
+			alert('Failed to seed appointments. Please try again.');
+		} finally {
+			setSeeding(false);
+		}
+	};
+
 	if (loading) {
 		return (
 			<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -525,22 +551,60 @@ export default function Calendar() {
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
 				<PageHeader
-					badge="Clinical Team"
-					title="My Calendar & Notifications"
-					description="View your scheduled appointments and manage upcoming reminders and notifications."
+					badge="Front Desk"
+					title="Clinical Team Schedule"
+					description="View all clinical team schedules and appointments. Filter by doctor to focus on specific clinicians."
+					actions={
+						appointments.length === 0 ? (
+							<button
+								type="button"
+								onClick={handleSeedAppointments}
+								disabled={seeding}
+								className="inline-flex items-center rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								{seeding ? (
+									<>
+										<div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent" />
+										Creating...
+									</>
+								) : (
+									<>
+										<i className="fas fa-seedling mr-2 text-xs" aria-hidden="true" />
+										Add Sample Appointments
+									</>
+								)}
+							</button>
+						) : null
+					}
 				/>
 
-				{!clinicianName && (
+				{appointments.length === 0 && (
 					<div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-						No clinician name found. Appointments are filtered by your display name.
+						No appointments found. Appointments will appear here once they are created.
 					</div>
 				)}
 
-				{assignedAppointments.length === 0 && appointments.length > 0 && (
+				{appointments.length > 0 && calendarEvents.length === 0 && (
 					<div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-						No appointments found for your schedule. Make sure your display name matches the doctor name in appointments.
+						Found {appointments.length} appointment(s), but none have valid dates. Please check that appointments have dates in YYYY-MM-DD format.
 					</div>
 				)}
+
+				{calendarEvents.length > 0 && (() => {
+					const earliestEvent = calendarEvents.reduce((earliest, event) => {
+						const eventDate = new Date(event.start);
+						const earliestDate = new Date(earliest.start);
+						return eventDate < earliestDate ? event : earliest;
+					}, calendarEvents[0]);
+					const earliestDate = new Date(earliestEvent.start);
+					const monthName = earliestDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+					
+					return (
+						<div className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+							💡 <strong>Tip:</strong> Your appointments are in <strong>{monthName}</strong>. Use the navigation arrows or click "Today" to navigate to that month.
+						</div>
+					);
+				})()}
 
 				{calendarEvents.length > 0 && (
 					<div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-sky-50 px-5 py-4">
@@ -550,9 +614,9 @@ export default function Calendar() {
 							</div>
 							<div>
 								<p className="text-sm font-semibold text-slate-900">
-									Showing {calendarEvents.length} appointment{calendarEvents.length !== 1 ? 's' : ''} on your schedule
+									Showing {calendarEvents.length} appointment{calendarEvents.length !== 1 ? 's' : ''}
 								</p>
-								<p className="text-xs text-slate-600">Your upcoming appointments</p>
+								<p className="text-xs text-slate-600">Out of {appointments.length} total appointment{appointments.length !== 1 ? 's' : ''}</p>
 							</div>
 						</div>
 						<div className="flex items-center gap-3">
@@ -663,6 +727,25 @@ export default function Calendar() {
 									</button>
 								</div>
 							</div>
+							<div className="flex items-center gap-2">
+								<label htmlFor="doctor-filter" className="flex items-center gap-2 text-sm font-medium text-slate-700">
+									<i className="fas fa-user-md text-sky-600" aria-hidden="true" />
+									<span>Doctor:</span>
+								</label>
+								<select
+									id="doctor-filter"
+									value={doctorFilter}
+									onChange={event => setDoctorFilter(event.target.value)}
+									className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-sky-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
+								>
+									<option value="all">All Doctors</option>
+									{doctorOptions.map(doctor => (
+										<option key={doctor} value={doctor}>
+											{doctor}
+										</option>
+									))}
+								</select>
+							</div>
 						</div>
 					<div className="[&_.fc-toolbar-title]:text-xl [&_.fc-toolbar-title]:font-bold [&_.fc-toolbar-title]:text-slate-800 [&_.fc-button]:border-slate-300 [&_.fc-button]:bg-white [&_.fc-button]:text-slate-700 [&_.fc-button]:font-medium [&_.fc-button:hover]:border-sky-400 [&_.fc-button:hover]:bg-sky-50 [&_.fc-button:hover]:text-sky-700 [&_.fc-button-active]:bg-sky-100 [&_.fc-button-active]:border-sky-400 [&_.fc-button-active]:text-sky-700 [&_.fc-button-active]:shadow-sm [&_.fc-daygrid-day-number]:text-slate-700 [&_.fc-daygrid-day-number]:font-medium [&_.fc-col-header-cell]:bg-gradient-to-b [&_.fc-col-header-cell]:from-slate-50 [&_.fc-col-header-cell]:to-slate-100 [&_.fc-col-header-cell]:text-slate-700 [&_.fc-col-header-cell]:font-semibold [&_.fc-col-header-cell]:py-3 [&_.fc-day-today]:bg-gradient-to-br [&_.fc-day-today]:from-sky-50 [&_.fc-day-today]:to-blue-50 [&_.fc-day-today]:border-2 [&_.fc-day-today]:border-sky-300 [&_.fc-timegrid-slot]:min-h-[2.5em] [&_.fc-event]:cursor-pointer [&_.fc-event]:transition-all [&_.fc-event:hover]:shadow-md [&_.fc-event:hover]:scale-[1.02] [&_.fc-event-title]:font-medium [&_.fc-event-title]:px-1">
 						<FullCalendar
@@ -714,86 +797,80 @@ export default function Calendar() {
 							</div>
 						)}
 					</div>
+				</section>
 
-				<NotificationCenter
-					userId={user?.uid}
-					upcomingReminders={upcomingReminders}
-					className="h-fit w-full lg:w-[320px]"
-					emptyStateHint="New notifications will appear here as appointments and system alerts are generated."
-				/>
-			</section>
-
-			{selectedDate && (
-				<div
-					role="dialog"
-					aria-modal="true"
-					className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4 py-6"
-				>
-					<div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
-						<header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-6 py-5">
-							<div>
-								<h2 className="text-xl font-bold text-slate-900">
-									<i className="fas fa-calendar-day mr-2 text-sky-600" aria-hidden="true" />
-									Appointments for {formatDateLong(selectedDate)}
-								</h2>
-								<p className="mt-1 text-sm text-slate-600">
-									Filter by status to focus the list.
-								</p>
-							</div>
-							<button
-								type="button"
-								onClick={closeDayModal}
-								className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:bg-slate-100 focus-visible:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-								aria-label="Close dialog"
-							>
-								<i className="fas fa-times text-lg" aria-hidden="true" />
-							</button>
-						</header>
-						<div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-							<div className="flex flex-wrap items-center gap-3">
-								<label className="text-sm font-medium text-slate-700">Filter by status:</label>
-								<select
-									value={modalStatus}
-									onChange={event => setModalStatus(event.target.value)}
-									className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-sky-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
+				{selectedDate && (
+					<div
+						role="dialog"
+						aria-modal="true"
+						className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4 py-6"
+					>
+						<div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+							<header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-6 py-5">
+								<div>
+									<h2 className="text-xl font-bold text-slate-900">
+										<i className="fas fa-calendar-day mr-2 text-sky-600" aria-hidden="true" />
+										Appointments for {formatDateLong(selectedDate)}
+									</h2>
+									<p className="mt-1 text-sm text-slate-600">
+										Filter by status to focus the list.
+									</p>
+								</div>
+								<button
+									type="button"
+									onClick={closeDayModal}
+									className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:bg-slate-100 focus-visible:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+									aria-label="Close dialog"
 								>
-									{statusOptions.map(option => (
-										<option key={option.value} value={option.value}>
-											{option.label}
-										</option>
-									))}
-								</select>
+									<i className="fas fa-times text-lg" aria-hidden="true" />
+								</button>
+							</header>
+							<div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+								<div className="flex flex-wrap items-center gap-3">
+									<label className="text-sm font-medium text-slate-700">Filter by status:</label>
+									<select
+										value={modalStatus}
+										onChange={event => setModalStatus(event.target.value)}
+										className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-sky-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
+									>
+										{statusOptions.map(option => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								</div>
 							</div>
-						</div>
-						<div className="max-h-[420px] overflow-y-auto px-6 py-4">
-							{modalEvents.length === 0 ? (
-								<p className="py-10 text-center text-sm text-slate-500">
-									No appointments found for the selected criteria.
-								</p>
-							) : (
-								<ul className="space-y-3">
-									{modalEvents.map(event => (
+							<div className="max-h-[420px] overflow-y-auto px-6 py-4">
+								{modalEvents.length === 0 ? (
+									<p className="py-10 text-center text-sm text-slate-500">
+										No appointments found for the selected criteria.
+									</p>
+								) : (
+									<ul className="space-y-3">
+										{modalEvents.map(event => (
 										<li
 											key={`modal-${event.id}`}
 											className="group flex items-start justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm transition-all hover:border-sky-300 hover:shadow-md"
 										>
-											<div>
-												<p className="text-sm font-semibold text-slate-800">
-													{event.patient?.name || event.appointment.patient || event.appointment.patientId}
-												</p>
-												<p className="text-xs text-slate-500">
-													{event.appointment.time || 'All-day'}
-												</p>
-												<p className="mt-2 text-xs text-slate-500">
-													{event.patient?.complaint || 'No notes on file.'}
-												</p>
-											</div>
-											<div className="flex flex-col items-end gap-2">
-												<span
-													className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending}`}
-												>
-													{(event.appointment.status ?? 'pending').toUpperCase()}
-												</span>
+												<div>
+													<p className="text-sm font-semibold text-slate-800">
+														{event.patient?.name || event.appointment.patient || event.appointment.patientId}
+													</p>
+													<p className="text-xs text-slate-500">
+														{event.appointment.time || 'All-day'}
+														{event.appointment.doctor && ` · ${event.appointment.doctor}`}
+													</p>
+													<p className="mt-2 text-xs text-slate-500">
+														{event.patient?.complaint || 'No notes on file.'}
+													</p>
+												</div>
+												<div className="flex flex-col items-end gap-2">
+													<span
+														className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending}`}
+													>
+														{(event.appointment.status ?? 'pending').toUpperCase()}
+													</span>
 												<button
 													type="button"
 													onClick={() => openDetail(event)}
@@ -802,37 +879,37 @@ export default function Calendar() {
 													<i className="fas fa-eye text-[10px]" aria-hidden="true" />
 													View Details
 												</button>
-											</div>
-										</li>
-									))}
-								</ul>
-							)}
+												</div>
+											</li>
+										))}
+									</ul>
+								)}
+							</div>
 						</div>
 					</div>
-				</div>
-			)}
+				)}
 
-			{detailEvent && (
-				<div
-					role="dialog"
-					aria-modal="true"
-					className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4 py-6"
-				>
-					<div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
-						<header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-6 py-5">
-							<h2 className="text-xl font-bold text-slate-900">
-								<i className="fas fa-info-circle mr-2 text-sky-600" aria-hidden="true" />
-								Appointment Details
-							</h2>
-							<button
-								type="button"
-								onClick={closeDetail}
-								className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:bg-slate-100 focus-visible:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-								aria-label="Close dialog"
-							>
-								<i className="fas fa-times text-lg" aria-hidden="true" />
-							</button>
-						</header>
+				{detailEvent && (
+					<div
+						role="dialog"
+						aria-modal="true"
+						className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4 py-6"
+					>
+						<div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
+							<header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-6 py-5">
+								<h2 className="text-xl font-bold text-slate-900">
+									<i className="fas fa-info-circle mr-2 text-sky-600" aria-hidden="true" />
+									Appointment Details
+								</h2>
+								<button
+									type="button"
+									onClick={closeDetail}
+									className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+									aria-label="Close dialog"
+								>
+									<i className="fas fa-times" aria-hidden="true" />
+								</button>
+							</header>
 						<div className="space-y-4 px-6 py-6">
 							<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 								<div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -846,6 +923,10 @@ export default function Calendar() {
 								<div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
 									<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Patient ID</p>
 									<p className="mt-1 text-sm font-semibold text-slate-900">{detailEvent.appointment.patientId || '—'}</p>
+								</div>
+								<div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+									<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Doctor</p>
+									<p className="mt-1 text-sm font-semibold text-slate-900">{detailEvent.appointment.doctor || '—'}</p>
 								</div>
 								<div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
 									<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date</p>
@@ -891,9 +972,9 @@ export default function Calendar() {
 								Close
 							</button>
 						</footer>
+						</div>
 					</div>
-				</div>
-			)}
+				)}
 			</div>
 		</div>
 	);

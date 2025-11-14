@@ -7,13 +7,15 @@ import Register from './components/Register';
 import Appointments from './components/Appointments';
 import Billing from './components/Billing';
 import Reports from './components/Reports';
+import Calendar from './components/Calendar';
 
-type FrontdeskPage = 'dashboard' | 'register' | 'appointments' | 'billing' | 'reports';
+type FrontdeskPage = 'dashboard' | 'register' | 'appointments' | 'billing' | 'reports' | 'calendar';
 
 const frontdeskLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-home' },
 	{ href: '#register', label: 'Register Patient', icon: 'fas fa-user-plus' },
 	{ href: '#appointments', label: 'Appointments', icon: 'fas fa-calendar-check' },
+	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-alt' },
 	{ href: '#billing', label: 'Billing', icon: 'fas fa-file-invoice-dollar' },
 	{ href: '#reports', label: 'Reports', icon: 'fas fa-chart-line' },
 ];
@@ -34,6 +36,8 @@ export default function FrontdeskLayout({ children }: { children: React.ReactNod
 				return <Register />;
 			case 'appointments':
 				return <Appointments />;
+			case 'calendar':
+				return <Calendar />;
 			case 'billing':
 				return <Billing />;
 			case 'reports':

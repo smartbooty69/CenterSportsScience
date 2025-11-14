@@ -7,6 +7,7 @@ import PageHeader from '@/components/PageHeader';
 import { generatePhysiotherapyReportPDF } from '@/lib/pdfGenerator';
 
 interface PatientRecord {
+	id?: string;
 	patientId: string;
 	name: string;
 	dob: string;
@@ -159,6 +160,7 @@ export default function Reports() {
 				const mapped = snapshot.docs.map(docSnap => {
 					const data = docSnap.data() as Record<string, unknown>;
 					return {
+						id: docSnap.id,
 						patientId: data.patientId ? String(data.patientId) : '',
 						name: data.name ? String(data.name) : '',
 						dob: data.dob ? String(data.dob) : '',
@@ -495,7 +497,7 @@ export default function Reports() {
 							</thead>
 							<tbody className="divide-y divide-slate-100">
 								{patients.map(patient => (
-									<tr key={patient.patientId}>
+									<tr key={patient.id || patient.patientId}>
 										<td className="px-4 py-4 text-sm font-medium text-slate-800">{patient.patientId || '—'}</td>
 										<td className="px-4 py-4 text-sm text-slate-700">{patient.name || 'Unnamed'}</td>
 										<td className="px-4 py-4">
