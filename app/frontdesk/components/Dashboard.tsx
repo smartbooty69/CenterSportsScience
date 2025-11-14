@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
-import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import DashboardWidget from '@/components/dashboard/DashboardWidget';
+import StatsChart from '@/components/dashboard/StatsChart';
+import { db } from '@/lib/firebase';
 import type { AdminAppointmentStatus } from '@/lib/adminMockData';
 
 type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
@@ -205,6 +207,73 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 		};
 	}, [patients, appointments, staff]);
 
+	const appointmentTrendData = useMemo(() => {
+		const today = new Date();
+		const dayBuckets = Array.from({ length: 7 }, (_, index) => {
+			const date = new Date(today);
+			date.setDate(today.getDate() - (6 - index));
+			const isoKey = date.toISOString().split('T')[0];
+			const label = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date);
+			const count = appointments.filter(
+				apt => apt.date === isoKey && apt.status !== 'cancelled'
+			).length;
+			return { label, count };
+		});
+
+		return {
+			labels: dayBuckets.map(bucket => bucket.label),
+			datasets: [
+				{
+					label: 'Appointments',
+					data: dayBuckets.map(bucket => bucket.count),
+					borderColor: '#0ea5e9',
+					backgroundColor: 'rgba(14, 165, 233, 0.2)',
+					fill: true,
+					tension: 0.3,
+				},
+			],
+		};
+	}, [appointments]);
+
+	const statusDistributionData = useMemo(() => {
+		const pendingCount = stats.pending.length;
+		const ongoingCount = stats.ongoing.length;
+		const completedCount = stats.completed.length;
+
+		return {
+			labels: ['Pending', 'Ongoing', 'Completed'],
+			datasets: [
+				{
+					label: 'Patients',
+					data: [pendingCount, ongoingCount, completedCount],
+					backgroundColor: ['#fbbf24', '#38bdf8', '#34d399'],
+					borderColor: '#ffffff',
+					borderWidth: 1,
+				},
+			],
+		};
+	}, [stats.pending.length, stats.ongoing.length, stats.completed.length]);
+
+	const staffLoadData = useMemo(() => {
+		const activeStaff = stats.appointments.byStaff.filter(member => member.count > 0);
+		const hasData = activeStaff.length > 0;
+		const labels = hasData ? activeStaff.map(member => member.staffName || 'Unassigned') : ['No data'];
+		const data = hasData ? activeStaff.map(member => member.count) : [0];
+
+		return {
+			labels,
+			datasets: [
+				{
+					label: 'Active appointments',
+					data,
+					backgroundColor: hasData ? 'rgba(14, 165, 233, 0.4)' : 'rgba(148, 163, 184, 0.4)',
+					borderColor: hasData ? '#0ea5e9' : '#94a3b8',
+					borderWidth: 1,
+				},
+			],
+		};
+	}, [stats.appointments.byStaff]);
+
 	const modalTitle = useMemo(() => {
 		switch (modal) {
 			case 'patients':
@@ -329,39 +398,106 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
 				{/* Statistics Overview Section */}
 				<section>
-					<div className="mb-6">
-						<h2 className="text-xl font-semibold text-slate-900">Patient Overview</h2>
-						<p className="mt-1 text-sm text-slate-500">
-							Quick access to patient statistics and status breakdowns
+					<DashboardWidget title="Patient Overview" icon="fas fa-user-injured" collapsible className="space-y-6">
+						<p className="text-sm text-slate-500">
+							Quick access to patient statistics and status breakdowns.
 						</p>
-					</div>
-					<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-						{dashboardCards.map(card => (
-							<button
-								key={card.key}
-								type="button"
-								onClick={() => setModal(card.key)}
-								className="group card-base"
-							>
-								<div className="flex items-center justify-between">
-									<span
-										className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.accent}`}
-										aria-hidden="true"
-									>
-										<i className={card.icon} />
+						<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+							{dashboardCards.map(card => (
+								<button
+									key={card.key}
+									type="button"
+									onClick={() => setModal(card.key)}
+									className="group card-base text-left"
+								>
+									<div className="flex items-center justify-between">
+										<span
+											className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.accent}`}
+											aria-hidden="true"
+										>
+											<i className={card.icon} />
+										</span>
+										<span className="text-3xl font-bold text-slate-900">{card.count}</span>
+									</div>
+									<div>
+										<p className="text-sm font-semibold text-slate-900">{card.title}</p>
+										<p className="mt-1 text-xs text-slate-500">{card.subtitle}</p>
+									</div>
+									<span className="mt-auto inline-flex items-center text-sm font-semibold text-sky-600 group-hover:text-sky-700 group-focus-visible:text-sky-700">
+										View details <i className="fas fa-arrow-right ml-2 text-xs" aria-hidden="true" />
 									</span>
-									<span className="text-3xl font-bold text-slate-900">{card.count}</span>
+								</button>
+							))}
+						</div>
+					</DashboardWidget>
+				</section>
+
+				{/* Divider */}
+				<div className="border-t border-slate-200" />
+
+				{/* Analytics Section */}
+				<section>
+					<DashboardWidget title="Analytics Overview" icon="fas fa-chart-line" collapsible className="space-y-6">
+						<p className="text-sm text-slate-500">
+							Visualize appointment flow, patient distribution, and team workload in real time.
+						</p>
+						<div className="grid gap-6 lg:grid-cols-2">
+							<div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+								<p className="text-sm font-semibold text-slate-800">Weekly Appointment Trend</p>
+								<p className="text-xs text-slate-500">Includes the last 7 days of confirmed sessions.</p>
+								<div className="mt-4">
+									<StatsChart type="line" data={appointmentTrendData} height={260} />
 								</div>
-								<div>
-									<p className="text-sm font-semibold text-slate-900">{card.title}</p>
-									<p className="mt-1 text-xs text-slate-500">{card.subtitle}</p>
+							</div>
+							<div className="grid gap-6 sm:grid-cols-2">
+								<div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+									<p className="text-sm font-semibold text-slate-800">Patient Status Mix</p>
+									<p className="text-xs text-slate-500">Pending vs. ongoing vs. completed.</p>
+									<div className="mt-4">
+										<StatsChart type="doughnut" data={statusDistributionData} height={220} />
+									</div>
 								</div>
-								<span className="mt-auto inline-flex items-center text-sm font-semibold text-sky-600 group-hover:text-sky-700 group-focus-visible:text-sky-700">
-									View details <i className="fas fa-arrow-right ml-2 text-xs" aria-hidden="true" />
-								</span>
-							</button>
-						))}
-					</div>
+								<div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+									<p className="text-sm font-semibold text-slate-800">Team Workload</p>
+									<p className="text-xs text-slate-500">Active appointments by clinician.</p>
+									<div className="mt-4">
+										<StatsChart type="bar" data={staffLoadData} height={220} />
+									</div>
+								</div>
+							</div>
+						</div>
+					</DashboardWidget>
+				</section>
+
+				{/* Divider */}
+				<div className="border-t border-slate-200" />
+
+				{/* Quick Actions Section */}
+				<section>
+					<DashboardWidget title="Quick Actions" icon="fas fa-bolt" collapsible className="space-y-6">
+						<p className="text-sm text-slate-500">Jump directly into the workflows you use most.</p>
+						<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+							{quickLinks.map(link => (
+								<button
+									key={link.href}
+									type="button"
+									onClick={() => handleQuickLinkClick(link.href)}
+									className="group card-base gap-3"
+								>
+									<span className={ICON_WRAPPER} aria-hidden="true">
+										<i className={link.icon} />
+									</span>
+									<div>
+										<h3 className="text-lg font-semibold text-slate-900">{link.title}</h3>
+										<p className="mt-1 text-sm text-slate-500">{link.summary}</p>
+									</div>
+									<span className="mt-auto inline-flex items-center text-sm font-semibold text-sky-600 group-hover:text-sky-700 group-focus-visible:text-sky-700">
+										Open <i className="fas fa-arrow-right ml-2 text-xs" aria-hidden="true" />
+									</span>
+								</button>
+							))}
+						</div>
+					</DashboardWidget>
 				</section>
 
 				{/* Divider */}
@@ -369,66 +505,65 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
 				{/* Daily Operations Section */}
 				<section>
-					<div className="mb-6">
-						<h2 className="text-xl font-semibold text-slate-900">Daily Operations</h2>
-						<p className="mt-1 text-sm text-slate-500">
-							Monitor today&apos;s activity and access helpful resources
+					<DashboardWidget title="Daily Operations" icon="fas fa-clipboard-check" collapsible className="space-y-6">
+						<p className="text-sm text-slate-500">
+							Monitor today&apos;s activity and access helpful resources.
 						</p>
-					</div>
-					<div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<h3 className="text-lg font-semibold text-slate-900">Today&apos;s Snapshot</h3>
-							<p className="mt-1 text-sm text-slate-500">
-								Breakdown of active cases by status to help balance your day.
-							</p>
-							<div className="mt-6 space-y-3">
-								{(['pending', 'ongoing', 'completed'] as Array<'pending' | 'ongoing' | 'completed'>).map(key => (
-									<div
-										key={key}
-										className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3"
-									>
-										<div>
-											<p className="text-sm font-semibold text-slate-800">
-												{key === 'pending' ? 'Pending' : key === 'ongoing' ? 'Ongoing' : 'Completed'}
-											</p>
-											<p className="text-xs text-slate-500">
-												{key === 'pending'
-													? 'Waiting for confirmation or scheduling'
-													: key === 'ongoing'
-														? 'In session or scheduled today'
-														: 'Ready for follow-up or discharge'}
-											</p>
+						<div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+							<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+								<h3 className="text-lg font-semibold text-slate-900">Today&apos;s Snapshot</h3>
+								<p className="mt-1 text-sm text-slate-500">
+									Breakdown of active cases by status to help balance your day.
+								</p>
+								<div className="mt-6 space-y-3">
+									{(['pending', 'ongoing', 'completed'] as Array<'pending' | 'ongoing' | 'completed'>).map(key => (
+										<div
+											key={key}
+											className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3"
+										>
+											<div>
+												<p className="text-sm font-semibold text-slate-800">
+													{key === 'pending' ? 'Pending' : key === 'ongoing' ? 'Ongoing' : 'Completed'}
+												</p>
+												<p className="text-xs text-slate-500">
+													{key === 'pending'
+														? 'Waiting for confirmation or scheduling'
+														: key === 'ongoing'
+															? 'In session or scheduled today'
+															: 'Ready for follow-up or discharge'}
+												</p>
+											</div>
+											<div className="flex items-center gap-3">
+												<span className="text-2xl font-bold text-slate-900">
+													{key === 'pending'
+														? stats.pending.length
+														: key === 'ongoing'
+															? stats.ongoing.length
+															: stats.completed.length}
+												</span>
+												<button
+													type="button"
+													onClick={() => setModal(key)}
+													className="text-xs font-semibold text-sky-600 hover:text-sky-500"
+												>
+													View
+												</button>
+											</div>
 										</div>
-										<div className="flex items-center gap-3">
-											<span className="text-2xl font-bold text-slate-900">
-												{key === 'pending'
-													? stats.pending.length
-													: key === 'ongoing'
-														? stats.ongoing.length
-														: stats.completed.length}
-											</span>
-											<button
-												type="button"
-												onClick={() => setModal(key)}
-												className="text-xs font-semibold text-sky-600 hover:text-sky-500"
-											>
-												View
-											</button>
-										</div>
-									</div>
-								))}
+									))}
+								</div>
+							</div>
+
+							<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+								<h3 className="text-lg font-semibold text-slate-900">Quick Tips</h3>
+								<ul className="mt-4 space-y-3 text-sm text-slate-600">
+									<li>Confirm pending appointments by noon to keep the clinical team&apos;s schedule accurate.</li>
+									<li>Mark treatments as completed once documentation is received so billing can proceed without delay.</li>
+									<li>Export the latest roster before end-of-day reporting to catch outstanding paperwork.</li>
+								</ul>
 							</div>
 						</div>
-
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<h3 className="text-lg font-semibold text-slate-900">Quick Tips</h3>
-							<ul className="mt-4 space-y-3 text-sm text-slate-600">
-								<li>Confirm pending appointments by noon to keep the clinical team&apos;s schedule accurate.</li>
-								<li>Mark treatments as completed once documentation is received so billing can proceed without delay.</li>
-								<li>Export the latest roster before end-of-day reporting to catch outstanding paperwork.</li>
-							</ul>
-						</div>
-					</div>
+					</DashboardWidget>
 				</section>
 			</div>
 
