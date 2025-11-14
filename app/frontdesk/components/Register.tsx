@@ -15,6 +15,8 @@ import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { sendWhatsAppNotification } from '@/lib/whatsapp';
 
 type PaymentTypeOption = 'with' | 'without';
+// MODIFIED: Changed Gethhma to GETHNA
+type PatientTypeOption = 'DYES' | 'VIP' | 'GETHNA' | 'PAID' | '';
 
 interface FrontdeskPatient {
 	id?: string;
@@ -28,6 +30,7 @@ interface FrontdeskPatient {
 	complaint?: string;
 	status: AdminPatientStatus;
 	registeredAt: string;
+	patientType: PatientTypeOption;
 	paymentType: PaymentTypeOption;
 	paymentDescription?: string;
 	assignedDoctor?: string;
@@ -73,6 +76,14 @@ const BANNER_STYLES: Record<NonNullable<BannerState['accent']>, string> = {
 	emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700',
 	sky: 'border-sky-200 bg-sky-50 text-sky-700',
 };
+
+// MODIFIED: Changed Gethhma to GETHNA
+const PATIENT_TYPE_OPTIONS: Array<{ value: PatientTypeOption; label: string }> = [
+	{ value: 'DYES', label: 'DYES' },
+	{ value: 'VIP', label: 'VIP' },
+	{ value: 'PAID', label: 'PAID' },
+	{ value: 'GETHNA', label: 'GETHNA' },
+];
 
 const PAYMENT_OPTIONS: Array<{ value: PaymentTypeOption; label: string }> = [
 	{ value: 'with', label: 'With Concession' },
@@ -146,6 +157,7 @@ export default function Register() {
 		phone: '',
 		email: '',
 		address: '',
+		patientType: '' as PatientTypeOption,
 		paymentType: '' as PaymentTypeOption | '',
 		paymentDescription: '',
 	});
@@ -176,6 +188,7 @@ export default function Register() {
 						complaint: data.complaint ? String(data.complaint) : undefined,
 						status: (data.status as AdminPatientStatus) ?? 'pending',
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
+						patientType: (data.patientType as PatientTypeOption) || '',
 						paymentType: (data.paymentType as PaymentTypeOption) || 'without',
 						paymentDescription: data.paymentDescription ? String(data.paymentDescription) : undefined,
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
@@ -252,7 +265,7 @@ export default function Register() {
 		}));
 	};
 
-	const validateForm = (): boolean => {
+	const validateForm = () => {
 		const errors: Partial<Record<keyof typeof form, string>> = {};
 		if (!form.fullName.trim()) {
 			errors.fullName = 'Please enter the patient\'s full name.';
@@ -271,41 +284,24 @@ export default function Register() {
 		if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
 			errors.email = 'Please enter a valid email address.';
 		}
-		if (!form.paymentType) {
+		if (!form.patientType) {
+			errors.patientType = 'Please select Type of Organization.';
+		}
+		if (form.patientType === 'PAID' && !form.paymentType) {
 			errors.paymentType = 'Please select payment type.';
 		}
 
 		setFormErrors(errors);
-		const isValid = Object.keys(errors).length === 0;
-		
-		if (!isValid) {
-			console.warn('Form validation errors:', errors);
-		}
-		
-		return isValid;
+		return Object.keys(errors).length === 0;
 	};
 
 	const handleRegister = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		
-		if (submitting) {
-			console.warn('Registration already in progress');
-			return;
-		}
-
-		if (!validateForm()) {
-			console.warn('Form validation failed', formErrors);
-			return;
-		}
+		if (!validateForm() || submitting) return;
 
 		setSubmitting(true);
-		setBanner(null);
-		
 		try {
-			console.log('Starting patient registration...', { form });
-			
 			const patientId = await generatePatientId();
-			console.log('Generated patient ID:', patientId);
 			
 			const patientData = {
 				patientId,
@@ -318,13 +314,12 @@ export default function Register() {
 				complaint: '',
 				status: 'pending' as AdminPatientStatus,
 				registeredAt: serverTimestamp(),
-				paymentType: form.paymentType as PaymentTypeOption,
-				paymentDescription: form.paymentDescription.trim() || undefined,
+				patientType: form.patientType as PatientTypeOption,
+				paymentType: form.patientType === 'PAID' ? (form.paymentType as PaymentTypeOption) : 'without' as PaymentTypeOption,
+				paymentDescription: form.patientType === 'PAID' ? (form.paymentDescription.trim() || undefined) : undefined,
 			};
 
-			console.log('Attempting to add patient to Firestore...', patientData);
-			const docRef = await addDoc(collection(db, 'patients'), patientData);
-			console.log('Patient added successfully with document ID:', docRef.id);
+			await addDoc(collection(db, 'patients'), patientData);
 
 			// Send registration email if email is provided
 			let emailSent = false;
@@ -374,6 +369,7 @@ export default function Register() {
 				phone: '',
 				email: '',
 				address: '',
+				patientType: '',
 				paymentType: '',
 				paymentDescription: '',
 			});
@@ -392,16 +388,9 @@ export default function Register() {
 			});
 		} catch (error) {
 			console.error('Failed to register patient', error);
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-			console.error('Error details:', {
-				message: errorMessage,
-				error,
-				formData: form,
-			});
-			
 			setBanner({
 				title: 'Registration failed',
-				description: `Failed to register patient: ${errorMessage}. Please check the console for details and try again.`,
+				description: 'Failed to register patient. Please try again.',
 				accent: 'sky',
 			});
 		} finally {
@@ -703,44 +692,82 @@ export default function Register() {
 							</div>
 						</div>
 
-						{/* Row 4: Payment Type (6 cols), Payment Description (6 cols) */}
+						{/* Row 4: Type of Organization (12 cols) */}
 						<div className="grid gap-4 md:grid-cols-12">
-							<div className="md:col-span-6">
+							<div className="md:col-span-12">
 								<label className="block text-sm font-medium text-slate-700">
-									Type of Payment <span className="text-rose-600">*</span>
+									Type of Organization <span className="text-rose-600">*</span>
 								</label>
-								<select
-									value={form.paymentType}
-									onChange={handleFormChange('paymentType')}
-									className="select-base"
-									required
-								>
-									<option value="" disabled>
-										Select
-									</option>
-									{PAYMENT_OPTIONS.map(option => (
-										<option key={option.value} value={option.value}>
-											{option.label}
-										</option>
+								{/* MODIFIED: Changed "Gethhma" to "GETHNA" in the radio button list */}
+								<div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+									{(['DYES', 'VIP', 'GETHNA', 'PAID'] as const).map(type => (
+										<label key={type} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 transition hover:border-sky-300 hover:bg-sky-50 cursor-pointer">
+											<input
+												type="radio"
+												name="patientType"
+												value={type}
+												checked={form.patientType === type}
+												onChange={() => {
+													setForm(current => ({
+														...current,
+														patientType: type,
+														paymentType: type === 'PAID' ? current.paymentType : '',
+													}));
+													setFormErrors(current => ({
+														...current,
+														patientType: undefined,
+													}));
+												}}
+												className="h-4 w-4 border-slate-300 text-sky-600 focus:ring-sky-200"
+											/>
+											<span className="text-sm font-medium text-slate-700">{type}</span>
+										</label>
 									))}
-								</select>
-								{formErrors.paymentType && <p className="mt-1 text-xs text-rose-500">{formErrors.paymentType}</p>}
-							</div>
-							<div className="md:col-span-6">
-								<label className="block text-sm font-medium text-slate-700">
-									Payment Description / Concession Reason
-								</label>
-								<input
-									type="text"
-									value={form.paymentDescription}
-									onChange={handleFormChange('paymentDescription')}
-									className="input-base"
-									placeholder="Enter details (if any)"
-								/>
+								</div>
+								{formErrors.patientType && <p className="mt-1 text-xs text-rose-500">{formErrors.patientType}</p>}
 							</div>
 						</div>
 
-						{/* Row 5: Submit Button */}
+						{/* Row 5: Payment Type (6 cols), Payment Description (6 cols) - Only visible when patientType is 'PAID' */}
+						{form.patientType === 'PAID' && (
+							<div className="grid gap-4 md:grid-cols-12">
+								<div className="md:col-span-6">
+									<label className="block text-sm font-medium text-slate-700">
+										Type of Payment <span className="text-rose-600">*</span>
+									</label>
+									<select
+										value={form.paymentType}
+										onChange={handleFormChange('paymentType')}
+										className="select-base"
+										required
+									>
+										<option value="" disabled>
+											Select
+										</option>
+										{PAYMENT_OPTIONS.map(option => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+									{formErrors.paymentType && <p className="mt-1 text-xs text-rose-500">{formErrors.paymentType}</p>}
+								</div>
+								<div className="md:col-span-6">
+									<label className="block text-sm font-medium text-slate-700">
+										Payment Description / Concession Reason
+									</label>
+									<input
+										type="text"
+										value={form.paymentDescription}
+										onChange={handleFormChange('paymentDescription')}
+										className="input-base"
+										placeholder="Enter details (if any)"
+									/>
+								</div>
+							</div>
+						)}
+
+						{/* Row 6: Submit Button */}
 						<div className="flex items-center justify-start">
 							<button type="submit" className="btn-primary" disabled={submitting}>
 								<i className="fas fa-user-plus text-xs" aria-hidden="true" />
@@ -879,4 +906,3 @@ export default function Register() {
 		</div>
 	);
 }
-

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { collection, onSnapshot, type QuerySnapshot } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
@@ -45,12 +45,125 @@ const STATUS_BADGES: Record<'pending' | 'ongoing' | 'completed' | 'cancelled', s
 };
 
 
-const CARD_ACCENTS: Record<Exclude<ModalView, null>, string> = {
-	caseload: 'bg-indigo-100 text-indigo-600',
-	pending: 'bg-amber-100 text-amber-600',
-	today: 'bg-sky-100 text-sky-600',
-	completed: 'bg-emerald-100 text-emerald-600',
-};
+const ICON_SIZE = 'h-5 w-5';
+
+const BriefcaseIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M9 6V5a2 2 0 012-2h2a2 2 0 012 2v1" />
+		<rect x="4" y="7" width="16" height="13" rx="2" />
+		<path d="M4 12h16" />
+	</svg>
+);
+
+const HourglassIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M6 3h12" />
+		<path d="M6 21h12" />
+		<path d="M6 3c0 4 6 5 6 9s-6 5-6 9" />
+		<path d="M18 3c0 4-6 5-6 9s6 5 6 9" />
+	</svg>
+);
+
+const CalendarIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<rect x="3" y="4" width="18" height="18" rx="2" />
+		<path d="M16 2v4" />
+		<path d="M8 2v4" />
+		<path d="M3 10h18" />
+		<path d="M8 14h.01" />
+		<path d="M12 14h.01" />
+		<path d="M16 14h.01" />
+	</svg>
+);
+
+const CheckIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M5 13l4 4L19 7" />
+	</svg>
+);
+
+const ReportIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M7 3h8l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
+		<path d="M14 3v5h5" />
+		<path d="M9 13h6" />
+		<path d="M9 17h4" />
+	</svg>
+);
+
+const AvailabilityIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<circle cx="12" cy="12" r="8" />
+		<path d="M12 8v4l2.5 1.5" />
+		<path d="M7 3v4" />
+		<path d="M17 3v4" />
+	</svg>
+);
+
+const TransferIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M5 7h11l-3-3" />
+		<path d="M19 17H8l3 3" />
+		<path d="M5 7v6" />
+		<path d="M19 17v-6" />
+	</svg>
+);
 
 function normalize(value?: string | null) {
 	return value?.trim().toLowerCase() ?? '';
@@ -242,63 +355,78 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 		key: Exclude<ModalView, null>;
 		title: string;
 		subtitle: string;
-		icon: string;
+		icon: ReactNode;
+		iconBg: string;
 		count: number;
 	}> = [
 		{
 			key: 'caseload',
 			title: 'Active Caseload',
 			subtitle: 'Patients currently in your care',
-			icon: 'fas fa-briefcase-medical',
+			icon: <BriefcaseIcon />,
+			iconBg: 'bg-indigo-100 text-indigo-700 ring-indigo-200',
 			count: caseload.length,
 		},
 		{
 			key: 'pending',
 			title: 'Awaiting Start',
 			subtitle: 'Patients needing their first session',
-			icon: 'fas fa-hourglass-half',
+			icon: <HourglassIcon />,
+			iconBg: 'bg-amber-100 text-amber-700 ring-amber-200',
 			count: pending.length,
 		},
 		{
 			key: 'today',
 			title: "Today's Sessions",
 			subtitle: 'Appointments scheduled for today',
-			icon: 'fas fa-calendar-day',
+			icon: <CalendarIcon />,
+			iconBg: 'bg-sky-100 text-sky-700 ring-sky-200',
 			count: todaysAppointments.length,
 		},
 		{
 			key: 'completed',
 			title: 'Completed (7 days)',
 			subtitle: 'Sessions wrapped in the last week',
-			icon: 'fas fa-check-circle',
+			icon: <CheckIcon />,
+			iconBg: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
 			count: completedThisWeek.length,
 		},
 	];
 
-	const quickLinks = [
+	const quickLinks: Array<{
+		href: string;
+		title: string;
+		summary: string;
+		icon: ReactNode;
+		iconBg: string;
+	}> = [
 		{
 			href: '#calendar',
-			icon: 'fas fa-calendar-week',
+			icon: <CalendarIcon />,
 			title: 'Calendar',
 			summary: 'View and manage your appointment schedule.',
+			iconBg: 'bg-sky-100 text-sky-700 ring-sky-200',
 		},
 		{
 			href: '#edit-report',
-			icon: 'fas fa-notes-medical',
+			icon: <ReportIcon />,
 			title: 'View/Edit Reports',
 			summary: 'Access and update patient treatment reports.',
+			iconBg: 'bg-indigo-100 text-indigo-700 ring-indigo-200',
 		},
 		{
 			href: '#availability',
-			icon: 'fas fa-calendar-check',
+			icon: <AvailabilityIcon />,
 			title: 'My Availability',
 			summary: 'Set your working hours and availability.',
+			iconBg: 'bg-amber-100 text-amber-700 ring-amber-200',
 		},
 		{
 			href: '#transfer',
-			icon: 'fas fa-exchange-alt',
+			icon: <TransferIcon />,
 			title: 'Transfer Patients',
 			summary: 'Transfer patient care to another clinician.',
+			iconBg: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
 		},
 	];
 
@@ -308,8 +436,11 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 		}
 	};
 
-	const ICON_WRAPPER =
-		'flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-600 transition group-hover:bg-sky-600 group-hover:text-white group-focus-visible:bg-sky-600 group-focus-visible:text-white';
+	const QUICK_ICON_WRAPPER_BASE =
+		'flex h-12 w-12 items-center justify-center rounded-xl shadow-sm ring-1 transition group-hover:-translate-y-0.5';
+
+	const CARD_ICON_WRAPPER_BASE =
+		'flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm ring-1 transition group-hover:-translate-y-0.5';
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -355,11 +486,8 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 								className="group card-base"
 							>
 								<div className="flex items-center justify-between">
-									<span
-										className={`flex h-12 w-12 items-center justify-center rounded-xl ${CARD_ACCENTS[card.key]}`}
-										aria-hidden="true"
-									>
-										<i className={card.icon} />
+									<span className={`${CARD_ICON_WRAPPER_BASE} ${card.iconBg}`} aria-hidden="true">
+										{card.icon}
 									</span>
 									<span className="text-3xl font-bold text-slate-900">{card.count}</span>
 								</div>
@@ -398,8 +526,8 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 									onClick={() => handleQuickLinkClick(link.href)}
 									className="group card-base gap-3"
 								>
-									<span className={ICON_WRAPPER} aria-hidden="true">
-										<i className={link.icon} />
+									<span className={`${QUICK_ICON_WRAPPER_BASE} ${link.iconBg}`} aria-hidden="true">
+										{link.icon}
 									</span>
 									<div>
 										<h3 className="text-lg font-semibold text-slate-900">{link.title}</h3>

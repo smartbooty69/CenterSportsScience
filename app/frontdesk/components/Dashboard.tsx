@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { collection, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
@@ -37,10 +37,75 @@ interface DashboardCardConfig {
 	key: Exclude<ModalType, null>;
 	title: string;
 	subtitle: string;
-	icon: string;
-	accent: string;
+	icon: ReactNode;
+	iconBg: string;
 	count: number;
 }
+
+const ICON_SIZE = 'h-5 w-5';
+
+const ClipboardIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<rect x="5" y="4" width="14" height="17" rx="2" />
+		<path d="M9 4V3a2 2 0 012-2h2a2 2 0 012 2v1" />
+		<path d="M9 9h6" />
+		<path d="M9 13h6" />
+		<path d="M9 17h3" />
+	</svg>
+);
+
+const ClockIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<circle cx="12" cy="12" r="8" />
+		<path d="M12 7v5l2.5 2.5" />
+	</svg>
+);
+
+const StethoscopeIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M6 4v5a4 4 0 004 4h0a4 4 0 004-4V4" />
+		<path d="M10 17a3 3 0 006 0v-3" />
+		<circle cx="18" cy="15" r="3" />
+	</svg>
+);
+
+const CheckIcon = () => (
+	<svg
+		className={ICON_SIZE}
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth={1.7}
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M5 13l4 4L19 7" />
+	</svg>
+);
 
 interface AppointmentRecord {
 	id: string;
@@ -240,32 +305,32 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 			key: 'patients',
 			title: 'Total Registered',
 			subtitle: 'View full registry',
-			icon: 'fas fa-clipboard-list',
-			accent: 'bg-sky-100 text-sky-600',
+			icon: <ClipboardIcon />,
+			iconBg: 'bg-sky-100 text-sky-700 ring-sky-200',
 			count: stats.total,
 		},
 		{
 			key: 'pending',
 			title: 'Pending',
 			subtitle: 'Awaiting confirmation',
-			icon: 'fas fa-hourglass-half',
-			accent: 'bg-amber-100 text-amber-600',
+			icon: <ClockIcon />,
+			iconBg: 'bg-amber-100 text-amber-700 ring-amber-200',
 			count: stats.pending.length,
 		},
 		{
 			key: 'ongoing',
 			title: 'Ongoing',
 			subtitle: 'Currently in progress',
-			icon: 'fas fa-stethoscope',
-			accent: 'bg-sky-100 text-sky-600',
+			icon: <StethoscopeIcon />,
+			iconBg: 'bg-indigo-100 text-indigo-700 ring-indigo-200',
 			count: stats.ongoing.length,
 		},
 		{
 			key: 'completed',
 			title: 'Completed',
 			subtitle: 'Ready for billing',
-			icon: 'fas fa-check-circle',
-			accent: 'bg-emerald-100 text-emerald-600',
+			icon: <CheckIcon />,
+			iconBg: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
 			count: stats.completed.length,
 		},
 	];
@@ -303,8 +368,8 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 		}
 	};
 
-	const ICON_WRAPPER =
-		'flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-600 transition group-hover:bg-sky-600 group-hover:text-white group-focus-visible:bg-sky-600 group-focus-visible:text-white';
+	const ICON_WRAPPER_BASE =
+		'flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm ring-1 transition group-hover:-translate-y-0.5';
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -344,11 +409,8 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 								className="group card-base"
 							>
 								<div className="flex items-center justify-between">
-									<span
-										className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.accent}`}
-										aria-hidden="true"
-									>
-										<i className={card.icon} />
+									<span className={`${ICON_WRAPPER_BASE} ${card.iconBg}`} aria-hidden="true">
+										{card.icon}
 									</span>
 									<span className="text-3xl font-bold text-slate-900">{card.count}</span>
 								</div>

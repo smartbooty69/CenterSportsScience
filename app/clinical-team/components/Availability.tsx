@@ -408,7 +408,7 @@ export default function Availability() {
 														className={BUTTON_DANGER}
 														title="Remove time slot"
 													>
-														<i className="fas fa-trash text-xs" aria-hidden="true" />
+														<span className="text-lg leading-none" aria-hidden="true">-</span>
 													</button>
 												)}
 											</div>

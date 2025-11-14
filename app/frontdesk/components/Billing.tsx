@@ -169,22 +169,80 @@ export default function Billing() {
 					const existingSnapshot = await getDocs(existingQuery);
 					if (!existingSnapshot.empty) continue;
 
-					// Create new billing record
-					const billingId = 'BILL-' + (appt.appointmentId || Date.now().toString());
-					await addDoc(collection(db, 'billing'), {
-						billingId,
-						appointmentId: appt.appointmentId,
-						patient: appt.patient || '',
-						patientId: appt.patientId || '',
-						doctor: appt.doctor || '',
-						amount: appt.amount || 1200,
-						date: appt.date || new Date().toISOString().split('T')[0],
-						status: 'Pending',
-						paymentMode: null,
-						utr: null,
-						createdAt: serverTimestamp(),
-						updatedAt: serverTimestamp(),
-					});
+					// Fetch patient document to get patientType
+					const patientQuery = query(collection(db, 'patients'), where('patientId', '==', appt.patientId));
+					const patientSnapshot = await getDocs(patientQuery);
+					
+					if (patientSnapshot.empty) {
+						console.warn(`Patient not found for appointment ${appt.appointmentId}`);
+						continue;
+					}
+
+					const patientData = patientSnapshot.docs[0].data();
+					const patientType = (patientData.patientType as string) || '';
+					const paymentType = (patientData.paymentType as string) || 'without';
+					const standardAmount = appt.amount || 1200;
+
+					// Apply billing rules based on patient type
+					let shouldCreateBill = false;
+					let billAmount = standardAmount;
+
+					if (patientType === 'VIP') {
+						// VIP: Create bill for every completed session as normal
+						shouldCreateBill = true;
+						billAmount = standardAmount;
+					} else if (patientType === 'Paid') {
+						// Paid: Check paymentType
+						shouldCreateBill = true;
+						if (paymentType === 'with') {
+							// Apply concession discount (assuming 20% discount, adjust as needed)
+							billAmount = standardAmount * 0.8;
+						} else {
+							// Without concession: standard amount
+							billAmount = standardAmount;
+						}
+					} else if (patientType === 'Dyes') {
+						// Dyes: Only create bill if count >= 500
+						const billingQuery = query(collection(db, 'billing'), where('patientId', '==', appt.patientId));
+						const billingSnapshot = await getDocs(billingQuery);
+						const existingBillCount = billingSnapshot.size;
+						
+						if (existingBillCount >= 500) {
+							shouldCreateBill = true;
+							billAmount = standardAmount;
+						} else {
+							// Skip creating bill if count < 500
+							console.log(`Skipping bill for Dyes patient ${appt.patientId}: count is ${existingBillCount} (< 500)`);
+							continue;
+						}
+					} else if (patientType === 'Gethhma') {
+						// Gethhma: Treat as "Paid" without concession
+						shouldCreateBill = true;
+						billAmount = standardAmount;
+					} else {
+						// Unknown patient type: default behavior (create bill)
+						shouldCreateBill = true;
+						billAmount = standardAmount;
+					}
+
+					// Create billing record if rules allow
+					if (shouldCreateBill) {
+						const billingId = 'BILL-' + (appt.appointmentId || Date.now().toString());
+						await addDoc(collection(db, 'billing'), {
+							billingId,
+							appointmentId: appt.appointmentId,
+							patient: appt.patient || '',
+							patientId: appt.patientId || '',
+							doctor: appt.doctor || '',
+							amount: billAmount,
+							date: appt.date || new Date().toISOString().split('T')[0],
+							status: 'Pending',
+							paymentMode: null,
+							utr: null,
+							createdAt: serverTimestamp(),
+							updatedAt: serverTimestamp(),
+						});
+					}
 				}
 			} catch (error) {
 				console.error('Failed to sync appointments to billing', error);
