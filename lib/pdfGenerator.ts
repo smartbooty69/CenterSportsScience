@@ -1,7 +1,4 @@
-// Remove this line:
-// import jsPDF from 'jspdf';
-
-interface PatientReportData {
+export interface PatientReportData {
 	patientName: string;
 	patientId: string;
 	referredBy?: string;
@@ -10,6 +7,14 @@ interface PatientReportData {
 	dateOfConsultation?: string;
 	contact?: string;
 	email?: string;
+	complaints?: string;
+	presentHistory?: string;
+	pastHistory?: string;
+	medicalHistory?: string;
+	surgicalHistory?: string;
+	sleepCycle?: string;
+	hydration?: string;
+	nutrition?: string;
 	chiefComplaint?: string;
 	onsetType?: string;
 	duration?: string;
@@ -18,288 +23,374 @@ interface PatientReportData {
 	painIntensity?: string;
 	aggravatingFactor?: string;
 	relievingFactor?: string;
-	medicalHistory?: string;
-	surgicalHistory?: string;
-	medications?: string;
-	clinicalDiagnosis?: string;
-	treatmentPlan?: Array<{ therapy: string; frequency: string; remarks: string }>;
+	siteSide?: string;
+	onset?: string;
+	natureOfInjury?: string;
+	typeOfPain?: string;
+	vasScale?: string;
+	rom?: Record<string, any>;
+	mmt?: Record<string, any>;
+	built?: string;
+	posture?: string;
+	postureManualNotes?: string;
+	postureFileName?: string;
+	gaitAnalysis?: string;
+	gaitManualNotes?: string;
+	gaitFileName?: string;
+	mobilityAids?: string;
+	localObservation?: string;
+	swelling?: string;
+	muscleWasting?: string;
+	tenderness?: string;
+	warmth?: string;
+	scar?: string;
+	crepitus?: string;
+	odema?: string;
+	specialTest?: string;
+	differentialDiagnosis?: string;
+	finalDiagnosis?: string;
+	shortTermGoals?: string;
+	longTermGoals?: string;
+	rehabProtocol?: string;
+	advice?: string;
+	managementRemarks?: string;
+	nextFollowUpDate?: string;
+	nextFollowUpTime?: string;
 	followUpVisits?: Array<{ visitDate: string; painLevel: string; findings: string }>;
 	currentPainStatus?: string;
 	currentRom?: string;
 	currentStrength?: string;
 	currentFunctionalAbility?: string;
 	complianceWithHEP?: string;
-	recommendations?: string;
-	physiotherapistRemarks?: string;
 	physioName?: string;
 	physioRegNo?: string;
 }
 
-// Use dynamic import instead of static import
+const HYDRATION_DESCRIPTORS = [
+	'Optimal hydration',
+	'Well hydrated',
+	'Mildly hydrated',
+	'Stable',
+	'Slightly dry',
+	'Dehydrated',
+	'Very dry',
+	'Severely dry',
+];
+
+const VAS_EMOJIS = ['😀', '😁', '🙂', '😊', '😌', '😟', '😣', '😢', '😭', '😱'];
+
+const getVasDescriptor = (value?: string) => {
+	const score = Number(value || '5');
+	const emoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, score) - 1)];
+	return `${score}/10 ${emoji}`;
+};
+
+const getHydrationDescriptor = (value?: string) => {
+	const score = Number(value || '4');
+	const emoji = HYDRATION_DESCRIPTORS[Math.min(HYDRATION_DESCRIPTORS.length - 1, Math.max(1, score) - 1)];
+	return `${score}/8 - ${emoji}`;
+};
+
+const formatJointData = (records: Record<string, any> = {}) => {
+	return Object.entries(records)
+		.map(([joint, entry]) => {
+			if (!entry) return null;
+			if (entry.left || entry.right) {
+				const left = entry.left
+					? Object.entries(entry.left)
+							.filter(([, val]) => val)
+							.map(([motion, val]) => `Left ${motion}: ${val}`)
+							.join(', ')
+					: '';
+				const right = entry.right
+					? Object.entries(entry.right)
+							.filter(([, val]) => val)
+							.map(([motion, val]) => `Right ${motion}: ${val}`)
+							.join(', ')
+					: '';
+				const summary = [left, right].filter(Boolean).join(' | ');
+				return summary ? [joint, summary] : null;
+			}
+
+			const summary = Object.entries(entry)
+				.filter(([, val]) => val)
+				.map(([motion, val]) => `${motion}: ${val}`)
+				.join(', ');
+			return summary ? [joint, summary] : null;
+		})
+		.filter(Boolean) as string[][];
+};
+
+const buildCurrentStatus = (data: PatientReportData) => {
+	return (
+		`Pain: ${data.currentPainStatus || ''}\n` +
+		`ROM: ${data.currentRom || ''}\n` +
+		`Strength: ${data.currentStrength || ''}\n` +
+		`Functional Ability: ${data.currentFunctionalAbility || ''}\n` +
+		`HEP Compliance: ${data.complianceWithHEP || ''}`
+	);
+};
+
+const baseStyles = {
+	fontSize: 9,
+	cellPadding: 2,
+	lineWidth: 0.1,
+};
+
+const headStyles = {
+	fillColor: [7, 89, 133] as [number, number, number],
+	fontSize: 10,
+	halign: 'left' as const,
+	cellPadding: 2,
+	textColor: [255, 255, 255] as [number, number, number],
+};
+
 export async function generatePhysiotherapyReportPDF(data: PatientReportData): Promise<void> {
-	// Dynamic import for client-side only
 	const { default: jsPDF } = await import('jspdf');
-	
-	const doc = new jsPDF();
-	const pageWidth = doc.internal.pageSize.getWidth();
-	const pageHeight = doc.internal.pageSize.getHeight();
-	const margin = 15;
-	let yPos = margin;
-	const lineHeight = 7;
-	const sectionSpacing = 10;
+	const autoTable = (await import('jspdf-autotable')).default;
 
-	// Header
-	doc.setFontSize(18);
-	doc.setTextColor(0, 51, 102); // Dark blue
+	const doc = new jsPDF('p', 'mm', 'a4');
+	let y = 12;
+
 	doc.setFont('helvetica', 'bold');
-	doc.text('CENTRE FOR SPORTS SCIENCE', pageWidth / 2, yPos, { align: 'center' });
-	yPos += 8;
+	doc.setFontSize(16);
+	doc.setTextColor(0, 51, 102);
+	doc.text('CENTRE FOR SPORTS SCIENCE', 105, y, { align: 'center' });
 
-	doc.setFontSize(14);
-	doc.text('PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT', pageWidth / 2, yPos, { align: 'center' });
+	y += 6;
+	doc.setFontSize(12);
+	doc.text('PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT', 105, y, { align: 'center' });
+
+	y += 4;
 	doc.setDrawColor(0, 51, 102);
-	doc.line(margin, yPos + 2, pageWidth - margin, yPos + 2);
-	yPos += sectionSpacing + 5;
+	doc.line(12, y, 198, y);
+	y += 4;
 
-	// Section 1: Clinical History (Patient Information)
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
-	doc.setFontSize(11);
-	doc.setFont('helvetica', 'bold');
-	doc.text('1. Clinical History', margin + 2, yPos + 4.5);
-	yPos += 8;
-
-	doc.setTextColor(0, 0, 0);
-	doc.setFontSize(10);
-	doc.setFont('helvetica', 'normal');
-	
-	const patientInfo = [
-		['Patient Name:', data.patientName || ''],
-		['Patient ID:', data.patientId || ''],
-		['Referred By / Doctor:', data.referredBy || ''],
-		['Age / Gender:', `${data.age || ''} / ${data.gender || ''}`],
-		['Date of Consultation:', data.dateOfConsultation || ''],
-		['Contact / Email:', `${data.contact || ''} / ${data.email || ''}`],
-	];
-
-	let xPos = margin;
-	patientInfo.forEach(([label, value]) => {
-		doc.setFont('helvetica', 'bold');
-		doc.text(label, xPos, yPos);
-		doc.setFont('helvetica', 'normal');
-		const textWidth = doc.getTextWidth(value);
-		doc.text(value, xPos + 50, yPos);
-		
-		if (xPos === margin + 90) {
-			xPos = margin;
-			yPos += lineHeight;
-		} else {
-			xPos += 90;
-		}
+	autoTable(doc, {
+		startY: y,
+		theme: 'grid',
+		head: [['PATIENT INFORMATION', '']],
+		body: [
+			['Patient Name', data.patientName],
+			['Patient ID', data.patientId],
+			['Referred By / Doctor', data.referredBy || ''],
+			['Age / Gender', `${data.age || ''} / ${data.gender || ''}`],
+			['Date of Consultation', data.dateOfConsultation || ''],
+			['Contact / Email', `${data.contact || ''} / ${data.email || ''}`],
+		],
+		headStyles,
+		styles: baseStyles,
+		columnStyles: { 0: { cellWidth: 60 } },
 	});
-	yPos += sectionSpacing;
 
-	// Section 1: Clinical History (Detailed)
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
-	doc.setFont('helvetica', 'bold');
-	doc.text('1. Clinical History', margin + 2, yPos + 4.5);
-	yPos += 8;
+	y = (doc as any).lastAutoTable.finalY + 6;
 
-	doc.setTextColor(0, 0, 0);
-	doc.setFont('helvetica', 'normal');
-	
-	const clinicalDetails = [
-		['Chief Complaint:', data.chiefComplaint || ''],
-		['Onset & Duration:', `${data.onsetType || ''} / ${data.duration || ''}`],
-		['Mechanism of Injury:', data.mechanismOfInjury || ''],
-		['Pain Characteristics:', `${data.painType || ''}, Intensity: ${data.painIntensity || ''}`],
-		['Aggravating Factors:', data.aggravatingFactor || ''],
-		['Relieving Factors:', data.relievingFactor || ''],
-		['Medical / Surgical History:', `${data.medicalHistory || ''} / ${data.surgicalHistory || ''}`],
-		['Medications:', data.medications || ''],
-	];
-
-	clinicalDetails.forEach(([label, value]) => {
-		doc.setFont('helvetica', 'bold');
-		doc.text(label, margin, yPos);
-		doc.setFont('helvetica', 'normal');
-		const lines = doc.splitTextToSize(value, pageWidth - margin - 60);
-		doc.text(lines, margin + 55, yPos);
-		yPos += lineHeight * lines.length;
+	autoTable(doc, {
+		startY: y,
+		theme: 'grid',
+		head: [['ASSESSMENT OVERVIEW', '']],
+		body: [
+			['Complaints', data.complaints || ''],
+			['Present History', data.presentHistory || ''],
+			['Past History', data.pastHistory || ''],
+			['Medical History', data.medicalHistory || ''],
+			['Surgical History', data.surgicalHistory || ''],
+			['Sleep Cycle', data.sleepCycle || ''],
+			['Hydration', getHydrationDescriptor(data.hydration)],
+			['Nutrition', data.nutrition || ''],
+		],
+		headStyles,
+		styles: baseStyles,
+		columnStyles: { 0: { cellWidth: 60 } },
 	});
-	yPos += sectionSpacing;
 
-	// Section 3: Diagnosis
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
-	doc.setFont('helvetica', 'bold');
-	doc.text('3. Diagnosis/Impression', margin + 2, yPos + 4.5);
-	yPos += 8;
+	y = (doc as any).lastAutoTable.finalY + 6;
 
-	doc.setTextColor(0, 0, 0);
-	doc.setFont('helvetica', 'normal');
-	doc.setFont('helvetica', 'bold');
-	doc.text('Clinical Diagnosis:', margin, yPos);
-	doc.setFont('helvetica', 'normal');
-	const diagnosisLines = doc.splitTextToSize(data.clinicalDiagnosis || '', pageWidth - 2 * margin);
-	doc.text(diagnosisLines, margin, yPos + lineHeight);
-	yPos += lineHeight * (diagnosisLines.length + 1) + sectionSpacing;
+	autoTable(doc, {
+		startY: y,
+		theme: 'grid',
+		head: [['PAIN ASSESSMENT', '']],
+		body: [
+			['Site and Side', data.siteSide || ''],
+			['Onset', data.onset || ''],
+			['Duration', data.duration || ''],
+			['Nature of Injury', data.natureOfInjury || ''],
+			['Type of Pain', data.typeOfPain || data.painType || ''],
+			['VAS Scale', getVasDescriptor(data.vasScale)],
+			['Aggravating Factors', data.aggravatingFactor || ''],
+			['Relieving Factors', data.relievingFactor || ''],
+			['Mechanism of Injury', data.mechanismOfInjury || ''],
+		],
+		headStyles,
+		styles: baseStyles,
+		columnStyles: { 0: { cellWidth: 60 } },
+	});
 
-	// Section 4: Treatment Plan
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
-	doc.setFont('helvetica', 'bold');
-	doc.text('4. Treatment Plan - Initial Consultation', margin + 2, yPos + 4.5);
-	yPos += 8;
+	y = (doc as any).lastAutoTable.finalY + 6;
 
-	if (data.treatmentPlan && data.treatmentPlan.length > 0) {
-		const tableTop = yPos;
-		const colWidths = [70, 50, 60];
-		const rowHeight = 8;
-		
-		// Table header
-		doc.setFillColor(240, 240, 240);
-		doc.rect(margin, tableTop, colWidths[0], rowHeight, 'F');
-		doc.rect(margin + colWidths[0], tableTop, colWidths[1], rowHeight, 'F');
-		doc.rect(margin + colWidths[0] + colWidths[1], tableTop, colWidths[2], rowHeight, 'F');
-		
-		doc.setFont('helvetica', 'bold');
-		doc.setFontSize(9);
-		doc.text('Therapy / Modality', margin + 2, tableTop + 5);
-		doc.text('Frequency / Duration', margin + colWidths[0] + 2, tableTop + 5);
-		doc.text('Remarks', margin + colWidths[0] + colWidths[1] + 2, tableTop + 5);
-		
-		yPos = tableTop + rowHeight;
-		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(8);
-		
-		const therapies = ['IF1 / TENS / Ultrasound', 'Manual Therapy / Mobilization', 'Stretching / Strengthening', 'Posture Correction / Ergonomics', 'Home Exercise Program (HEP)'];
-		therapies.forEach((therapy, idx) => {
-			const plan = data.treatmentPlan?.[idx];
-			doc.text(therapy, margin + 2, yPos + 5);
-			doc.text(plan?.frequency || '', margin + colWidths[0] + 2, yPos + 5);
-			doc.text(plan?.remarks || '', margin + colWidths[0] + colWidths[1] + 2, yPos + 5);
-			doc.line(margin, yPos + rowHeight, pageWidth - margin, yPos + rowHeight);
-			yPos += rowHeight;
+	autoTable(doc, {
+		startY: y,
+		theme: 'grid',
+		head: [['ON OBSERVATION', '']],
+		body: [
+			['Built', data.built || ''],
+			['Posture', `${data.posture || ''}${data.postureManualNotes ? ` | Notes: ${data.postureManualNotes}` : ''}`],
+			['Kinetisense Upload', data.postureFileName || '—'],
+			['GAIT Analysis', `${data.gaitAnalysis || ''}${data.gaitManualNotes ? ` | Notes: ${data.gaitManualNotes}` : ''}`],
+			['OptaGAIT Upload', data.gaitFileName || '—'],
+			['Mobility Aids', data.mobilityAids || ''],
+			['Local Observation', data.localObservation || ''],
+			['Swelling', data.swelling || ''],
+			['Muscle Wasting', data.muscleWasting || ''],
+		],
+		headStyles,
+		styles: baseStyles,
+		columnStyles: { 0: { cellWidth: 60 } },
+	});
+
+	y = (doc as any).lastAutoTable.finalY + 6;
+
+	autoTable(doc, {
+		startY: y,
+		theme: 'grid',
+		head: [['ON PALPATION', '']],
+		body: [
+			['Tenderness', data.tenderness || ''],
+			['Warmth', data.warmth || ''],
+			['Scar', data.scar || ''],
+			['Crepitus', data.crepitus || ''],
+			['Odema', data.odema || ''],
+		],
+		headStyles,
+		styles: baseStyles,
+		columnStyles: { 0: { cellWidth: 60 } },
+	});
+
+	y = (doc as any).lastAutoTable.finalY + 6;
+
+	const romRows = formatJointData(data.rom);
+	if (romRows.length) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['ON EXAMINATION — ROM (i)', 'Details']],
+			body: romRows,
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 60 } },
 		});
-		yPos += sectionSpacing;
+		y = (doc as any).lastAutoTable.finalY + 6;
 	}
 
-	// Section 5: Follow-Up Visit Summary
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
-	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(11);
-	doc.text('5. Follow-Up Visit Summary', margin + 2, yPos + 4.5);
-	yPos += 8;
-
-	if (data.followUpVisits && data.followUpVisits.length > 0) {
-		const tableTop = yPos;
-		const colWidths = [50, 50, 90];
-		const rowHeight = 8;
-		
-		// Table header
-		doc.setFillColor(240, 240, 240);
-		doc.rect(margin, tableTop, colWidths[0], rowHeight, 'F');
-		doc.rect(margin + colWidths[0], tableTop, colWidths[1], rowHeight, 'F');
-		doc.rect(margin + colWidths[0] + colWidths[1], tableTop, colWidths[2], rowHeight, 'F');
-		
-		doc.setFont('helvetica', 'bold');
-		doc.setFontSize(9);
-		doc.text('Visit Date', margin + 2, tableTop + 5);
-		doc.text('Pain Level (VAS)', margin + colWidths[0] + 2, tableTop + 5);
-		doc.text('Findings/Progress', margin + colWidths[0] + colWidths[1] + 2, tableTop + 5);
-		
-		yPos = tableTop + rowHeight;
-		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(8);
-		
-		[1, 2, 3, 4].forEach((visitNum) => {
-			const visit = data.followUpVisits?.[visitNum - 1];
-			doc.text(`Visit ${visitNum}`, margin + 2, yPos + 5);
-			doc.text(visit?.painLevel || '', margin + colWidths[0] + 2, yPos + 5);
-			doc.text(visit?.findings || '', margin + colWidths[0] + colWidths[1] + 2, yPos + 5);
-			doc.line(margin, yPos + rowHeight, pageWidth - margin, yPos + rowHeight);
-			yPos += rowHeight;
+	const mmtRows = formatJointData(data.mmt);
+	if (mmtRows.length) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['ON EXAMINATION — Manual Muscle Testing (ii)', 'Details']],
+			body: mmtRows,
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 80 } },
 		});
-		yPos += sectionSpacing;
+		y = (doc as any).lastAutoTable.finalY + 6;
 	}
 
-	// Section 6: Current Status
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
-	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(11);
-	doc.text('6. Current Status (as on last visit)', margin + 2, yPos + 4.5);
-	yPos += 8;
+	const advancedRows: string[][] = [];
+	if (data.specialTest) advancedRows.push(['Special Tests', data.specialTest]);
+	if (data.differentialDiagnosis) advancedRows.push(['Differential Diagnosis', data.differentialDiagnosis]);
+	if (data.finalDiagnosis) advancedRows.push(['Diagnosis', data.finalDiagnosis]);
+	if (advancedRows.length) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['ADVANCED ASSESSMENT', '']],
+			body: advancedRows,
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 60 } },
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
 
-	doc.setTextColor(0, 0, 0);
-	doc.setFont('helvetica', 'normal');
-	doc.setFontSize(10);
-	
-	const statusItems = [
-		`• Pain: ${data.currentPainStatus || ''}`,
-		`• ROM: ${data.currentRom || ''}`,
-		`• Strength: ${data.currentStrength || ''}`,
-		`• Functional Ability: ${data.currentFunctionalAbility || ''}`,
-		`• Compliance with HEP: ${data.complianceWithHEP || ''}`,
-	];
+	doc.addPage();
+	y = 12;
 
-	statusItems.forEach(item => {
-		doc.text(item, margin, yPos);
-		yPos += lineHeight;
+	const managementRows: string[][] = [];
+	if (data.shortTermGoals) managementRows.push(['i) Short Term Goals', data.shortTermGoals]);
+	if (data.longTermGoals) managementRows.push(['ii) Long Term Goals', data.longTermGoals]);
+	if (data.rehabProtocol) managementRows.push(['iii) Rehab Protocol', data.rehabProtocol]);
+	if (data.advice) managementRows.push(['iv) Advice', data.advice]);
+	if (data.managementRemarks) managementRows.push(['v) Remarks', data.managementRemarks]);
+	if (managementRows.length) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['PHYSIOTHERAPY MANAGEMENT', '']],
+			body: managementRows,
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 60 } },
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
+
+	if (data.followUpVisits?.length) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['VISIT', 'Pain Level', 'Findings / Progress']],
+			body: data.followUpVisits.map((visit, index) => [
+				visit.visitDate || `Visit ${index + 1}`,
+				visit.painLevel || '',
+				visit.findings || '',
+			]),
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 40 } },
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
+
+	autoTable(doc, {
+		startY: y,
+		theme: 'grid',
+		head: [['CURRENT STATUS']],
+		body: [[buildCurrentStatus(data)]],
+		headStyles,
+		styles: { ...baseStyles, cellPadding: 3 },
 	});
-	yPos += sectionSpacing;
 
-	// Section 7: Recommendations
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
+	y = (doc as any).lastAutoTable.finalY + 6;
+
+	if (data.nextFollowUpDate || data.nextFollowUpTime) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['NEXT FOLLOW-UP DETAILS', '']],
+			body: [
+				['Date', data.nextFollowUpDate || ''],
+				['Time', data.nextFollowUpTime || ''],
+			],
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 60 } },
+		});
+		y = (doc as any).lastAutoTable.finalY + 10;
+	} else {
+		y += 10;
+	}
+
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(11);
-	doc.text('7. Recommendations', margin + 2, yPos + 4.5);
-	yPos += 8;
-
-	doc.setTextColor(0, 0, 0);
-	doc.setFont('helvetica', 'normal');
 	doc.setFontSize(10);
-	const recLines = doc.splitTextToSize(data.recommendations || '', pageWidth - 2 * margin);
-	doc.text(recLines, margin, yPos);
-	yPos += lineHeight * recLines.length + sectionSpacing;
+	doc.text('Physiotherapist Signature:', 12, y);
+	doc.setFont('helvetica', 'normal');
+	doc.text(data.physioName || '', 65, y);
 
-	// Section 8: Physiotherapist's Remarks
-	doc.setFillColor(0, 102, 204);
-	doc.rect(margin, yPos, pageWidth - 2 * margin, 6, 'F');
-	doc.setTextColor(255, 255, 255);
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(11);
-	doc.text('8. Physiotherapist\'s Remarks', margin + 2, yPos + 4.5);
-	yPos += 8;
-
-	doc.setTextColor(0, 0, 0);
+	doc.text('Reg. No:', 150, y);
 	doc.setFont('helvetica', 'normal');
-	doc.setFontSize(10);
-	const remarksLines = doc.splitTextToSize(data.physiotherapistRemarks || '', pageWidth - 2 * margin);
-	doc.text(remarksLines, margin, yPos);
-	yPos += lineHeight * remarksLines.length + sectionSpacing;
+	doc.text(data.physioRegNo || '', 170, y);
 
-	// Footer
-	const footerY = pageHeight - 20;
-	doc.setFontSize(10);
-	doc.setFont('helvetica', 'normal');
-	doc.text('Physiotherapist Name & Signature:', margin, footerY);
-	doc.text(data.physioName || '', margin + 60, footerY);
-	
-	doc.text('Reg. No:', pageWidth - margin - 30, footerY);
-	doc.text(data.physioRegNo || '', pageWidth - margin - 15, footerY);
-
-	// Save PDF
-	doc.save(`Physiotherapy_Report_${data.patientId}_${new Date().toISOString().split('T')[0]}.pdf`);
+	doc.save(`Physiotherapy_Report_${data.patientId}.pdf`);
 }
