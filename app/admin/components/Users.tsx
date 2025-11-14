@@ -1,10 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import PageHeader from '@/components/PageHeader';
-import { auth } from '@/lib/firebase';
+import {
+	addDoc,
+	collection,
+	deleteDoc,
+	doc,
+	onSnapshot,
+	serverTimestamp,
+	updateDoc,
+} from 'firebase/firestore';
 
-type EmployeeRole = 'FrontDesk' | 'ClinicalTeam' | 'Admin' | 'admin';
+import { db } from '@/lib/firebase';
+import PageHeader from '@/components/PageHeader';
+
+type EmployeeRole = 'FrontDesk' | 'ClinicalTeam' | 'Admin';
 type EmployeeStatus = 'Active' | 'Inactive';
 
 interface Employee {
@@ -14,21 +24,18 @@ interface Employee {
 	role: EmployeeRole;
 	status: EmployeeStatus;
 	createdAt?: string | null;
-	disabled?: boolean;
-	uid?: string;
 }
 
 interface FormState {
 	userName: string;
 	userEmail: string;
-	userRole: Extract<EmployeeRole, 'FrontDesk' | 'ClinicalTeam' | 'Admin'>;
+	userRole: Extract<EmployeeRole, 'FrontDesk' | 'ClinicalTeam'>;
 	userStatus: EmployeeStatus;
 	password: string;
 }
 
 const ROLE_LABELS: Record<EmployeeRole, string> = {
 	Admin: 'Admin',
-	admin: 'Admin',
 	FrontDesk: 'Front Desk',
 	ClinicalTeam: 'Clinical Team',
 };
@@ -36,7 +43,6 @@ const ROLE_LABELS: Record<EmployeeRole, string> = {
 const ROLE_OPTIONS: Array<{ value: FormState['userRole']; label: string }> = [
 	{ value: 'FrontDesk', label: 'Front Desk' },
 	{ value: 'ClinicalTeam', label: 'Clinical Team (Physiotherapist & Strength Conditioning)' },
-	{ value: 'Admin', label: 'Admin' },
 ];
 
 const INITIAL_FORM: FormState = {
@@ -64,65 +70,82 @@ export default function Users() {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [searchTerm, setSearchTerm] = useState('');
+	const [roleFilter, setRoleFilter] = useState<'all' | EmployeeRole>('all');
 
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
 	const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 	const [formState, setFormState] = useState<FormState>(INITIAL_FORM);
-
-	async function getToken(): Promise<string> {
-		const user = auth.currentUser;
-		if (!user) throw new Error('Not authenticated');
-		return await user.getIdToken();
-	}
-
-	const loadUsers = async () => {
-		setLoading(true);
-		setError(null);
-		try {
-			const token = await getToken();
-			const res = await fetch('/api/admin/users', {
-				headers: { Authorization: `Bearer ${token}` },
-			});
-			if (!res.ok) {
-				const data = await res.json().catch(() => ({}));
-				throw new Error(data?.message || 'Failed to load users');
-			}
-			const data = await res.json();
-			const users: Employee[] = (data.users as any[]).map(u => ({
-				id: u.uid,
-				uid: u.uid,
-				userName: u.displayName || '',
-				userEmail: u.email || '',
-				role: (u.role || (u.customClaims?.role as string) || '') as EmployeeRole,
-				status: u.disabled ? 'Inactive' : 'Active',
-				createdAt: null,
-				disabled: Boolean(u.disabled),
-			}));
-			setEmployees(users);
-		} catch (e: any) {
-			console.error(e);
-			setError(e?.message || 'Unable to load users');
-		} finally {
-			setLoading(false);
-		}
-	};
+	const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+	const [activityDraft, setActivityDraft] = useState('');
+	const [activityNotes, setActivityNotes] = useState<Record<
+		string,
+		Array<{ id: string; text: string; createdAt: Date }>
+	>>({});
 
 	useEffect(() => {
-		loadUsers();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+		setLoading(true);
+
+		const unsubscribe = onSnapshot(
+			collection(db, 'staff'),
+			snapshot => {
+				const records: Employee[] = snapshot.docs
+					.map(docSnap => {
+						const data = docSnap.data() as Record<string, unknown>;
+						const created = (data.createdAt as { toDate?: () => Date } | undefined)?.toDate?.();
+						return {
+							id: docSnap.id,
+							userName: String(data.userName ?? ''),
+							userEmail: String(data.userEmail ?? ''),
+							role: (data.role as EmployeeRole) ?? 'FrontDesk',
+							status: (data.status as EmployeeStatus) ?? 'Active',
+							createdAt: created
+								? created.toISOString()
+								: typeof data.createdAt === 'string'
+									? (data.createdAt as string)
+									: null,
+						};
+					})
+					.filter(record => record.role === 'FrontDesk' || record.role === 'ClinicalTeam')
+					.sort((a, b) => a.userName.localeCompare(b.userName));
+
+				setEmployees(records);
+				setLoading(false);
+			},
+			err => {
+				console.error('Failed to load employees', err);
+				setError('Unable to load employees. Please try again later.');
+				setLoading(false);
+			}
+		);
+
+		return () => unsubscribe();
 	}, []);
 
 	const filteredEmployees = useMemo(() => {
-		if (!searchTerm.trim()) return employees;
 		const query = searchTerm.trim().toLowerCase();
 		return employees.filter(employee => {
-			return (
+			const matchesSearch =
+				!query ||
 				employee.userName.toLowerCase().includes(query) ||
 				employee.userEmail.toLowerCase().includes(query) ||
-				ROLE_LABELS[employee.role]?.toLowerCase().includes(query)
-			);
+				ROLE_LABELS[employee.role].toLowerCase().includes(query);
+
+			const matchesRole = roleFilter === 'all' || employee.role === roleFilter;
+
+			return matchesSearch && matchesRole;
 		});
-	}, [employees, searchTerm]);
+	}, [employees, searchTerm, roleFilter]);
+
+	const analytics = useMemo(() => {
+		const total = employees.length;
+		const active = employees.filter(emp => emp.status === 'Active').length;
+		const inactive = total - active;
+		const frontDesk = employees.filter(emp => emp.role === 'FrontDesk').length;
+		const clinical = employees.filter(emp => emp.role === 'ClinicalTeam').length;
+		const adminCount = employees.filter(emp => emp.role === 'Admin').length;
+
+		return { total, active, inactive, frontDesk, clinical, adminCount };
+	}, [employees]);
 
 	const openCreateDialog = () => {
 		setEditingEmployee(null);
@@ -136,8 +159,8 @@ export default function Users() {
 		setFormState({
 			userName: employee.userName,
 			userEmail: employee.userEmail,
-			userRole: (employee.role as FormState['userRole']) || 'FrontDesk',
-			userStatus: employee.disabled ? 'Inactive' : 'Active',
+			userRole: employee.role === 'Admin' ? 'FrontDesk' : (employee.role as FormState['userRole']),
+			userStatus: employee.status,
 			password: '',
 		});
 		setIsDialogOpen(true);
@@ -151,50 +174,19 @@ export default function Users() {
 		setFormState(INITIAL_FORM);
 	};
 
-	const handleDeactivateToggle = async (employee: Employee, disabled: boolean) => {
-		setSaving(true);
-		setError(null);
-		try {
-			const token = await getToken();
-			const res = await fetch('/api/admin/users', {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-				body: JSON.stringify({ uid: employee.uid || employee.id, disabled }),
-			});
-			if (!res.ok) {
-				const data = await res.json().catch(() => ({}));
-				throw new Error(data?.message || 'Failed to update status');
-			}
-			await loadUsers();
-		} catch (e: any) {
-			console.error(e);
-			setError(e?.message || 'Unable to update status');
-		} finally {
-			setSaving(false);
-		}
-	};
-
-	const handleResetPassword = async (employee: Employee) => {
-		const confirmed = window.confirm(`Reset password for ${employee.userEmail}?`);
+	const handleDelete = async (employee: Employee) => {
+		const confirmed = window.confirm(
+			`Are you sure you want to remove ${employee.userName || employee.userEmail}?`
+		);
 		if (!confirmed) return;
+
 		setSaving(true);
 		setError(null);
 		try {
-			const token = await getToken();
-			const res = await fetch('/api/admin/users/reset-password', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-				body: JSON.stringify({ uid: employee.uid || employee.id }),
-			});
-			if (!res.ok) {
-				const data = await res.json().catch(() => ({}));
-				throw new Error(data?.message || 'Failed to reset password');
-			}
-			const data = await res.json();
-			alert(`Temporary password: ${data.tempPwd}\nPlease share securely and ask user to change on next login.`);
-		} catch (e: any) {
-			console.error(e);
-			setError(e?.message || 'Unable to reset password');
+			await deleteDoc(doc(db, 'staff', employee.id));
+		} catch (err) {
+			console.error('Failed to delete employee', err);
+			setError('Unable to delete employee. Please try again.');
 		} finally {
 			setSaving(false);
 		}
@@ -210,7 +202,7 @@ export default function Users() {
 
 		if (!trimmedName || !trimmedEmail) {
 			setError('Name and email are required.');
-		 return;
+			return;
 		}
 
 		if (!editingEmployee && !trimmedPassword) {
@@ -220,44 +212,83 @@ export default function Users() {
 
 		setSaving(true);
 		try {
-			const token = await getToken();
 			if (editingEmployee) {
-				const disabled = formState.userStatus === 'Inactive';
-				const role = formState.userRole === 'Admin' ? 'admin' : formState.userRole;
-				const res = await fetch('/api/admin/users', {
-					method: 'PATCH',
-					headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-					body: JSON.stringify({ uid: editingEmployee.uid || editingEmployee.id, role, disabled }),
+				await updateDoc(doc(db, 'staff', editingEmployee.id), {
+					userName: trimmedName,
+					role: formState.userRole,
+					status: formState.userStatus,
 				});
-				if (!res.ok) {
-					const data = await res.json().catch(() => ({}));
-					throw new Error(data?.message || 'Failed to update user');
-				}
 			} else {
-				const role = formState.userRole === 'Admin' ? 'admin' : formState.userRole;
-				const res = await fetch('/api/admin/users', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-					body: JSON.stringify({
-						email: trimmedEmail,
-						password: trimmedPassword,
-						displayName: trimmedName,
-						role,
-					}),
+				await addDoc(collection(db, 'staff'), {
+					userName: trimmedName,
+					userEmail: trimmedEmail,
+					role: formState.userRole,
+					status: formState.userStatus,
+					createdAt: serverTimestamp(),
 				});
-				if (!res.ok) {
-					const data = await res.json().catch(() => ({}));
-					throw new Error(data?.message || 'Failed to create user');
-				}
 			}
 			closeDialog();
-			await loadUsers();
-		} catch (err: any) {
+		} catch (err) {
 			console.error('Failed to save employee', err);
-			setError(err?.message || 'Unable to save employee. Please check the details and try again.');
+			setError(
+				err instanceof Error
+					? err.message
+					: 'Unable to save employee. Please check the details and try again.'
+			);
 		} finally {
 			setSaving(false);
 		}
+	};
+
+	const handleToggleStatus = async (employee: Employee) => {
+		const nextStatus: EmployeeStatus = employee.status === 'Active' ? 'Inactive' : 'Active';
+		try {
+			await updateDoc(doc(db, 'staff', employee.id), { status: nextStatus });
+			alert(`${employee.userName} is now ${nextStatus}.`);
+		} catch (err) {
+			console.error('Failed to toggle status', err);
+			alert('Unable to update status. Please try again.');
+		}
+	};
+
+	const handleResetPassword = async (employee: Employee) => {
+		const tempPassword = Math.random().toString(36).slice(-8);
+		alert(`Password reset email would be sent to ${employee.userEmail}.\nTemporary password: ${tempPassword}`);
+	};
+
+	const handleAddActivity = () => {
+		if (!selectedEmployee || !activityDraft.trim()) return;
+		const entry = {
+			id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+			text: activityDraft.trim(),
+			createdAt: new Date(),
+		};
+		setActivityNotes(prev => ({
+			...prev,
+			[selectedEmployee.id]: [entry, ...(prev[selectedEmployee.id] ?? [])],
+		}));
+		setActivityDraft('');
+	};
+
+	const rolePresets: Record<
+		EmployeeRole,
+		Array<{ title: string; description: string; allowed: boolean }>
+	> = {
+		Admin: [
+			{ title: 'Global settings', description: 'Manage platform-level configuration and teams', allowed: true },
+			{ title: 'Billing dashboards', description: 'Approve billing cycles and refunds', allowed: true },
+			{ title: 'Clinical data', description: 'Read/write all reports and assessments', allowed: true },
+		],
+		FrontDesk: [
+			{ title: 'Patient check-in', description: 'Register new patients and create appointments', allowed: true },
+			{ title: 'Billing dashboards', description: 'Create invoices and mark payments', allowed: true },
+			{ title: 'Clinical data', description: 'Read-only access to assigned patients', allowed: false },
+		],
+		ClinicalTeam: [
+			{ title: 'Clinical data', description: 'Create and edit treatment notes and reports', allowed: true },
+			{ title: 'Availability management', description: 'Update consultation slots and coverage', allowed: true },
+			{ title: 'Billing dashboards', description: 'Cannot edit billing entries', allowed: false },
+		],
 	};
 
 	return (
@@ -265,37 +296,76 @@ export default function Users() {
 			<div className="mx-auto max-w-6xl space-y-10">
 				<PageHeader
 					badge="Admin"
-					title="User Management"
-					description="Manage platform users, roles, and access."
+					title="Employee Management"
+					description="Register and manage Front Desk and Clinical Team staff members."
 				/>
 
 				<div className="border-t border-slate-200" />
 
-				<section className="rounded-2xl border-2 border-sky-600 bg-white px-6 py-6 shadow-[0_10px_35px_rgba(20,90,150,0.12)] sm:flex sm:items-center sm:justify-between sm:space-x-6">
-				<div>
-					<h2 className="text-xl font-semibold text-sky-700">All Employees</h2>
-					<p className="mt-1 text-sm text-sky-700/80">
-						Search, create, edit roles, deactivate, and reset passwords.
-					</p>
-				</div>
-				<div className="mt-4 flex flex-col items-center justify-end gap-3 sm:mt-0 sm:flex-row">
-					<input
-						type="search"
-						value={searchTerm}
-						onChange={event => setSearchTerm(event.target.value)}
-						placeholder="Search employees…"
-						className="w-full min-w-[220px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 sm:w-auto"
-					/>
-					<button
-						type="button"
-						onClick={openCreateDialog}
-						className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-500 focus-visible:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-					>
-						<i className="fas fa-user-plus mr-2 text-sm" aria-hidden="true" />
-						Add New Employee
-					</button>
-				</div>
-			</section>
+				<section className="rounded-2xl border-2 border-sky-600 bg-white px-6 py-6 shadow-[0_10px_35px_rgba(20,90,150,0.12)] space-y-4">
+					<div className="sm:flex sm:items-center sm:justify-between sm:space-x-6">
+						<div>
+							<h2 className="text-xl font-semibold text-sky-700">All Employees</h2>
+							<p className="mt-1 text-sm text-sky-700/80">
+								Search the directory or create a new employee profile.
+							</p>
+						</div>
+						<div className="mt-4 flex flex-col items-center justify-end gap-3 sm:mt-0 sm:flex-row">
+							<input
+								type="search"
+								value={searchTerm}
+								onChange={event => setSearchTerm(event.target.value)}
+								placeholder="Search employees…"
+								className="w-full min-w-[220px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 sm:w-auto"
+							/>
+							<button
+								type="button"
+								onClick={openCreateDialog}
+								className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-500 focus-visible:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+							>
+								<i className="fas fa-user-plus mr-2 text-sm" aria-hidden="true" />
+								Add New Employee
+							</button>
+						</div>
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+						<div>
+							<label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Filter by role</label>
+							<select
+								value={roleFilter}
+								onChange={event => setRoleFilter(event.target.value as 'all' | EmployeeRole)}
+								className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+							>
+								<option value="all">All roles</option>
+								<option value="FrontDesk">Front Desk</option>
+								<option value="ClinicalTeam">Clinical Team</option>
+								<option value="Admin">Admin</option>
+							</select>
+						</div>
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+						<div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+							<p className="text-xs uppercase tracking-wide text-slate-500">Total staff</p>
+							<p className="mt-2 text-2xl font-semibold text-slate-900">{analytics.total}</p>
+						</div>
+						<div className="rounded-xl border border-slate-200 bg-emerald-50 p-4">
+							<p className="text-xs uppercase tracking-wide text-emerald-700">Active</p>
+							<p className="mt-2 text-2xl font-semibold text-emerald-800">{analytics.active}</p>
+						</div>
+						<div className="rounded-xl border border-slate-200 bg-slate-100 p-4">
+							<p className="text-xs uppercase tracking-wide text-slate-600">Inactive</p>
+							<p className="mt-2 text-2xl font-semibold text-slate-800">{analytics.inactive}</p>
+						</div>
+						<div className="rounded-xl border border-slate-200 bg-sky-50 p-4">
+							<p className="text-xs uppercase tracking-wide text-sky-700">Front desk</p>
+							<p className="mt-2 text-2xl font-semibold text-sky-900">{analytics.frontDesk}</p>
+						</div>
+						<div className="rounded-xl border border-slate-200 bg-indigo-50 p-4">
+							<p className="text-xs uppercase tracking-wide text-indigo-700">Clinical team</p>
+							<p className="mt-2 text-2xl font-semibold text-indigo-900">{analytics.clinical}</p>
+						</div>
+					</div>
+				</section>
 
 			{error && (
 				<div className="mx-auto mt-6 max-w-5xl rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -353,32 +423,49 @@ export default function Users() {
 											</td>
 											<td className="px-4 py-4 text-sm text-slate-500">{formatDate(employee.createdAt)}</td>
 											<td className="px-4 py-4 text-right text-sm">
-												<button
-													type="button"
-													onClick={() => openEditDialog(employee)}
-													className="inline-flex items-center rounded-full border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-400 hover:text-sky-800 focus-visible:border-sky-400 focus-visible:text-sky-800 focus-visible:outline-none"
-												>
-													<i className="fas fa-pen mr-1 text-[11px]" aria-hidden="true" />
-													Edit
-												</button>
-												<button
-													type="button"
-													onClick={() => handleDeactivateToggle(employee, !employee.disabled)}
-													className="ml-2 inline-flex items-center rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-800 focus-visible:border-amber-400 focus-visible:text-amber-800 focus-visible:outline-none"
-													disabled={saving}
-												>
-													<i className="fas fa-user-slash mr-1 text-[11px]" aria-hidden="true" />
-													{employee.disabled ? 'Enable' : 'Deactivate'}
-												</button>
-												<button
-													type="button"
-													onClick={() => handleResetPassword(employee)}
-													className="ml-2 inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 focus-visible:border-slate-400 focus-visible:text-slate-900 focus-visible:outline-none"
-													disabled={saving}
-												>
-													<i className="fas fa-key mr-1 text-[11px]" aria-hidden="true" />
-													Reset Password
-												</button>
+												<div className="flex flex-wrap justify-end gap-2">
+													<button
+														type="button"
+														onClick={() => setSelectedEmployee(employee)}
+														className="inline-flex items-center rounded-full border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-400 hover:text-sky-800 focus-visible:border-sky-400 focus-visible:text-sky-800 focus-visible:outline-none"
+													>
+														<i className="fas fa-id-badge mr-1 text-[11px]" aria-hidden="true" />
+														View profile
+													</button>
+													<button
+														type="button"
+														onClick={() => handleResetPassword(employee)}
+														className="inline-flex items-center rounded-full border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-700 transition hover:border-indigo-400 hover:text-indigo-800 focus-visible:border-indigo-400 focus-visible:text-indigo-800 focus-visible:outline-none"
+													>
+														<i className="fas fa-key mr-1 text-[11px]" aria-hidden="true" />
+														Reset password
+													</button>
+													<button
+														type="button"
+														onClick={() => handleToggleStatus(employee)}
+														className="inline-flex items-center rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-800 focus-visible:border-amber-400 focus-visible:text-amber-800 focus-visible:outline-none"
+													>
+														<i className="fas fa-power-off mr-1 text-[11px]" aria-hidden="true" />
+														{employee.status === 'Active' ? 'Deactivate' : 'Activate'}
+													</button>
+													<button
+														type="button"
+														onClick={() => openEditDialog(employee)}
+														className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 focus-visible:border-slate-400 focus-visible:text-slate-900 focus-visible:outline-none"
+													>
+														<i className="fas fa-pen mr-1 text-[11px]" aria-hidden="true" />
+														Edit
+													</button>
+													<button
+														type="button"
+														onClick={() => handleDelete(employee)}
+														className="inline-flex items-center rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:border-rose-400 hover:text-rose-700 focus-visible:border-rose-400 focus-visible:text-rose-700 focus-visible:outline-none"
+														disabled={saving}
+													>
+														<i className="fas fa-trash mr-1 text-[11px]" aria-hidden="true" />
+														Delete
+													</button>
+												</div>
 											</td>
 										</tr>
 									))
@@ -388,6 +475,169 @@ export default function Users() {
 					</div>
 				)}
 			</section>
+
+			{selectedEmployee && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6"
+					onClick={() => setSelectedEmployee(null)}
+					role="dialog"
+					aria-modal="true"
+				>
+					<div
+						className="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+						onClick={event => event.stopPropagation()}
+					>
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h3 className="text-lg font-semibold text-slate-900">{selectedEmployee.userName}</h3>
+								<p className="text-xs text-slate-500">{selectedEmployee.userEmail}</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => setSelectedEmployee(null)}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+								aria-label="Close profile"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+
+						<div className="grid max-h-[calc(90vh-56px)] gap-4 overflow-y-auto px-6 py-6 lg:grid-cols-[1.2fr,0.8fr]">
+							<section className="space-y-4">
+								<div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+									<h4 className="text-sm font-semibold text-slate-800">Profile overview</h4>
+									<dl className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+										<div>
+											<dt className="font-semibold text-slate-500">Role</dt>
+											<dd>{ROLE_LABELS[selectedEmployee.role]}</dd>
+										</div>
+										<div>
+											<dt className="font-semibold text-slate-500">Status</dt>
+											<dd>{selectedEmployee.status}</dd>
+										</div>
+										<div>
+											<dt className="font-semibold text-slate-500">Joined</dt>
+											<dd>{formatDate(selectedEmployee.createdAt)}</dd>
+										</div>
+										<div>
+											<dt className="font-semibold text-slate-500">Permissions</dt>
+											<dd>Preset: {ROLE_LABELS[selectedEmployee.role]} defaults</dd>
+										</div>
+									</dl>
+								</div>
+
+								<div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+									<h4 className="text-sm font-semibold text-slate-800">Role permissions</h4>
+									<ul className="mt-3 space-y-2 text-xs">
+										{(rolePresets[selectedEmployee.role] ?? []).map(permission => (
+											<li
+												key={permission.title}
+												className="flex items-start gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+											>
+												<span
+													className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
+														permission.allowed
+															? 'bg-emerald-100 text-emerald-700'
+															: 'bg-slate-200 text-slate-500'
+													}`}
+												>
+													{permission.allowed ? <i className="fas fa-check" /> : <i className="fas fa-minus" />}
+												</span>
+												<div>
+													<p className="font-semibold text-slate-700">{permission.title}</p>
+													<p className="text-slate-500">{permission.description}</p>
+												</div>
+											</li>
+										))}
+									</ul>
+								</div>
+
+								<div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+									<h4 className="text-sm font-semibold text-slate-800">Activity log</h4>
+									{(activityNotes[selectedEmployee.id]?.length ?? 0) === 0 ? (
+										<p className="mt-3 text-xs text-slate-500">No activity notes yet.</p>
+									) : (
+										<ul className="mt-3 space-y-2 text-xs text-slate-600">
+											{activityNotes[selectedEmployee.id]?.map(entry => (
+												<li key={entry.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+													{entry.text}
+													<p className="text-[10px] text-slate-400">{entry.createdAt.toLocaleString()}</p>
+												</li>
+											))}
+										</ul>
+									)}
+									<div className="mt-3 space-y-2">
+										<textarea
+											value={activityDraft}
+											onChange={event => setActivityDraft(event.target.value)}
+											placeholder="Add internal note..."
+											className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											rows={3}
+										/>
+										<div className="flex justify-end">
+											<button type="button" onClick={handleAddActivity} className="btn-primary text-xs">
+												Log activity
+											</button>
+										</div>
+									</div>
+								</div>
+							</section>
+
+							<aside className="space-y-4">
+								<div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+									<h4 className="text-sm font-semibold text-slate-800">Quick actions</h4>
+									<div className="mt-3 space-y-2 text-xs">
+										<button
+											type="button"
+											onClick={() => handleResetPassword(selectedEmployee)}
+											className="btn-tertiary w-full justify-start"
+										>
+											<i className="fas fa-envelope text-xs" aria-hidden="true" />
+											Send reset email
+										</button>
+										<button
+											type="button"
+											onClick={() => handleToggleStatus(selectedEmployee)}
+											className="btn-tertiary w-full justify-start"
+										>
+											<i className="fas fa-power-off text-xs" aria-hidden="true" />
+											{selectedEmployee.status === 'Active' ? 'Deactivate user' : 'Activate user'}
+										</button>
+										<button
+											type="button"
+											onClick={() => {
+												setSelectedEmployee(null);
+												openEditDialog(selectedEmployee);
+											}}
+											className="btn-tertiary w-full justify-start"
+										>
+											<i className="fas fa-edit text-xs" aria-hidden="true" />
+											Edit details
+										</button>
+									</div>
+								</div>
+								<div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+									<h4 className="text-sm font-semibold text-slate-800">Summary</h4>
+									<ul className="mt-3 space-y-1 text-xs text-slate-600">
+										<li className="flex items-center justify-between">
+											<span>Role</span>
+											<span className="font-semibold">{ROLE_LABELS[selectedEmployee.role]}</span>
+										</li>
+										<li className="flex items-center justify-between">
+											<span>Status</span>
+											<span className="font-semibold">{selectedEmployee.status}</span>
+										</li>
+										<li className="flex items-center justify-between">
+											<span>Created</span>
+											<span className="font-semibold">{formatDate(selectedEmployee.createdAt)}</span>
+										</li>
+									</ul>
+								</div>
+							</aside>
+						</div>
+					</div>
+				</div>
+			)}
 
 			{isDialogOpen && (
 				<div
