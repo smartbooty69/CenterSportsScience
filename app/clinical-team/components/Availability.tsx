@@ -43,6 +43,9 @@ export default function Availability() {
 	const [saving, setSaving] = useState(false);
 	const [savedMessage, setSavedMessage] = useState(false);
 	const [staffDocId, setStaffDocId] = useState<string | null>(null);
+	const [showTemplates, setShowTemplates] = useState(false);
+	const [templates, setTemplates] = useState<Array<{ id?: string; name: string; schedule: AvailabilitySchedule }>>([]);
+	const [templateName, setTemplateName] = useState('');
 
 	// Find staff document by user email
 	useEffect(() => {
@@ -250,6 +253,72 @@ export default function Availability() {
 		}
 	};
 
+	const loadTemplates = async () => {
+		try {
+			const response = await fetch('/api/availability/templates');
+			const result = await response.json();
+			if (result.success) {
+				setTemplates(result.data);
+			}
+		} catch (error) {
+			console.error('Failed to load templates:', error);
+		}
+	};
+
+	const saveAsTemplate = async () => {
+		if (!templateName.trim()) {
+			alert('Please enter a template name');
+			return;
+		}
+		try {
+			const response = await fetch('/api/availability/templates', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: templateName.trim(), schedule }),
+			});
+			const result = await response.json();
+			if (result.success) {
+				alert('Template saved successfully!');
+				setTemplateName('');
+				await loadTemplates();
+			} else {
+				alert(result.message || 'Failed to save template');
+			}
+		} catch (error) {
+			console.error('Failed to save template:', error);
+			alert('Failed to save template');
+		}
+	};
+
+	const loadTemplate = (template: { schedule: AvailabilitySchedule }) => {
+		setSchedule(template.schedule);
+		setShowTemplates(false);
+	};
+
+	const deleteTemplate = async (id: string) => {
+		if (!window.confirm('Delete this template?')) return;
+		try {
+			const response = await fetch(`/api/availability/templates?id=${id}`, {
+				method: 'DELETE',
+			});
+			const result = await response.json();
+			if (result.success) {
+				await loadTemplates();
+			} else {
+				alert(result.message || 'Failed to delete template');
+			}
+		} catch (error) {
+			console.error('Failed to delete template:', error);
+			alert('Failed to delete template');
+		}
+	};
+
+	useEffect(() => {
+		if (showTemplates) {
+			loadTemplates();
+		}
+	}, [showTemplates]);
+
 	if (loading) {
 		return (
 			<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -361,12 +430,80 @@ export default function Availability() {
 					))}
 				</div>
 
-				<div className="mt-8 flex items-center justify-end gap-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<div className="mt-8 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+					<button
+						type="button"
+						onClick={() => setShowTemplates(!showTemplates)}
+						className="btn-secondary"
+					>
+						<i className="fas fa-bookmark text-xs" aria-hidden="true" />
+						{showTemplates ? 'Hide Templates' : 'Templates'}
+					</button>
 					<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
 						<i className="fas fa-save text-xs" aria-hidden="true" />
 						{saving ? 'Saving...' : 'Save Availability'}
 					</button>
 				</div>
+
+				{showTemplates && (
+					<div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+						<h3 className="mb-4 text-lg font-semibold text-slate-900">Availability Templates</h3>
+						
+						{/* Save Current as Template */}
+						<div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+							<label className="block text-sm font-medium text-slate-700 mb-2">Save Current Schedule as Template</label>
+							<div className="flex gap-2">
+								<input
+									type="text"
+									value={templateName}
+									onChange={e => setTemplateName(e.target.value)}
+									placeholder="Template name (e.g., Standard Schedule)"
+									className="input-base flex-1"
+								/>
+								<button type="button" onClick={saveAsTemplate} className="btn-primary">
+									Save Template
+								</button>
+							</div>
+						</div>
+
+						{/* Load Templates */}
+						<div>
+							<label className="block text-sm font-medium text-slate-700 mb-2">Load Saved Template</label>
+							{templates.length === 0 ? (
+								<p className="text-sm text-slate-400 italic">No templates saved</p>
+							) : (
+								<div className="space-y-2">
+									{templates.map(template => (
+										<div
+											key={template.id}
+											className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3 hover:border-sky-300"
+										>
+											<span className="text-sm font-medium text-slate-900">{template.name}</span>
+											<div className="flex gap-2">
+												<button
+													type="button"
+													onClick={() => loadTemplate(template)}
+													className="text-xs font-medium text-sky-600 hover:text-sky-700"
+												>
+													Load
+												</button>
+												{template.id && (
+													<button
+														type="button"
+														onClick={() => deleteTemplate(template.id!)}
+														className="text-xs font-medium text-rose-600 hover:text-rose-700"
+													>
+														<i className="fas fa-trash" />
+													</button>
+												)}
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+					</div>
+				)}
 
 				<div className="mt-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
 					<i className="fas fa-info-circle mr-2" aria-hidden="true" />

@@ -12,6 +12,9 @@ import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
+import RescheduleDialog from '@/components/appointments/RescheduleDialog';
+import CancelDialog from '@/components/appointments/CancelDialog';
+import { checkAppointmentConflict } from '@/lib/appointmentUtils';
 
 const statusLabels: Record<AdminAppointmentStatus, string> = {
 	pending: 'Pending',
@@ -54,6 +57,14 @@ export default function Appointments() {
 		time: '',
 		status: 'pending' as AdminAppointmentStatus,
 		notes: '',
+	});
+	const [rescheduleDialog, setRescheduleDialog] = useState<{ isOpen: boolean; appointment: FirestoreAppointmentRecord | null }>({
+		isOpen: false,
+		appointment: null,
+	});
+	const [cancelDialog, setCancelDialog] = useState<{ isOpen: boolean; appointment: FirestoreAppointmentRecord | null }>({
+		isOpen: false,
+		appointment: null,
 	});
 
 	// Load appointments from Firestore
@@ -331,6 +342,126 @@ export default function Appointments() {
 		}
 	};
 
+	const handleReschedule = async (newDate: string, newTime: string) => {
+		if (!rescheduleDialog.appointment) return;
+
+		try {
+			const appointment = rescheduleDialog.appointment;
+			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
+
+			await updateDoc(doc(db, 'appointments', appointment.id), {
+				date: newDate,
+				time: newTime,
+			});
+
+			// Send notifications
+			if (patient?.email) {
+				try {
+					await sendEmailNotification({
+						to: patient.email,
+						subject: `Appointment Rescheduled - ${newDate} at ${newTime}`,
+						template: 'appointment-updated',
+						data: {
+							patientName: appointment.patient || patient.name,
+							patientEmail: patient.email,
+							patientId: appointment.patientId,
+							doctor: appointment.doctor,
+							date: newDate,
+							time: newTime,
+							appointmentId: appointment.appointmentId,
+						},
+					});
+				} catch (emailError) {
+					console.error('Failed to send reschedule email:', emailError);
+				}
+			}
+
+			if (patient?.phone && isValidPhoneNumber(patient.phone)) {
+				try {
+					await sendSMSNotification({
+						to: patient.phone,
+						template: 'appointment-updated',
+						data: {
+							patientName: appointment.patient || patient.name,
+							patientPhone: patient.phone,
+							patientId: appointment.patientId,
+							doctor: appointment.doctor,
+							date: newDate,
+							time: newTime,
+							appointmentId: appointment.appointmentId,
+						},
+					});
+				} catch (smsError) {
+					console.error('Failed to send reschedule SMS:', smsError);
+				}
+			}
+		} catch (error) {
+			console.error('Failed to reschedule appointment', error);
+			throw error;
+		}
+	};
+
+	const handleCancel = async (reason: string) => {
+		if (!cancelDialog.appointment) return;
+
+		try {
+			const appointment = cancelDialog.appointment;
+			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
+
+			await updateDoc(doc(db, 'appointments', appointment.id), {
+				status: 'cancelled',
+				cancellationReason: reason || null,
+				cancelledAt: new Date().toISOString(),
+			});
+
+			// Send notifications
+			if (patient?.email) {
+				try {
+					await sendEmailNotification({
+						to: patient.email,
+						subject: `Appointment Cancelled - ${appointment.date}`,
+						template: 'appointment-cancelled',
+						data: {
+							patientName: appointment.patient || patient.name,
+							patientEmail: patient.email,
+							patientId: appointment.patientId,
+							doctor: appointment.doctor,
+							date: appointment.date,
+							time: appointment.time,
+							appointmentId: appointment.appointmentId,
+							reason: reason || undefined,
+						},
+					});
+				} catch (emailError) {
+					console.error('Failed to send cancellation email:', emailError);
+				}
+			}
+
+			if (patient?.phone && isValidPhoneNumber(patient.phone)) {
+				try {
+					await sendSMSNotification({
+						to: patient.phone,
+						template: 'appointment-cancelled',
+						data: {
+							patientName: appointment.patient || patient.name,
+							patientPhone: patient.phone,
+							patientId: appointment.patientId,
+							doctor: appointment.doctor,
+							date: appointment.date,
+							time: appointment.time,
+							appointmentId: appointment.appointmentId,
+						},
+					});
+				} catch (smsError) {
+					console.error('Failed to send cancellation SMS:', smsError);
+				}
+			}
+		} catch (error) {
+			console.error('Failed to cancel appointment', error);
+			throw error;
+		}
+	};
+
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
@@ -398,14 +529,38 @@ export default function Appointments() {
 												</span>
 											</td>
 											<td className="px-4 py-4 text-right text-sm">
-												<button
-													type="button"
-													onClick={() => openDialog(appointment.id)}
-													className="inline-flex items-center rounded-full border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-400 hover:text-sky-800 focus-visible:border-sky-400 focus-visible:text-sky-800 focus-visible:outline-none"
-												>
-													<i className="fas fa-pen mr-1 text-[11px]" aria-hidden="true" />
-													Edit
-												</button>
+												<div className="flex items-center justify-end gap-2">
+													{appointment.status !== 'cancelled' && (
+														<>
+															<button
+																type="button"
+																onClick={() => setRescheduleDialog({ isOpen: true, appointment })}
+																className="inline-flex items-center rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-800 focus-visible:border-amber-400 focus-visible:text-amber-800 focus-visible:outline-none"
+																title="Reschedule appointment"
+															>
+																<i className="fas fa-calendar-alt mr-1 text-[11px]" aria-hidden="true" />
+																Reschedule
+															</button>
+															<button
+																type="button"
+																onClick={() => setCancelDialog({ isOpen: true, appointment })}
+																className="inline-flex items-center rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-400 hover:text-rose-800 focus-visible:border-rose-400 focus-visible:text-rose-800 focus-visible:outline-none"
+																title="Cancel appointment"
+															>
+																<i className="fas fa-times-circle mr-1 text-[11px]" aria-hidden="true" />
+																Cancel
+															</button>
+														</>
+													)}
+													<button
+														type="button"
+														onClick={() => openDialog(appointment.id)}
+														className="inline-flex items-center rounded-full border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-400 hover:text-sky-800 focus-visible:border-sky-400 focus-visible:text-sky-800 focus-visible:outline-none"
+													>
+														<i className="fas fa-pen mr-1 text-[11px]" aria-hidden="true" />
+														Edit
+													</button>
+												</div>
 											</td>
 										</tr>
 									);
@@ -547,6 +702,21 @@ export default function Appointments() {
 					</div>
 				</div>
 			)}
+
+			<RescheduleDialog
+				isOpen={rescheduleDialog.isOpen}
+				appointment={rescheduleDialog.appointment}
+				onClose={() => setRescheduleDialog({ isOpen: false, appointment: null })}
+				onConfirm={handleReschedule}
+				allAppointments={appointments}
+			/>
+
+			<CancelDialog
+				isOpen={cancelDialog.isOpen}
+				appointment={cancelDialog.appointment}
+				onClose={() => setCancelDialog({ isOpen: false, appointment: null })}
+				onConfirm={handleCancel}
+			/>
 			</div>
 		</div>
 	);

@@ -252,7 +252,7 @@ export default function Register() {
 		}));
 	};
 
-	const validateForm = () => {
+	const validateForm = (): boolean => {
 		const errors: Partial<Record<keyof typeof form, string>> = {};
 		if (!form.fullName.trim()) {
 			errors.fullName = 'Please enter the patient\'s full name.';
@@ -276,16 +276,36 @@ export default function Register() {
 		}
 
 		setFormErrors(errors);
-		return Object.keys(errors).length === 0;
+		const isValid = Object.keys(errors).length === 0;
+		
+		if (!isValid) {
+			console.warn('Form validation errors:', errors);
+		}
+		
+		return isValid;
 	};
 
 	const handleRegister = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!validateForm() || submitting) return;
+		
+		if (submitting) {
+			console.warn('Registration already in progress');
+			return;
+		}
+
+		if (!validateForm()) {
+			console.warn('Form validation failed', formErrors);
+			return;
+		}
 
 		setSubmitting(true);
+		setBanner(null);
+		
 		try {
+			console.log('Starting patient registration...', { form });
+			
 			const patientId = await generatePatientId();
+			console.log('Generated patient ID:', patientId);
 			
 			const patientData = {
 				patientId,
@@ -302,7 +322,9 @@ export default function Register() {
 				paymentDescription: form.paymentDescription.trim() || undefined,
 			};
 
-			await addDoc(collection(db, 'patients'), patientData);
+			console.log('Attempting to add patient to Firestore...', patientData);
+			const docRef = await addDoc(collection(db, 'patients'), patientData);
+			console.log('Patient added successfully with document ID:', docRef.id);
 
 			// Send registration email if email is provided
 			let emailSent = false;
@@ -370,9 +392,16 @@ export default function Register() {
 			});
 		} catch (error) {
 			console.error('Failed to register patient', error);
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+			console.error('Error details:', {
+				message: errorMessage,
+				error,
+				formData: form,
+			});
+			
 			setBanner({
 				title: 'Registration failed',
-				description: 'Failed to register patient. Please try again.',
+				description: `Failed to register patient: ${errorMessage}. Please check the console for details and try again.`,
 				accent: 'sky',
 			});
 		} finally {

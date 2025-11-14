@@ -8,6 +8,9 @@ import PageHeader from '@/components/PageHeader';
 import type { AdminAppointmentStatus } from '@/lib/adminMockData';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
+import { checkAppointmentConflict } from '@/lib/appointmentUtils';
+import AppointmentTemplates from '@/components/appointments/AppointmentTemplates';
+import RecurringAppointmentDialog from '@/components/appointments/RecurringAppointmentDialog';
 
 type AppointmentStatusFilter = 'all' | AdminAppointmentStatus;
 
@@ -97,6 +100,8 @@ export default function Appointments() {
 		notes: '',
 	});
 	const [bookingLoading, setBookingLoading] = useState(false);
+	const [showRecurringDialog, setShowRecurringDialog] = useState(false);
+	const [conflictWarning, setConflictWarning] = useState<string | null>(null);
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -419,18 +424,30 @@ export default function Appointments() {
 			return;
 		}
 
-		// Check for conflicts
-		const conflict = appointments.find(
-			apt =>
-				apt.doctor === selectedStaff.userName &&
-				apt.date === bookingForm.date &&
-				apt.time === bookingForm.time &&
-				apt.status !== 'cancelled'
+		// Check for conflicts using utility function
+		const conflict = checkAppointmentConflict(
+			appointments.map(apt => ({
+				id: apt.id,
+				appointmentId: apt.appointmentId,
+				patient: apt.patient,
+				doctor: apt.doctor,
+				date: apt.date,
+				time: apt.time,
+				status: apt.status,
+			})),
+			{
+				doctor: selectedStaff.userName,
+				date: bookingForm.date,
+				time: bookingForm.time,
+			},
+			30
 		);
 
-		if (conflict) {
-			alert('This time slot is already booked. Please select another time.');
-			return;
+		if (conflict.hasConflict) {
+			const confirmMessage = `Conflict detected with ${conflict.conflictingAppointments.length} appointment(s):\n${conflict.conflictingAppointments.map(apt => `- ${apt.patient} on ${apt.date} at ${apt.time}`).join('\n')}\n\nContinue anyway?`;
+			if (!window.confirm(confirmMessage)) {
+				return;
+			}
 		}
 
 		setBookingLoading(true);
@@ -753,6 +770,26 @@ export default function Appointments() {
 									</select>
 								</div>
 
+								{/* Appointment Templates */}
+								{bookingForm.staffId && (
+									<div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+										<AppointmentTemplates
+											doctor={staff.find(s => s.id === bookingForm.staffId)?.userName}
+											onSelectTemplate={template => {
+												const selectedStaff = staff.find(s => s.userName === template.doctor);
+												if (selectedStaff) {
+													setBookingForm(prev => ({
+														...prev,
+														staffId: selectedStaff.id,
+														time: template.time,
+														notes: template.notes || prev.notes,
+													}));
+												}
+											}}
+										/>
+									</div>
+								)}
+
 								{/* Date Selection */}
 								{bookingForm.staffId && (
 									<div>
@@ -827,21 +864,37 @@ export default function Appointments() {
 								</div>
 							</div>
 						</div>
-						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+						<footer className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
 							<button
 								type="button"
-								onClick={handleCloseBookingModal}
+								onClick={() => {
+									const selectedPatient = patients.find(p => p.patientId === bookingForm.patientId);
+									const selectedStaff = staff.find(s => s.id === bookingForm.staffId);
+									if (selectedPatient && selectedStaff) {
+										setShowRecurringDialog(true);
+									}
+								}}
 								className="btn-secondary"
-								disabled={bookingLoading}
+								disabled={!bookingForm.patientId || !bookingForm.staffId}
 							>
-								Cancel
+								<i className="fas fa-redo mr-2 text-xs" aria-hidden="true" />
+								Recurring Appointments
 							</button>
-							<button
-								type="button"
-								onClick={handleCreateAppointment}
-								className="btn-primary"
-								disabled={bookingLoading || !bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time}
-							>
+							<div className="flex gap-3">
+								<button
+									type="button"
+									onClick={handleCloseBookingModal}
+									className="btn-secondary"
+									disabled={bookingLoading}
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									onClick={handleCreateAppointment}
+									className="btn-primary"
+									disabled={bookingLoading || !bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time}
+								>
 								{bookingLoading ? (
 									<>
 										<div className="inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-white border-t-transparent animate-spin mr-2" aria-hidden="true" />
@@ -854,9 +907,46 @@ export default function Appointments() {
 									</>
 								)}
 							</button>
+							</div>
 						</footer>
 					</div>
 				</div>
+			)}
+
+			{/* Recurring Appointment Dialog */}
+			{showRecurringDialog && bookingForm.patientId && bookingForm.staffId && (
+				<RecurringAppointmentDialog
+					isOpen={showRecurringDialog}
+					patientId={bookingForm.patientId}
+					patient={patients.find(p => p.patientId === bookingForm.patientId)?.name || ''}
+					doctor={staff.find(s => s.id === bookingForm.staffId)?.userName || ''}
+					onClose={() => setShowRecurringDialog(false)}
+					onConfirm={async data => {
+						try {
+							const response = await fetch('/api/appointments/recurring', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({
+									patientId: bookingForm.patientId,
+									patient: patients.find(p => p.patientId === bookingForm.patientId)?.name || '',
+									doctor: staff.find(s => s.id === bookingForm.staffId)?.userName || '',
+									...data,
+								}),
+							});
+							const result = await response.json();
+							if (result.success) {
+								alert(`Successfully created ${result.data.count} recurring appointments!`);
+								setShowRecurringDialog(false);
+								handleCloseBookingModal();
+							} else {
+								alert(result.message || 'Failed to create recurring appointments');
+							}
+						} catch (error) {
+							console.error('Failed to create recurring appointments:', error);
+							alert('Failed to create recurring appointments. Please try again.');
+						}
+					}}
+				/>
 			)}
 		</div>
 	);
