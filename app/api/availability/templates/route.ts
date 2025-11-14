@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/auth';
 import { collection, doc, getDoc, getDocs, query, setDoc, where, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -18,11 +17,6 @@ export interface AvailabilityTemplate {
 
 export async function GET(req: Request) {
 	try {
-		const session = await auth();
-		if (!session) {
-			return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
-		}
-
 		const snapshot = await getDocs(collection(db, 'availabilityTemplates'));
 		const templates = snapshot.docs.map(doc => ({
 			id: doc.id,
@@ -41,11 +35,6 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
 	try {
-		const session = await auth();
-		if (!session) {
-			return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
-		}
-
 		const body = await req.json();
 		const { name, schedule } = body;
 
@@ -59,7 +48,7 @@ export async function POST(req: Request) {
 		const template: Omit<AvailabilityTemplate, 'id'> = {
 			name,
 			schedule,
-			createdBy: session.user?.email || session.user?.name || 'unknown',
+			createdBy: 'system',
 			createdAt: new Date().toISOString(),
 		};
 
@@ -81,11 +70,6 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
 	try {
-		const session = await auth();
-		if (!session) {
-			return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
-		}
-
 		const { searchParams } = new URL(req.url);
 		const id = searchParams.get('id');
 
