@@ -5,8 +5,8 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import type { DateSelectArg, EventClickArg, EventChangeArg, ViewApi, ViewMountArg } from '@fullcalendar/core';
-import { collection, doc, onSnapshot, updateDoc, type QuerySnapshot } from 'firebase/firestore';
+import type { EventClickArg, EventChangeArg, ViewMountArg } from '@fullcalendar/core';
+import { collection, doc, onSnapshot, updateDoc, query, where, getDocs, type QuerySnapshot } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
@@ -55,6 +55,24 @@ interface StaffMember {
 	status: string;
 }
 
+interface TimeSlot {
+	start: string;
+	end: string;
+}
+
+interface DayAvailability {
+	enabled: boolean;
+	slots: TimeSlot[];
+}
+
+interface AvailabilitySchedule {
+	[day: string]: DayAvailability;
+}
+
+interface DateSpecificAvailability {
+	[date: string]: DayAvailability; // date in YYYY-MM-DD format
+}
+
 const statusColors: Record<string, string> = {
 	pending: 'bg-amber-400',
 	ongoing: 'bg-sky-500',
@@ -62,18 +80,6 @@ const statusColors: Record<string, string> = {
 	cancelled: 'bg-rose-500',
 };
 
-const statusOptions: Array<{ value: 'all' | string; label: string }> = [
-	{ value: 'all', label: 'All Status' },
-	{ value: 'pending', label: 'Pending' },
-	{ value: 'ongoing', label: 'Ongoing' },
-	{ value: 'completed', label: 'Completed' },
-	{ value: 'cancelled', label: 'Cancelled' },
-];
-
-const formatDateLong = (value: string) =>
-	new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(
-		new Date(value)
-	);
 
 const formatDateTime = (date?: string, time?: string) => {
 	if (!date) return '';
@@ -105,9 +111,8 @@ export default function Calendar() {
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
+	const [dateSpecificAvailability, setDateSpecificAvailability] = useState<DateSpecificAvailability | null>(null);
 
-	const [selectedDate, setSelectedDate] = useState<string | null>(null);
-	const [modalStatus, setModalStatus] = useState<'all' | string>('all');
 	const [currentView, setCurrentView] = useState<string>('dayGridMonth');
 	const [isRescheduling, setIsRescheduling] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -124,6 +129,7 @@ export default function Calendar() {
 		let patientsLoaded = false;
 		let staffLoaded = false;
 		let unsubscribed = false;
+		let unsubscribeAvailability: (() => void) | null = null;
 
 		const checkAllLoaded = () => {
 			if (!isMountedRef.current || unsubscribed) return;
@@ -265,6 +271,64 @@ export default function Calendar() {
 			}
 		);
 
+		// Load availability schedule for current user with real-time updates
+		const loadAvailability = async () => {
+			if (!user?.email) return;
+			
+			try {
+				const staffQuery = query(collection(db, 'staff'), where('userEmail', '==', user.email.toLowerCase()));
+				const querySnapshot = await getDocs(staffQuery);
+				
+				if (!querySnapshot.empty && !unsubscribed) {
+					const staffDoc = querySnapshot.docs[0];
+					const staffRef = doc(db, 'staff', staffDoc.id);
+					
+					// Set up real-time listener for availability changes
+					unsubscribeAvailability = onSnapshot(
+						staffRef,
+						snapshot => {
+							if (!isMountedRef.current || unsubscribed) return;
+							
+							if (snapshot.exists()) {
+								const data = snapshot.data();
+								const loadedDateSpecific = data.dateSpecificAvailability as DateSpecificAvailability | undefined;
+
+								if (loadedDateSpecific) {
+									console.log('📅 Loaded availability:', loadedDateSpecific);
+									console.log('📅 Available dates:', Object.keys(loadedDateSpecific));
+									// Log each date's schedule
+									Object.entries(loadedDateSpecific).forEach(([date, schedule]) => {
+										console.log(`  - ${date}: enabled=${schedule.enabled}, slots=${schedule.slots?.length || 0}`);
+									});
+									safeSetState(setDateSpecificAvailability, loadedDateSpecific);
+								} else {
+									console.log('📅 No availability data found');
+									safeSetState(setDateSpecificAvailability, null);
+								}
+							} else {
+								safeSetState(setDateSpecificAvailability, null);
+							}
+						},
+						error => {
+							if (unsubscribed) return;
+							console.error('Failed to load availability', error);
+							if (isMountedRef.current) {
+								safeSetState(setDateSpecificAvailability, null);
+							}
+						}
+					);
+				}
+			} catch (error) {
+				if (unsubscribed) return;
+				console.error('Failed to find staff document for availability', error);
+				if (isMountedRef.current) {
+					safeSetState(setDateSpecificAvailability, null);
+				}
+			}
+		};
+
+		loadAvailability();
+
 		// Fallback timeout to ensure loading completes even if something goes wrong
 		const timeout = setTimeout(() => {
 			if (isMountedRef.current && !unsubscribed) {
@@ -293,8 +357,15 @@ export default function Calendar() {
 			} catch (error) {
 				console.error('Error unsubscribing staff', error);
 			}
+			try {
+				if (unsubscribeAvailability) {
+					unsubscribeAvailability();
+				}
+			} catch (error) {
+				console.error('Error unsubscribing availability', error);
+			}
 		};
-	}, []);
+	}, [user?.email]);
 
 	const patientLookup = useMemo(() => {
 		const map = new Map<string, PatientRecord>();
@@ -326,18 +397,6 @@ export default function Calendar() {
 		});
 	}, [assignedAppointments, patientLookup]);
 
-	const eventsByDate = useMemo(() => {
-		const map = new Map<string, CalendarEvent[]>();
-		for (const event of events) {
-			if (!event.dateKey) continue;
-			const key = toDateKey(event.dateKey);
-			if (!map.has(key)) {
-				map.set(key, []);
-			}
-			map.get(key)!.push(event);
-		}
-		return map;
-	}, [events]);
 
 	const upcomingReminders = useMemo<UpcomingReminder[]>(() => {
 		const now = new Date();
@@ -381,14 +440,6 @@ export default function Calendar() {
 		return reminders.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
 	}, [events]);
 
-	const modalEvents = useMemo(() => {
-		if (!selectedDate) return [];
-		const list = eventsByDate.get(selectedDate) ?? [];
-		return list.filter(event => {
-			if (modalStatus !== 'all' && (event.appointment.status ?? 'pending') !== modalStatus) return false;
-			return true;
-		});
-	}, [eventsByDate, modalStatus, selectedDate]);
 
 	const handleToday = () => {
 		const calendarApi = calendarRef.current?.getApi();
@@ -397,12 +448,6 @@ export default function Calendar() {
 		}
 	};
 
-	const handleDateSelect = (selectInfo: DateSelectArg) => {
-		const key = toDateKey(selectInfo.startStr);
-		setSelectedDate(key);
-		setModalStatus('all');
-		selectInfo.view.calendar.unselect();
-	};
 
 	const handleEventClick = (clickInfo: EventClickArg) => {
 		clickInfo.jsEvent.preventDefault();
@@ -421,9 +466,6 @@ export default function Calendar() {
 		}
 	};
 
-	const closeDayModal = () => {
-		setSelectedDate(null);
-	};
 
 	const openDetail = (event: CalendarEvent) => {
 		setDetailEvent(event);
@@ -433,8 +475,106 @@ export default function Calendar() {
 		setDetailEvent(null);
 	};
 
+	// Helper to format date as YYYY-MM-DD in local timezone
+	const formatDateKey = (date: Date): string => {
+		const year = date.getFullYear();
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const day = String(date.getDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
+	};
+
+	// Generate availability events from date-specific schedule
+	const availabilityEvents = useMemo(() => {
+		if (!dateSpecificAvailability || Object.keys(dateSpecificAvailability).length === 0) {
+			return [];
+		}
+		
+		const events: Array<{
+			id: string;
+			title: string;
+			start: string;
+			end: string;
+			backgroundColor: string;
+			borderColor: string;
+			display: 'background' | 'block';
+			editable: boolean;
+			startEditable: boolean;
+			durationEditable: boolean;
+			extendedProps: { type: 'availability' };
+		}> = [];
+		
+		// Generate events for the next 6 months
+		// Start from 3 months ago to catch any past dates that might be scheduled
+		const today = new Date();
+		today.setHours(0, 0, 0, 0); // Reset to start of day (local time)
+		const startDate = new Date(today);
+		startDate.setMonth(today.getMonth() - 3); // Look back 3 months
+		const endDate = new Date(today);
+		endDate.setMonth(today.getMonth() + 6);
+		
+		const currentDate = new Date(startDate);
+		
+		console.log('📅 Generating events from', formatDateKey(startDate), 'to', formatDateKey(endDate));
+		
+		while (currentDate <= endDate) {
+			const dateKey = formatDateKey(currentDate);
+			
+			// Check for date-specific schedule
+			const daySchedule = dateSpecificAvailability[dateKey];
+			
+			// Debug: log if we find a schedule
+			if (daySchedule) {
+				console.log(`📅 Found schedule for ${dateKey}:`, daySchedule);
+			}
+			
+			if (daySchedule?.enabled && daySchedule.slots && daySchedule.slots.length > 0) {
+				console.log(`✅ Creating events for ${dateKey} with ${daySchedule.slots.length} slot(s)`);
+				for (const slot of daySchedule.slots) {
+					if (!slot.start || !slot.end) continue;
+					
+					const [startHours, startMinutes] = slot.start.split(':').map(Number);
+					const [endHours, endMinutes] = slot.end.split(':').map(Number);
+					
+					if (isNaN(startHours) || isNaN(startMinutes) || isNaN(endHours) || isNaN(endMinutes)) {
+						continue;
+					}
+					
+					const startDateTime = new Date(currentDate);
+					startDateTime.setHours(startHours, startMinutes, 0, 0);
+					
+					const endDateTime = new Date(currentDate);
+					endDateTime.setHours(endHours, endMinutes, 0, 0);
+					
+					// If end time is before start time, it means it's the next day
+					if (endDateTime <= startDateTime) {
+						endDateTime.setDate(endDateTime.getDate() + 1);
+					}
+					
+					events.push({
+						id: `availability-${dateKey}-${slot.start}-${slot.end}`,
+						title: 'Available',
+						start: startDateTime.toISOString(),
+						end: endDateTime.toISOString(),
+						backgroundColor: '#e0f2fe',
+						borderColor: '#0ea5e9',
+						display: 'block',
+						editable: false,
+						startEditable: false,
+						durationEditable: false,
+						extendedProps: { type: 'availability' },
+					});
+				}
+			}
+			
+			currentDate.setDate(currentDate.getDate() + 1);
+		}
+		
+		console.log('📅 Generated availability events:', events.length, 'events');
+		return events;
+	}, [dateSpecificAvailability]);
+
 	const calendarEvents = useMemo(() => {
-		return events
+		const appointmentEvents = events
 			.filter(event => {
 				// Filter out events without valid dates
 				if (!event.appointment.date) return false;
@@ -476,13 +616,35 @@ export default function Calendar() {
 				const backgroundColor = colorMap[statusColorClass] || '#fbbf24';
 				const borderColor = colorMap[statusColorClass] || '#fbbf24';
 				
+				// Format patient name for display
+				const patientName = event.patient?.name || event.appointment.patient || event.appointment.patientId || 'Patient';
+				
+				// Format time for display (if available)
+				let timeDisplay = '';
+				if (event.appointment.time) {
+					const timeStr = event.appointment.time.trim();
+					const timeParts = timeStr.split(':');
+					if (timeParts.length >= 2) {
+						const hours = parseInt(timeParts[0], 10);
+						const minutes = timeParts[1];
+						const ampm = hours >= 12 ? 'PM' : 'AM';
+						const displayHours = hours % 12 || 12;
+						timeDisplay = ` ${displayHours}:${minutes} ${ampm}`;
+					}
+				}
+				
+				// Create title with patient name and time
+				const eventTitle = timeDisplay ? `${patientName}${timeDisplay}` : patientName;
+				
 				return {
 					id: event.id,
-					title: `${event.patient?.name || event.appointment.patient || 'Patient'}`,
+					title: eventTitle,
 					start: startDateTime,
 					extendedProps: {
 						appointment: event.appointment,
 						patient: event.patient,
+						type: 'appointment',
+						patientName: patientName, // Store for easy access
 					},
 					backgroundColor,
 					borderColor,
@@ -491,7 +653,10 @@ export default function Calendar() {
 					durationEditable: false,
 				};
 			});
-	}, [events]);
+		
+		// Combine appointment events with availability events
+		return [...availabilityEvents, ...appointmentEvents];
+	}, [events, availabilityEvents]);
 
 	const handleViewChange = (view: ViewMountArg) => {
 		setCurrentView(view.view.type);
@@ -642,6 +807,10 @@ export default function Calendar() {
 								<div className="h-3 w-3 rounded-full bg-rose-500" />
 								<span className="text-slate-600">Cancelled</span>
 							</div>
+							<div className="flex items-center gap-2 text-xs">
+								<div className="h-3 w-3 rounded-full bg-sky-200 border border-sky-400" />
+								<span className="text-slate-600">Available</span>
+							</div>
 						</div>
 					</div>
 				)}
@@ -734,7 +903,7 @@ export default function Calendar() {
 								</div>
 							</div>
 						</div>
-					<div className="[&_.fc-toolbar-title]:text-xl [&_.fc-toolbar-title]:font-bold [&_.fc-toolbar-title]:text-slate-800 [&_.fc-button]:border-slate-300 [&_.fc-button]:bg-white [&_.fc-button]:text-slate-700 [&_.fc-button]:font-medium [&_.fc-button:hover]:border-sky-400 [&_.fc-button:hover]:bg-sky-50 [&_.fc-button:hover]:text-sky-700 [&_.fc-button-active]:bg-sky-100 [&_.fc-button-active]:border-sky-400 [&_.fc-button-active]:text-sky-700 [&_.fc-button-active]:shadow-sm [&_.fc-daygrid-day-number]:text-slate-700 [&_.fc-daygrid-day-number]:font-medium [&_.fc-col-header-cell]:bg-gradient-to-b [&_.fc-col-header-cell]:from-slate-50 [&_.fc-col-header-cell]:to-slate-100 [&_.fc-col-header-cell]:text-slate-700 [&_.fc-col-header-cell]:font-semibold [&_.fc-col-header-cell]:py-3 [&_.fc-day-today]:bg-gradient-to-br [&_.fc-day-today]:from-sky-50 [&_.fc-day-today]:to-blue-50 [&_.fc-day-today]:border-2 [&_.fc-day-today]:border-sky-300 [&_.fc-timegrid-slot]:min-h-[2.5em] [&_.fc-event]:cursor-pointer [&_.fc-event]:transition-all [&_.fc-event:hover]:shadow-md [&_.fc-event:hover]:scale-[1.02] [&_.fc-event-title]:font-medium [&_.fc-event-title]:px-1">
+					<div className="[&_.fc-toolbar-title]:text-xl [&_.fc-toolbar-title]:font-bold [&_.fc-toolbar-title]:text-slate-800 [&_.fc-button]:border-slate-300 [&_.fc-button]:bg-white [&_.fc-button]:text-slate-700 [&_.fc-button]:font-medium [&_.fc-button:hover]:border-sky-400 [&_.fc-button:hover]:bg-sky-50 [&_.fc-button:hover]:text-sky-700 [&_.fc-button-active]:bg-sky-100 [&_.fc-button-active]:border-sky-400 [&_.fc-button-active]:text-sky-700 [&_.fc-button-active]:shadow-sm [&_.fc-daygrid-day-number]:text-slate-700 [&_.fc-daygrid-day-number]:font-medium [&_.fc-col-header-cell]:bg-gradient-to-b [&_.fc-col-header-cell]:from-slate-50 [&_.fc-col-header-cell]:to-slate-100 [&_.fc-col-header-cell]:text-slate-700 [&_.fc-col-header-cell]:font-semibold [&_.fc-col-header-cell]:py-3 [&_.fc-day-today]:bg-gradient-to-br [&_.fc-day-today]:from-sky-50 [&_.fc-day-today]:to-blue-50 [&_.fc-day-today]:border-2 [&_.fc-day-today]:border-sky-300 [&_.fc-timegrid-slot]:min-h-[2.5em] [&_.fc-event]:cursor-pointer [&_.fc-event]:transition-all [&_.fc-event:hover]:shadow-md [&_.fc-event:hover]:scale-[1.02] [&_.fc-event-title]:font-medium [&_.fc-event-title]:px-1 [&_.fc-event-title]:text-sm [&_.fc-event-title]:font-semibold [&_.fc-daygrid-event]:text-white [&_.fc-timegrid-event]:text-white">
 						<FullCalendar
 							ref={calendarRef}
 							plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -758,8 +927,14 @@ export default function Calendar() {
 								},
 							}}
 							events={calendarEvents}
-							select={handleDateSelect}
-							eventClick={handleEventClick}
+							eventClick={(clickInfo) => {
+								// Only handle clicks on appointment events, not availability
+								const eventType = clickInfo.event.extendedProps?.type;
+								if (eventType === 'availability') {
+									return; // Don't open detail modal for availability events
+								}
+								handleEventClick(clickInfo);
+							}}
 							eventDrop={handleEventDrop}
 							viewDidMount={handleViewChange}
 							fixedWeekCount={false}
@@ -767,8 +942,7 @@ export default function Calendar() {
 							eventDisplay="block"
 							editable={true}
 							droppable={false}
-							selectable={true}
-							selectMirror={true}
+							selectable={false}
 							dayMaxEvents={true}
 							weekNumbers={false}
 							nowIndicator={true}
@@ -792,95 +966,6 @@ export default function Calendar() {
 					emptyStateHint="New notifications will appear here as appointments and system alerts are generated."
 				/>
 			</section>
-
-			{selectedDate && (
-				<div
-					role="dialog"
-					aria-modal="true"
-					className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4 py-6"
-				>
-					<div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
-						<header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-6 py-5">
-							<div>
-								<h2 className="text-xl font-bold text-slate-900">
-									<i className="fas fa-calendar-day mr-2 text-sky-600" aria-hidden="true" />
-									Appointments for {formatDateLong(selectedDate)}
-								</h2>
-								<p className="mt-1 text-sm text-slate-600">
-									Filter by status to focus the list.
-								</p>
-							</div>
-							<button
-								type="button"
-								onClick={closeDayModal}
-								className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:bg-slate-100 focus-visible:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-								aria-label="Close dialog"
-							>
-								<i className="fas fa-times text-lg" aria-hidden="true" />
-							</button>
-						</header>
-						<div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-							<div className="flex flex-wrap items-center gap-3">
-								<label className="text-sm font-medium text-slate-700">Filter by status:</label>
-								<select
-									value={modalStatus}
-									onChange={event => setModalStatus(event.target.value)}
-									className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-sky-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
-								>
-									{statusOptions.map(option => (
-										<option key={option.value} value={option.value}>
-											{option.label}
-										</option>
-									))}
-								</select>
-							</div>
-						</div>
-						<div className="max-h-[420px] overflow-y-auto px-6 py-4">
-							{modalEvents.length === 0 ? (
-								<p className="py-10 text-center text-sm text-slate-500">
-									No appointments found for the selected criteria.
-								</p>
-							) : (
-								<ul className="space-y-3">
-									{modalEvents.map(event => (
-										<li
-											key={`modal-${event.id}`}
-											className="group flex items-start justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm transition-all hover:border-sky-300 hover:shadow-md"
-										>
-											<div>
-												<p className="text-sm font-semibold text-slate-800">
-													{event.patient?.name || event.appointment.patient || event.appointment.patientId}
-												</p>
-												<p className="text-xs text-slate-500">
-													{event.appointment.time || 'All-day'}
-												</p>
-												<p className="mt-2 text-xs text-slate-500">
-													{event.patient?.complaint || 'No notes on file.'}
-												</p>
-											</div>
-											<div className="flex flex-col items-end gap-2">
-												<span
-													className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending}`}
-												>
-													{(event.appointment.status ?? 'pending').toUpperCase()}
-												</span>
-												<button
-													type="button"
-													onClick={() => openDetail(event)}
-													className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 focus-visible:border-sky-400 focus-visible:text-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-												>
-													<i className="fas fa-eye text-[10px]" aria-hidden="true" />
-													View Details
-												</button>
-											</div>
-										</li>
-									))}
-								</ul>
-							)}
-						</div>
-					</div>
-				</div>
-			)}
 
 			{detailEvent && (
 				<div

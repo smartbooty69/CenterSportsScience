@@ -1,11 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { collection, doc, getDoc, getDocs, query, setDoc, where, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where, onSnapshot, serverTimestamp, deleteField } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
-
-type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
 
 interface TimeSlot {
 	start: string;
@@ -17,35 +15,39 @@ interface DayAvailability {
 	slots: TimeSlot[];
 }
 
-interface AvailabilitySchedule {
-	[day: string]: DayAvailability;
+interface DateSpecificAvailability {
+	[date: string]: DayAvailability; // date in YYYY-MM-DD format
 }
-
-const DAYS_OF_WEEK: DayOfWeek[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const BUTTON_DANGER =
 	'inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700 focus-visible:border-rose-300 focus-visible:text-rose-700 focus-visible:outline-none';
 
-const DEFAULT_AVAILABILITY: AvailabilitySchedule = {
-	Monday: { enabled: false, slots: [{ start: '09:00', end: '17:00' }] },
-	Tuesday: { enabled: false, slots: [{ start: '09:00', end: '17:00' }] },
-	Wednesday: { enabled: false, slots: [{ start: '09:00', end: '17:00' }] },
-	Thursday: { enabled: false, slots: [{ start: '09:00', end: '17:00' }] },
-	Friday: { enabled: false, slots: [{ start: '09:00', end: '17:00' }] },
-	Saturday: { enabled: false, slots: [{ start: '09:00', end: '17:00' }] },
-	Sunday: { enabled: false, slots: [{ start: '09:00', end: '17:00' }] },
+// Helper to format date as YYYY-MM-DD in local timezone
+const formatDateKey = (date: Date): string => {
+	const year = date.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
 };
 
 export default function Availability() {
 	const { user } = useAuth();
-	const [schedule, setSchedule] = useState<AvailabilitySchedule>(DEFAULT_AVAILABILITY);
+	
+	const [dateSpecific, setDateSpecific] = useState<DateSpecificAvailability>({});
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [savedMessage, setSavedMessage] = useState(false);
 	const [staffDocId, setStaffDocId] = useState<string | null>(null);
-	const [showTemplates, setShowTemplates] = useState(false);
-	const [templates, setTemplates] = useState<Array<{ id?: string; name: string; schedule: AvailabilitySchedule }>>([]);
-	const [templateName, setTemplateName] = useState('');
+	const isSavingRef = useRef(false);
+
+	// Date-specific scheduling state
+	const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+		const today = new Date();
+		const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+		return formatDateKey(firstDay);
+	});
+	const [selectedDate, setSelectedDate] = useState<string | null>(null);
+	const [editingDateSchedule, setEditingDateSchedule] = useState<DayAvailability | null>(null);
 
 	// Find staff document by user email
 	useEffect(() => {
@@ -70,43 +72,40 @@ export default function Availability() {
 					unsubscribe = onSnapshot(
 						staffRef,
 						snapshot => {
+							// Don't update if we're currently saving (to avoid race conditions)
+							if (isSavingRef.current) {
+								return;
+							}
+
 							if (snapshot.exists()) {
 								const data = snapshot.data();
-								const loadedSchedule = data.availability as AvailabilitySchedule | undefined;
-								if (loadedSchedule) {
-									// Merge with defaults to ensure all days are present
-									const merged: AvailabilitySchedule = { ...DEFAULT_AVAILABILITY };
-									DAYS_OF_WEEK.forEach(day => {
-										if (loadedSchedule[day]) {
-											merged[day] = {
-												enabled: loadedSchedule[day].enabled ?? false,
-												slots: loadedSchedule[day].slots?.length > 0 ? loadedSchedule[day].slots : [{ start: '09:00', end: '17:00' }],
-											};
-										}
-									});
-									setSchedule(merged);
+								const loadedDateSpecific = data.dateSpecificAvailability as DateSpecificAvailability | undefined;
+
+								if (loadedDateSpecific) {
+									console.log('📅 Availability updated from Firestore:', Object.keys(loadedDateSpecific));
+									setDateSpecific(loadedDateSpecific);
 								} else {
-									setSchedule(DEFAULT_AVAILABILITY);
+									setDateSpecific({});
 								}
 							} else {
-								setSchedule(DEFAULT_AVAILABILITY);
+								setDateSpecific({});
 							}
 							setLoading(false);
 						},
 						error => {
 							console.error('Failed to load availability', error);
-							setSchedule(DEFAULT_AVAILABILITY);
+							setDateSpecific({});
 							setLoading(false);
 						}
 					);
 				} else {
 					console.warn('No staff document found for user email:', user.email);
-					setSchedule(DEFAULT_AVAILABILITY);
+					setDateSpecific({});
 					setLoading(false);
 				}
 			} catch (error) {
 				console.error('Failed to find staff document', error);
-				setSchedule(DEFAULT_AVAILABILITY);
+				setDateSpecific({});
 				setLoading(false);
 			}
 		};
@@ -120,67 +119,249 @@ export default function Availability() {
 		};
 	}, [user?.email]);
 
-	const handleDayToggle = (day: DayOfWeek) => {
-		setSchedule(prev => ({
-			...prev,
-			[day]: {
-				...prev[day],
-				enabled: !prev[day].enabled,
-			},
-		}));
+	// Date-specific handlers
+	const getMonthDates = (monthStart: string): string[] => {
+		const start = new Date(monthStart + 'T00:00:00'); // Parse as local time
+		const year = start.getFullYear();
+		const month = start.getMonth();
+		
+		// Get first day of month and what day of week it is
+		const firstDay = new Date(year, month, 1);
+		const lastDay = new Date(year, month + 1, 0); // Last day of month
+		const daysInMonth = lastDay.getDate();
+		const startDayOfWeek = firstDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
+		
+		const dates: string[] = [];
+		
+		// Add days from previous month to fill the first week
+		const prevMonthLastDay = new Date(year, month, 0).getDate();
+		for (let i = startDayOfWeek - 1; i >= 0; i--) {
+			const date = new Date(year, month - 1, prevMonthLastDay - i);
+			dates.push(formatDateKey(date));
+		}
+		
+		// Add all days of current month
+		for (let day = 1; day <= daysInMonth; day++) {
+			const date = new Date(year, month, day);
+			dates.push(formatDateKey(date));
+		}
+		
+		// Add days from next month to fill the last week (to make 6 rows = 42 days)
+		const totalDays = dates.length;
+		const remainingDays = 42 - totalDays; // 6 weeks * 7 days = 42
+		for (let day = 1; day <= remainingDays; day++) {
+			const date = new Date(year, month + 1, day);
+			dates.push(formatDateKey(date));
+		}
+		
+		return dates;
 	};
 
-	const handleSlotChange = (day: DayOfWeek, slotIndex: number, field: 'start' | 'end', value: string) => {
-		setSchedule(prev => {
-			const newSchedule = { ...prev };
-			const newSlots = [...newSchedule[day].slots];
-			const updatedSlot = { ...newSlots[slotIndex], [field]: value };
+	const getDayName = (date: string): string => {
+		// Parse date as local time to avoid timezone issues
+		const d = new Date(date + 'T00:00:00');
+		const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+		return dayNames[d.getDay()];
+	};
 
-			// Validate that end time is after start time
-			if (field === 'start' && updatedSlot.end && value >= updatedSlot.end) {
-				// If start time is after or equal to end time, adjust end time to be 1 hour later
-				const [hours, minutes] = value.split(':').map(Number);
-				const startDate = new Date();
-				startDate.setHours(hours, minutes, 0, 0);
-				startDate.setHours(startDate.getHours() + 1);
-				const newEndTime = `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`;
-				updatedSlot.end = newEndTime;
-			} else if (field === 'end' && updatedSlot.start && value <= updatedSlot.start) {
-				// If end time is before or equal to start time, adjust start time to be 1 hour earlier
-				const [hours, minutes] = value.split(':').map(Number);
-				const endDate = new Date();
-				endDate.setHours(hours, minutes, 0, 0);
-				endDate.setHours(endDate.getHours() - 1);
-				const newStartTime = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
-				updatedSlot.start = newStartTime;
-			}
+	const getDateSchedule = (date: string): DayAvailability => {
+		// Return date-specific schedule if exists, otherwise return default (not available)
+		if (dateSpecific[date]) {
+			return dateSpecific[date];
+		}
+		return { enabled: false, slots: [{ start: '09:00', end: '17:00' }] };
+	};
 
-			newSlots[slotIndex] = updatedSlot;
-			newSchedule[day] = { ...newSchedule[day], slots: newSlots };
-			return newSchedule;
+	const handleDateClick = (date: string) => {
+		setSelectedDate(date);
+		const currentSchedule = getDateSchedule(date);
+		setEditingDateSchedule({
+			enabled: currentSchedule.enabled,
+			slots: currentSchedule.slots.map(slot => ({ ...slot })),
 		});
 	};
 
-	const handleAddSlot = (day: DayOfWeek) => {
-		setSchedule(prev => {
-			const newSchedule = { ...prev };
-			newSchedule[day] = {
-				...newSchedule[day],
-				slots: [...newSchedule[day].slots, { start: '09:00', end: '17:00' }],
+	const saveDateSchedule = async () => {
+		if (!selectedDate || !editingDateSchedule || !staffDocId) return;
+
+		const updatedSchedule = {
+			...dateSpecific,
+			[selectedDate]: editingDateSchedule,
+		};
+
+		// Update local state immediately for better UX
+		setDateSpecific(updatedSchedule);
+		setSelectedDate(null);
+		setEditingDateSchedule(null);
+
+		// Auto-save to Firestore
+		isSavingRef.current = true;
+		try {
+			const staffRef = doc(db, 'staff', staffDocId);
+			await setDoc(
+				staffRef,
+				{
+					dateSpecificAvailability: updatedSchedule,
+					availabilityUpdatedAt: serverTimestamp(),
+				},
+				{ merge: true }
+			);
+			console.log('✅ Saved schedule for', selectedDate);
+			setSavedMessage(true);
+			setTimeout(() => setSavedMessage(false), 3000);
+		} catch (error) {
+			console.error('Failed to save schedule', error);
+			alert('Failed to save schedule. Please try again.');
+			// Revert on error
+			setDateSpecific(dateSpecific);
+		} finally {
+			// Allow listener to update after a short delay
+			setTimeout(() => {
+				isSavingRef.current = false;
+			}, 500);
+		}
+	};
+
+	const removeDateSchedule = async (date: string) => {
+		if (!window.confirm('Remove schedule for this date?') || !staffDocId) return;
+
+		const updatedSchedule = { ...dateSpecific };
+		delete updatedSchedule[date];
+
+		// Update local state immediately
+		setDateSpecific(updatedSchedule);
+
+		// Auto-save to Firestore
+		isSavingRef.current = true;
+		try {
+			const staffRef = doc(db, 'staff', staffDocId);
+			
+			// Use updateDoc to properly replace the entire dateSpecificAvailability object
+			// This ensures that deleted dates are actually removed from Firestore
+			await updateDoc(
+				staffRef,
+				{
+					dateSpecificAvailability: updatedSchedule,
+					availabilityUpdatedAt: serverTimestamp(),
+				}
+			);
+			
+			console.log('✅ Removed schedule for', date);
+			console.log('📅 Updated schedule:', updatedSchedule);
+			console.log('📅 Remaining dates:', Object.keys(updatedSchedule));
+			setSavedMessage(true);
+			setTimeout(() => setSavedMessage(false), 3000);
+		} catch (error) {
+			console.error('Failed to remove schedule', error);
+			alert('Failed to remove schedule. Please try again.');
+			// Revert on error
+			setDateSpecific(dateSpecific);
+		} finally {
+			// Allow listener to update after a short delay
+			setTimeout(() => {
+				isSavingRef.current = false;
+			}, 500);
+		}
+	};
+
+	const handleDateSlotChange = (slotIndex: number, field: 'start' | 'end', value: string) => {
+		if (!editingDateSchedule) return;
+
+		const newSlots = [...editingDateSchedule.slots];
+		const updatedSlot = { ...newSlots[slotIndex], [field]: value };
+
+		if (field === 'start' && updatedSlot.end && value >= updatedSlot.end) {
+			const [hours, minutes] = value.split(':').map(Number);
+			const startDate = new Date();
+			startDate.setHours(hours, minutes, 0, 0);
+			startDate.setHours(startDate.getHours() + 1);
+			const newEndTime = `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`;
+			updatedSlot.end = newEndTime;
+		} else if (field === 'end' && updatedSlot.start && value <= updatedSlot.start) {
+			const [hours, minutes] = value.split(':').map(Number);
+			const endDate = new Date();
+			endDate.setHours(hours, minutes, 0, 0);
+			endDate.setHours(endDate.getHours() - 1);
+			const newStartTime = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
+			updatedSlot.start = newStartTime;
+		}
+
+		newSlots[slotIndex] = updatedSlot;
+		setEditingDateSchedule({
+			...editingDateSchedule,
+			slots: newSlots,
+		});
+	};
+
+	const handleDateAddSlot = () => {
+		if (!editingDateSchedule) return;
+		setEditingDateSchedule({
+			...editingDateSchedule,
+			slots: [...editingDateSchedule.slots, { start: '09:00', end: '17:00' }],
+		});
+	};
+
+	const handleDateRemoveSlot = (slotIndex: number) => {
+		if (!editingDateSchedule || editingDateSchedule.slots.length <= 1) return;
+		setEditingDateSchedule({
+			...editingDateSchedule,
+			slots: editingDateSchedule.slots.filter((_, idx) => idx !== slotIndex),
+		});
+	};
+
+	const copyDayToMonth = async (sourceDate: string) => {
+		if (!staffDocId) return;
+		
+		const monthDates = getMonthDates(selectedMonth);
+		const sourceSchedule = getDateSchedule(sourceDate);
+		
+		// Filter to only current month dates (not previous/next month padding)
+		const currentMonth = new Date(selectedMonth + 'T00:00:00');
+		const year = currentMonth.getFullYear();
+		const month = currentMonth.getMonth();
+		const currentMonthDates = monthDates.filter(date => {
+			const d = new Date(date + 'T00:00:00');
+			return d.getFullYear() === year && d.getMonth() === month;
+		});
+		
+		if (!window.confirm(`Copy schedule from ${formatDateDisplay(sourceDate)} to all days in this month?`)) return;
+
+		const newDateSpecific = { ...dateSpecific };
+		
+		currentMonthDates.forEach(date => {
+			newDateSpecific[date] = {
+				enabled: sourceSchedule.enabled,
+				slots: sourceSchedule.slots.map(slot => ({ ...slot })),
 			};
-			return newSchedule;
 		});
-	};
 
-	const handleRemoveSlot = (day: DayOfWeek, slotIndex: number) => {
-		setSchedule(prev => {
-			const newSchedule = { ...prev };
-			if (newSchedule[day].slots.length > 1) {
-				const newSlots = newSchedule[day].slots.filter((_, idx) => idx !== slotIndex);
-				newSchedule[day] = { ...newSchedule[day], slots: newSlots };
-			}
-			return newSchedule;
-		});
+		// Update local state immediately
+		setDateSpecific(newDateSpecific);
+
+		// Auto-save to Firestore
+		isSavingRef.current = true;
+		try {
+			const staffRef = doc(db, 'staff', staffDocId);
+			await setDoc(
+				staffRef,
+				{
+					dateSpecificAvailability: newDateSpecific,
+					availabilityUpdatedAt: serverTimestamp(),
+				},
+				{ merge: true }
+			);
+			console.log('✅ Copied schedule to month');
+			setSavedMessage(true);
+			setTimeout(() => setSavedMessage(false), 3000);
+		} catch (error) {
+			console.error('Failed to copy schedule', error);
+			alert('Failed to copy schedule. Please try again.');
+		} finally {
+			// Allow listener to update after a short delay
+			setTimeout(() => {
+				isSavingRef.current = false;
+			}, 500);
+		}
 	};
 
 	const handleSave = async () => {
@@ -195,129 +376,58 @@ export default function Availability() {
 		try {
 			const staffRef = doc(db, 'staff', staffDocId);
 			
-			// Update the availability field in the staff document (merge to preserve other fields)
+			// Log what we're saving
+			console.log('💾 Saving availability:', dateSpecific);
+			console.log('💾 Dates being saved:', Object.keys(dateSpecific));
+			Object.entries(dateSpecific).forEach(([date, schedule]) => {
+				console.log(`  - ${date}: enabled=${schedule.enabled}, slots=${schedule.slots?.length || 0}`);
+			});
+			
 			await setDoc(
 				staffRef,
 				{
-					availability: schedule,
+					dateSpecificAvailability: dateSpecific,
 					availabilityUpdatedAt: serverTimestamp(),
 				},
 				{ merge: true }
 			);
 
-			// Verify the save by reading back the document
 			const verifyDoc = await getDoc(staffRef);
 			if (!verifyDoc.exists()) {
 				throw new Error('Staff document was not found in Firestore');
 			}
 
 			const savedData = verifyDoc.data();
-			console.log('✅ Availability saved successfully to Firestore:', {
-				collection: 'staff',
-				documentId: staffDocId,
-				savedAvailability: savedData.availability,
-			});
+			console.log('✅ Saved successfully. Verified data:', savedData.dateSpecificAvailability);
 
 			setSavedMessage(true);
 			setTimeout(() => setSavedMessage(false), 3000);
 		} catch (error) {
-			console.error('❌ Failed to save availability to Firestore:', error);
+			console.error('Failed to save availability', error);
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			console.error('Error details:', {
-				collection: 'staff',
-				documentId: staffDocId,
-				error: errorMessage,
-				schedule: schedule,
-			});
-			alert(`Failed to save availability: ${errorMessage}\n\nCheck the browser console for more details.`);
+			alert(`Failed to save availability: ${errorMessage}`);
 		} finally {
 			setSaving(false);
 		}
 	};
 
-	const handleCopyDay = (sourceDay: DayOfWeek) => {
-		const sourceSchedule = schedule[sourceDay];
-		const targetDays = DAYS_OF_WEEK.filter(day => day !== sourceDay);
-
-		if (window.confirm(`Copy ${sourceDay} schedule to all other days?`)) {
-			setSchedule(prev => {
-				const newSchedule = { ...prev };
-				targetDays.forEach(day => {
-					newSchedule[day] = {
-						enabled: sourceSchedule.enabled,
-						slots: sourceSchedule.slots.map(slot => ({ ...slot })),
-					};
-				});
-				return newSchedule;
-			});
-		}
+	const monthDates = useMemo(() => getMonthDates(selectedMonth), [selectedMonth]);
+	
+	const getMonthName = (dateString: string) => {
+		const date = new Date(dateString + 'T00:00:00');
+		return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+	};
+	
+	const isCurrentMonth = (date: string) => {
+		const d = new Date(date + 'T00:00:00');
+		const monthStart = new Date(selectedMonth + 'T00:00:00');
+		return d.getFullYear() === monthStart.getFullYear() && d.getMonth() === monthStart.getMonth();
 	};
 
-	const loadTemplates = async () => {
-		try {
-			const response = await fetch('/api/availability/templates');
-			const result = await response.json();
-			if (result.success) {
-				setTemplates(result.data);
-			}
-		} catch (error) {
-			console.error('Failed to load templates:', error);
-		}
+	const formatDateDisplay = (date: string) => {
+		const d = new Date(date);
+		return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 	};
-
-	const saveAsTemplate = async () => {
-		if (!templateName.trim()) {
-			alert('Please enter a template name');
-			return;
-		}
-		try {
-			const response = await fetch('/api/availability/templates', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: templateName.trim(), schedule }),
-			});
-			const result = await response.json();
-			if (result.success) {
-				alert('Template saved successfully!');
-				setTemplateName('');
-				await loadTemplates();
-			} else {
-				alert(result.message || 'Failed to save template');
-			}
-		} catch (error) {
-			console.error('Failed to save template:', error);
-			alert('Failed to save template');
-		}
-	};
-
-	const loadTemplate = (template: { schedule: AvailabilitySchedule }) => {
-		setSchedule(template.schedule);
-		setShowTemplates(false);
-	};
-
-	const deleteTemplate = async (id: string) => {
-		if (!window.confirm('Delete this template?')) return;
-		try {
-			const response = await fetch(`/api/availability/templates?id=${id}`, {
-				method: 'DELETE',
-			});
-			const result = await response.json();
-			if (result.success) {
-				await loadTemplates();
-			} else {
-				alert(result.message || 'Failed to delete template');
-			}
-		} catch (error) {
-			console.error('Failed to delete template:', error);
-			alert('Failed to delete template');
-		}
-	};
-
-	useEffect(() => {
-		if (showTemplates) {
-			loadTemplates();
-		}
-	}, [showTemplates]);
 
 	if (loading) {
 		return (
@@ -332,62 +442,205 @@ export default function Availability() {
 		);
 	}
 
-
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
-			<div className="mx-auto max-w-4xl">
+			<div className="mx-auto max-w-6xl">
 				<header className="mb-8">
 					<p className="text-sm font-semibold uppercase tracking-wide text-sky-600">Clinical Team</p>
 					<h1 className="mt-1 text-3xl font-semibold text-slate-900">My Availability</h1>
 					<p className="mt-2 text-sm text-slate-600">
-						Set your available time slots for each day of the week. This helps the front desk schedule appointments
-						when you're available.
+						Schedule your availability by date. Click on any date to set your available hours for that day.
 					</p>
 				</header>
 
 				{savedMessage && (
 					<div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
 						<i className="fas fa-check mr-2" aria-hidden="true" />
-						Availability saved successfully!
+						Changes saved successfully!
 					</div>
 				)}
 
-				<div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2">
-					{DAYS_OF_WEEK.map(day => (
-						<div key={day} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-							<div className="mb-4 flex items-center justify-between">
-								<div className="flex items-center gap-3">
-									<label className="flex items-center gap-3">
-										<input
-											type="checkbox"
-											checked={schedule[day].enabled}
-											onChange={() => handleDayToggle(day)}
-											className="h-5 w-5 rounded border-slate-300 text-sky-600 focus:ring-sky-200"
-										/>
-										<span className="text-lg font-semibold text-slate-900">{day}</span>
-									</label>
+				{/* Month Selector */}
+				<div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+					<div className="mb-4 flex items-center justify-between">
+						<h3 className="text-lg font-semibold text-slate-900">{getMonthName(selectedMonth)}</h3>
+						<div className="flex items-center gap-3">
+							<button
+								type="button"
+								onClick={() => {
+									const current = new Date(selectedMonth + 'T00:00:00');
+									current.setMonth(current.getMonth() - 1);
+									setSelectedMonth(formatDateKey(current));
+								}}
+								className="btn-secondary"
+							>
+								<i className="fas fa-chevron-left" aria-hidden="true" />
+							</button>
+							<input
+								type="month"
+								value={selectedMonth.substring(0, 7)}
+								onChange={e => {
+									const newDate = new Date(e.target.value + '-01T00:00:00');
+									setSelectedMonth(formatDateKey(newDate));
+								}}
+								className="input-base"
+							/>
+							<button
+								type="button"
+								onClick={() => {
+									const current = new Date(selectedMonth + 'T00:00:00');
+									current.setMonth(current.getMonth() + 1);
+									setSelectedMonth(formatDateKey(current));
+								}}
+								className="btn-secondary"
+							>
+								<i className="fas fa-chevron-right" aria-hidden="true" />
+							</button>
+							<button
+								type="button"
+								onClick={() => {
+									const today = new Date();
+									const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+									setSelectedMonth(formatDateKey(firstDay));
+								}}
+								className="btn-secondary text-xs"
+							>
+								This Month
+							</button>
+						</div>
+					</div>
+				</div>
+
+				{/* Month Calendar Grid */}
+				<div className="mb-6">
+					{/* Day headers */}
+					<div className="mb-2 grid grid-cols-7 gap-2">
+						{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+							<div key={day} className="text-center text-xs font-semibold text-slate-600">
+								{day}
+							</div>
+						))}
+					</div>
+					{/* Calendar days */}
+					<div className="grid grid-cols-7 gap-2">
+						{monthDates.map((date, index) => {
+							const dayName = getDayName(date);
+							const dateSchedule = getDateSchedule(date);
+							const hasSchedule = !!dateSpecific[date];
+							const today = new Date();
+							const todayKey = formatDateKey(today);
+							const isToday = date === todayKey;
+							const isCurrentMonthDay = isCurrentMonth(date);
+							
+							return (
+								<div
+									key={date}
+									className={`rounded-xl border-2 p-3 transition min-h-[120px] ${
+										!isCurrentMonthDay
+											? 'border-slate-100 bg-slate-50 opacity-50'
+											: isToday
+											? 'border-sky-400 bg-sky-50'
+											: hasSchedule
+											? 'border-emerald-300 bg-emerald-50'
+											: 'border-slate-200 bg-white'
+									}`}
+								>
+									<div className="mb-2 flex items-center justify-between">
+										<div>
+											<p className={`text-xs font-medium ${!isCurrentMonthDay ? 'text-slate-400' : 'text-slate-500'}`}>
+												{isCurrentMonthDay ? dayName.substring(0, 3) : ''}
+											</p>
+											<p className={`text-sm font-semibold ${!isCurrentMonthDay ? 'text-slate-400' : isToday ? 'text-sky-700' : 'text-slate-900'}`}>
+												{new Date(date + 'T00:00:00').getDate()}
+											</p>
+										</div>
+										{hasSchedule && isCurrentMonthDay && (
+											<button
+												type="button"
+												onClick={() => removeDateSchedule(date)}
+												className="text-xs text-rose-600 hover:text-rose-700"
+												title="Remove schedule"
+											>
+												<i className="fas fa-times" aria-hidden="true" />
+											</button>
+										)}
+									</div>
+									{isCurrentMonthDay && (
+										<>
+											{dateSchedule.enabled ? (
+												<div className="space-y-1 mb-2">
+													{dateSchedule.slots.slice(0, 2).map((slot, slotIdx) => (
+														<div key={slotIdx} className="text-xs text-slate-600">
+															{slot.start} - {slot.end}
+														</div>
+													))}
+													{dateSchedule.slots.length > 2 && (
+														<div className="text-xs text-slate-500">
+															+{dateSchedule.slots.length - 2} more
+														</div>
+													)}
+												</div>
+											) : hasSchedule ? (
+												<p className="text-xs italic text-slate-400 mb-2">Not available</p>
+											) : (
+												<p className="text-xs italic text-slate-400 mb-2">Not scheduled</p>
+											)}
+											<div className="mt-auto flex gap-1">
+												<button
+													type="button"
+													onClick={() => handleDateClick(date)}
+													className="flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+												>
+													{hasSchedule ? 'Edit' : 'Set'}
+												</button>
+												{hasSchedule && (
+													<button
+														type="button"
+														onClick={() => copyDayToMonth(date)}
+														className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+														title="Copy to all days in month"
+													>
+														<i className="fas fa-copy" aria-hidden="true" />
+													</button>
+												)}
+											</div>
+										</>
+									)}
 								</div>
+							);
+						})}
+					</div>
+				</div>
+
+				{/* Date Edit Modal */}
+				{selectedDate && editingDateSchedule && (
+					<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4 py-6">
+						<div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
+							<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+								<h3 className="text-lg font-semibold text-slate-900">
+									Schedule for {formatDateDisplay(selectedDate)}
+								</h3>
 								<button
 									type="button"
-									onClick={() => handleCopyDay(day)}
-									className="text-xs font-medium text-slate-500 hover:text-slate-700"
-									title={`Copy ${day} schedule to all other days`}
+									onClick={() => {
+										setSelectedDate(null);
+										setEditingDateSchedule(null);
+									}}
+									className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
 								>
-									<i className="fas fa-copy mr-1" aria-hidden="true" />
-									Copy to all days
+									<i className="fas fa-times" aria-hidden="true" />
 								</button>
-							</div>
-
-							{schedule[day].enabled ? (
+							</header>
+							<div className="px-6 py-4">
 								<div className="space-y-3">
-									{schedule[day].slots.map((slot, slotIndex) => (
+									{editingDateSchedule.slots.map((slot, slotIndex) => (
 										<div key={slotIndex} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
 											<div className="flex-1">
 												<label className="block text-xs font-medium text-slate-500">Start Time</label>
 												<input
 													type="time"
 													value={slot.start}
-													onChange={e => handleSlotChange(day, slotIndex, 'start', e.target.value)}
+													onChange={e => handleDateSlotChange(slotIndex, 'start', e.target.value)}
 													className="input-base"
 												/>
 											</div>
@@ -396,17 +649,16 @@ export default function Availability() {
 												<input
 													type="time"
 													value={slot.end}
-													onChange={e => handleSlotChange(day, slotIndex, 'end', e.target.value)}
+													onChange={e => handleDateSlotChange(slotIndex, 'end', e.target.value)}
 													className="input-base"
 												/>
 											</div>
 											<div className="flex items-end">
-												{schedule[day].slots.length > 1 && (
+												{editingDateSchedule.slots.length > 1 && (
 													<button
 														type="button"
-														onClick={() => handleRemoveSlot(day, slotIndex)}
+														onClick={() => handleDateRemoveSlot(slotIndex)}
 														className={BUTTON_DANGER}
-														title="Remove time slot"
 													>
 														<span className="text-lg leading-none" aria-hidden="true">-</span>
 													</button>
@@ -416,102 +668,59 @@ export default function Availability() {
 									))}
 									<button
 										type="button"
-										onClick={() => handleAddSlot(day)}
+										onClick={handleDateAddSlot}
 										className="w-full rounded-lg border-2 border-dashed border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-sky-300 hover:text-sky-600"
 									>
 										<i className="fas fa-plus mr-2 text-xs" aria-hidden="true" />
 										Add another time slot
 									</button>
 								</div>
-							) : (
-								<p className="text-sm italic text-slate-400">Not available on this day</p>
-							)}
-						</div>
-					))}
-				</div>
 
-				<div className="mt-8 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-					<button
-						type="button"
-						onClick={() => setShowTemplates(!showTemplates)}
-						className="btn-secondary"
-					>
-						<i className="fas fa-bookmark text-xs" aria-hidden="true" />
-						{showTemplates ? 'Hide Templates' : 'Templates'}
-					</button>
-					<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
-						<i className="fas fa-save text-xs" aria-hidden="true" />
-						{saving ? 'Saving...' : 'Save Availability'}
-					</button>
-				</div>
-
-				{showTemplates && (
-					<div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-						<h3 className="mb-4 text-lg font-semibold text-slate-900">Availability Templates</h3>
-						
-						{/* Save Current as Template */}
-						<div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
-							<label className="block text-sm font-medium text-slate-700 mb-2">Save Current Schedule as Template</label>
-							<div className="flex gap-2">
-								<input
-									type="text"
-									value={templateName}
-									onChange={e => setTemplateName(e.target.value)}
-									placeholder="Template name (e.g., Standard Schedule)"
-									className="input-base flex-1"
-								/>
-								<button type="button" onClick={saveAsTemplate} className="btn-primary">
-									Save Template
-								</button>
-							</div>
-						</div>
-
-						{/* Load Templates */}
-						<div>
-							<label className="block text-sm font-medium text-slate-700 mb-2">Load Saved Template</label>
-							{templates.length === 0 ? (
-								<p className="text-sm text-slate-400 italic">No templates saved</p>
-							) : (
-								<div className="space-y-2">
-									{templates.map(template => (
-										<div
-											key={template.id}
-											className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3 hover:border-sky-300"
-										>
-											<span className="text-sm font-medium text-slate-900">{template.name}</span>
-											<div className="flex gap-2">
-												<button
-													type="button"
-													onClick={() => loadTemplate(template)}
-													className="text-xs font-medium text-sky-600 hover:text-sky-700"
-												>
-													Load
-												</button>
-												{template.id && (
-													<button
-														type="button"
-														onClick={() => deleteTemplate(template.id!)}
-														className="text-xs font-medium text-rose-600 hover:text-rose-700"
-													>
-														<i className="fas fa-trash" />
-													</button>
-												)}
-											</div>
-										</div>
-									))}
+								<div className="mt-6 border-t border-slate-200 pt-4">
+									<label className="flex items-center gap-3">
+										<input
+											type="checkbox"
+											checked={editingDateSchedule.enabled}
+											onChange={e =>
+												setEditingDateSchedule({
+													...editingDateSchedule,
+													enabled: e.target.checked,
+												})
+											}
+											className="h-5 w-5 rounded border-slate-300 text-sky-600 focus:ring-sky-200"
+										/>
+										<span className="text-sm font-medium text-slate-700">Available on this date</span>
+									</label>
+									<p className="mt-1 text-xs text-slate-500">
+										Check this box to confirm you're available on this date with the time slots above.
+									</p>
 								</div>
-							)}
+							</div>
+							<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+								<button
+									type="button"
+									onClick={() => {
+										setSelectedDate(null);
+										setEditingDateSchedule(null);
+									}}
+									className="btn-secondary"
+								>
+									Cancel
+								</button>
+								<button type="button" onClick={saveDateSchedule} className="btn-primary">
+									Save
+								</button>
+							</footer>
 						</div>
 					</div>
 				)}
 
+
 				<div className="mt-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
 					<i className="fas fa-info-circle mr-2" aria-hidden="true" />
-					<strong>Tip:</strong> Your availability will be used by the front desk when scheduling appointments. Make sure to
-					keep it updated if your schedule changes.
+					<strong>Tip:</strong> Click on any date to set your availability. Use the copy button to quickly apply a day's schedule to the entire week.
 				</div>
 			</div>
 		</div>
 	);
 }
-

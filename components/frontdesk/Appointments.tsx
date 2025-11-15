@@ -178,7 +178,11 @@ export default function Appointments() {
 						availability: data.availability as StaffMember['availability'],
 					} as StaffMember;
 				});
-				setStaff(mapped.filter(s => s.status === 'Active'));
+				// Only include clinical roles (exclude FrontDesk and Admin)
+				setStaff(mapped.filter(s => 
+					s.status === 'Active' && 
+					['Physiotherapist', 'StrengthAndConditioning', 'ClinicalTeam'].includes(s.role)
+				));
 			},
 			error => {
 				console.error('Failed to load staff', error);
@@ -761,12 +765,12 @@ export default function Appointments() {
 										className="select-base mt-2"
 										required
 									>
-										<option value="">Select a clinician</option>
-										{staff.map(member => (
-											<option key={member.id} value={member.id}>
-												{member.userName} ({member.role})
-											</option>
-										))}
+									<option value="">Select a clinician</option>
+									{staff.map(member => (
+										<option key={member.id} value={member.id}>
+											{member.userName} ({member.role === 'ClinicalTeam' ? 'Clinical Team' : member.role})
+										</option>
+									))}
 									</select>
 								</div>
 

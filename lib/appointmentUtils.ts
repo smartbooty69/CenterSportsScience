@@ -115,26 +115,30 @@ export function checkAppointmentConflict(
 
 /**
  * Check if appointment time is within staff availability
+ * Uses date-specific availability schedule
  */
 export function checkAvailabilityConflict(
-	availability: {
-		[day: string]: {
+	dateSpecificAvailability: {
+		[date: string]: {
 			enabled: boolean;
 			slots: Array<{ start: string; end: string }>;
 		};
-	},
+	} | undefined,
 	date: string,
 	time: string,
 	duration: number = 30
 ): { isAvailable: boolean; reason?: string } {
 	const appointmentDate = new Date(date);
-	const dayName = appointmentDate.toLocaleDateString('en-US', { weekday: 'long' });
-	const daySchedule = availability[dayName];
+	const dateKey = date; // YYYY-MM-DD format
+	
+	// Check for date-specific schedule
+	const daySchedule = dateSpecificAvailability?.[dateKey];
 
 	if (!daySchedule || !daySchedule.enabled) {
+		const dayName = appointmentDate.toLocaleDateString('en-US', { weekday: 'long' });
 		return {
 			isAvailable: false,
-			reason: `${dayName} is not available`,
+			reason: `No availability scheduled for ${dayName}`,
 		};
 	}
 
@@ -155,12 +159,18 @@ export function checkAvailabilityConflict(
 		const slotEnd = new Date(appointmentDate);
 		slotEnd.setHours(slotEndHours, slotEndMinutes, 0, 0);
 
+		// Handle slots that span midnight
+		if (slotEnd <= slotStart) {
+			slotEnd.setDate(slotEnd.getDate() + 1);
+		}
+
 		// Check if appointment is completely within this slot
 		if (appointmentStart >= slotStart && appointmentEnd <= slotEnd) {
 			return { isAvailable: true };
 		}
 	}
 
+	const dayName = appointmentDate.toLocaleDateString('en-US', { weekday: 'long' });
 	return {
 		isAvailable: false,
 		reason: `Time slot ${time} is not within available hours on ${dayName}`,

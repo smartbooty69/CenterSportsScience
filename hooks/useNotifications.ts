@@ -163,31 +163,30 @@ export function useNotifications(userId?: string | null) {
 					}));
 				},
 				error => {
-					console.error('Failed to fetch notifications', error);
-					
 					// Check if it's an index error and we haven't tried fallback yet
-					const isIndexError = error?.code === 'failed-precondition' || 
-						error?.message?.includes('index') ||
-						error?.message?.includes('requires an index');
+					const errorCode = (error as any)?.code;
+					const errorMessage = (error as any)?.message || '';
+					const isIndexError = 
+						errorCode === 'failed-precondition' ||
+						errorCode === 'unimplemented' ||
+						errorMessage.toLowerCase().includes('index') ||
+						errorMessage.toLowerCase().includes('requires an index') ||
+						errorMessage.toLowerCase().includes('query requires an index');
 					
 					if (isIndexError && !hasTriedFallback) {
-						console.warn('Index not found, using fallback query. Please create the index:', error);
-						// Extract index URL from error if available
-						if (error?.message) {
-							const urlMatch = error.message.match(/https:\/\/[^\s]+/);
-							if (urlMatch) {
-								console.warn('Create index at:', urlMatch[0]);
-							}
-						}
+						// Silently fall back to query without orderBy
 						hasTriedFallback = true;
 						// Try again with fallback query
 						tryQuery(fallbackQuery, true);
 					} else {
+						console.error('Failed to fetch notifications', error);
 						setState(prev => ({
 							...prev,
 							notifications: [],
 							loading: false,
-							error: 'Unable to load notifications. Please create the required Firestore index.',
+							error: isIndexError 
+								? 'Unable to load notifications. Please create the required Firestore index.'
+								: 'Unable to load notifications. Please try again later.',
 						}));
 					}
 				}
