@@ -1,30 +1,71 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginPage() {
+	const { user, loading } = useAuth();
 	const router = useRouter();
 	const [username, setUsername] = useState('');
 	const [password, setPassword] = useState('');
 	const [error, setError] = useState('');
 	const [submitting, setSubmitting] = useState(false);
 
+	// Redirect if already logged in
+	useEffect(() => {
+		if (loading) return; // Wait for auth to load
+
+		if (user?.role) {
+			const role = user.role.trim();
+			// Redirect to appropriate dashboard based on role
+			if (role === 'Admin') {
+				router.push('/admin');
+			} else if (role === 'FrontDesk') {
+				router.push('/frontdesk');
+			} else if (role === 'ClinicalTeam' || role === 'Physiotherapist' || role === 'StrengthAndConditioning') {
+				router.push('/clinical-team');
+			}
+		}
+	}, [user, loading, router]);
+
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		setError('');
 		setSubmitting(true);
+
+		// Basic validation
+		if (!username.trim()) {
+			setError('Please enter your email address.');
+			setSubmitting(false);
+			return;
+		}
+
+		if (!password.trim()) {
+			setError('Please enter your password.');
+			setSubmitting(false);
+			return;
+		}
+
 		try {
-			const credential = await signInWithEmailAndPassword(auth, username, password);
+			// Normalize email (trim whitespace)
+			const email = username.trim().toLowerCase();
+			
+			const credential = await signInWithEmailAndPassword(auth, email, password);
 			const user = credential.user;
+			
+			// Wait a bit for auth state to update
+			await new Promise(resolve => setTimeout(resolve, 100));
+			
 			const profileSnap = await getDoc(doc(db, 'users', user.uid));
 
 			if (!profileSnap.exists()) {
 				setError('Your account is missing a profile. Contact an administrator.');
 				await signOut(auth);
+				setSubmitting(false);
 				return;
 			}
 
@@ -32,6 +73,7 @@ export default function LoginPage() {
 			if (profile.status && profile.status !== 'Active') {
 				setError('Your account is inactive. Contact an administrator.');
 				await signOut(auth);
+				setSubmitting(false);
 				return;
 			}
 
@@ -39,42 +81,73 @@ export default function LoginPage() {
 			if (!role) {
 				setError('Your account does not have a role assigned.');
 				await signOut(auth);
+				setSubmitting(false);
 				return;
 			}
 
+			// Navigate based on role
 			if (role === 'Admin') {
-				router.push('/admin/dashboard');
+				router.push('/admin');
+				// Don't set submitting to false here - let navigation happen
 				return;
 			}
 
 			if (role === 'ClinicalTeam' || role === 'Physiotherapist' || role === 'StrengthAndConditioning') {
-				router.push('/clinical-team/dashboard');
+				router.push('/clinical-team');
 				return;
 			}
 
 			if (role === 'FrontDesk') {
-				router.push('/frontdesk/dashboard');
+				router.push('/frontdesk');
 				return;
 			}
 
 			setError(`Unsupported role: ${role}. Contact an administrator.`);
 			await signOut(auth);
-			return;
+			setSubmitting(false);
 		} catch (err: any) {
+			console.error('Login error:', err);
 			const code = err?.code || '';
-			if (code === 'auth/invalid-credential' || code === 'auth/invalid-email' || code === 'auth/wrong-password') {
-				setError('Invalid email or password.');
+			const message = err?.message || '';
+			
+			// Handle Firebase Auth errors
+			if (code === 'auth/invalid-credential' || code === 'auth/invalid-email' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+				setError('Invalid email or password. Please check your credentials and try again.');
 			} else if (code === 'auth/user-disabled') {
-				setError('This user is disabled.');
+				setError('This account has been disabled. Contact an administrator.');
 			} else if (code === 'auth/too-many-requests') {
-				setError('Too many attempts. Try again later.');
+				setError('Too many failed login attempts. Please try again later.');
+			} else if (code === 'auth/network-request-failed') {
+				setError('Network error. Please check your connection and try again.');
+			} else if (code === 'auth/invalid-email') {
+				setError('Please enter a valid email address.');
+			} else if (code === 'auth/weak-password') {
+				setError('Password is too weak.');
+			} else if (message.includes('Firebase')) {
+				setError('Authentication service error. Please try again later.');
 			} else {
-				setError('Sign-in failed. Please try again.');
+				setError(`Sign-in failed: ${message || 'Please try again.'}`);
 			}
-		} finally {
 			setSubmitting(false);
 		}
 	};
+
+	// Show loading state while checking authentication
+	if (loading) {
+		return (
+			<div className="flex min-h-svh items-center justify-center bg-gray-50 px-4 py-10">
+				<div className="text-center">
+					<div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-gray-900 border-r-transparent"></div>
+					<p className="text-sm text-gray-600">Loading...</p>
+				</div>
+			</div>
+		);
+	}
+
+	// Don't show login form if already authenticated (will redirect)
+	if (user?.role) {
+		return null;
+	}
 
 	return (
 		<div className="flex min-h-svh items-center justify-center bg-gray-50 px-4 py-10">
@@ -83,14 +156,17 @@ export default function LoginPage() {
 					<h2 className="mb-6 text-center text-xl font-semibold text-gray-900">Login</h2>
 					<form onSubmit={handleSubmit} noValidate className="space-y-4">
 						<div className="space-y-2">
-							<label htmlFor="username" className="block text-sm font-medium text-gray-700">Username (Email/Login)</label>
+							<label htmlFor="username" className="block text-sm font-medium text-gray-700">Email Address</label>
 							<input
 								id="username"
-								type="text"
+								type="email"
+								autoComplete="email"
 								className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none ring-0 transition placeholder:text-gray-400 focus:border-gray-400"
 								value={username}
 								onChange={e => setUsername(e.target.value)}
+								placeholder="Enter your email"
 								required
+								disabled={submitting}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -98,10 +174,13 @@ export default function LoginPage() {
 							<input
 								id="password"
 								type="password"
+								autoComplete="current-password"
 								className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none ring-0 transition placeholder:text-gray-400 focus:border-gray-400"
 								value={password}
 								onChange={e => setPassword(e.target.value)}
+								placeholder="Enter your password"
 								required
+								disabled={submitting}
 							/>
 						</div>
 						{error && (

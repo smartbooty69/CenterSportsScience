@@ -87,6 +87,8 @@ export async function POST(request: NextRequest) {
 			email,
 			displayName,
 			role,
+			status: 'Active',
+			userName: displayName,
 			createdAt: new Date().toISOString(),
 		});
 		return new Response(

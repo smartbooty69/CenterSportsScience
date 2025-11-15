@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Sidebar, { type SidebarLink } from '@/components/Sidebar';
-import Dashboard from './components/Dashboard';
-import Users from './components/Users';
-import Patients from './components/Patients';
-import Appointments from './components/Appointments';
-import Billing from './components/Billing';
-import Reports from './components/Reports';
-import Seed from './components/Seed';
+import Dashboard from '@/components/admin/Dashboard';
+import Users from '@/components/admin/Users';
+import Patients from '@/components/admin/Patients';
+import Appointments from '@/components/admin/Appointments';
+import Billing from '@/components/admin/Billing';
+import Reports from '@/components/admin/Reports';
+import Seed from '@/components/admin/Seed';
+import { useAuth } from '@/contexts/AuthContext';
 
 type AdminPage = 'dashboard' | 'users' | 'patients' | 'appointments' | 'billing' | 'reports' | 'seed';
 
@@ -23,7 +25,35 @@ const adminLinks: SidebarLink[] = [
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+	const { user, loading } = useAuth();
+	const router = useRouter();
 	const [activePage, setActivePage] = useState<AdminPage>('dashboard');
+
+	// Role-based access control
+	useEffect(() => {
+		if (loading) return; // Wait for auth to load
+
+		if (!user) {
+			// Not authenticated - redirect to login
+			router.push('/login');
+			return;
+		}
+
+		const userRole = user.role?.trim() ?? '';
+		
+		// Check if user has Admin role
+		if (userRole !== 'Admin') {
+			// Redirect to their appropriate dashboard based on role
+			if (userRole === 'FrontDesk') {
+				router.push('/frontdesk');
+			} else if (userRole === 'ClinicalTeam' || userRole === 'Physiotherapist' || userRole === 'StrengthAndConditioning') {
+				router.push('/clinical-team');
+			} else {
+				// Unknown role - redirect to login
+				router.push('/login');
+			}
+		}
+	}, [user, loading, router]);
 
 	const handleLinkClick = (href: string) => {
 		const page = href.replace('#', '') as AdminPage;
@@ -50,6 +80,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 				return <Dashboard onNavigate={handleLinkClick} />;
 		}
 	};
+
+	// Show loading state while checking authentication
+	if (loading) {
+		return (
+			<div className="flex min-h-svh items-center justify-center bg-slate-50">
+				<div className="text-center">
+					<div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-sky-600 border-r-transparent"></div>
+					<p className="text-sm text-slate-600">Loading...</p>
+				</div>
+			</div>
+		);
+	}
+
+	// Don't render if user doesn't have access (will redirect)
+	if (!user || user.role?.trim() !== 'Admin') {
+		return null;
+	}
 
 	return (
 		<div className="min-h-svh bg-slate-50">

@@ -116,113 +116,183 @@ export default function Calendar() {
 	const calendarRef = useRef<FullCalendar>(null);
 
 	const clinicianName = useMemo(() => normalize(user?.displayName ?? ''), [user?.displayName]);
+	const isMountedRef = useRef(true);
 
 	useEffect(() => {
+		isMountedRef.current = true;
 		let appointmentsLoaded = false;
 		let patientsLoaded = false;
 		let staffLoaded = false;
+		let unsubscribed = false;
 
 		const checkAllLoaded = () => {
+			if (!isMountedRef.current || unsubscribed) return;
 			if (appointmentsLoaded && patientsLoaded && staffLoaded) {
 				setLoading(false);
+			}
+		};
+
+		const safeSetState = <T,>(setter: (value: T) => void, value: T) => {
+			if (isMountedRef.current && !unsubscribed) {
+				setter(value);
 			}
 		};
 
 		const unsubscribePatients = onSnapshot(
 			collection(db, 'patients'),
 			(snapshot: QuerySnapshot) => {
-				const mapped = snapshot.docs.map(docSnap => {
-					const data = docSnap.data() as Record<string, unknown>;
-					const created = (data.registeredAt as { toDate?: () => Date } | undefined)?.toDate?.();
-					return {
-						id: docSnap.id,
-						patientId: data.patientId ? String(data.patientId) : undefined,
-						name: data.name ? String(data.name) : undefined,
-						dob: data.dob ? String(data.dob) : undefined,
-						gender: data.gender ? String(data.gender) : undefined,
-						phone: data.phone ? String(data.phone) : undefined,
-						email: data.email ? String(data.email) : undefined,
-						address: data.address ? String(data.address) : undefined,
-						complaint: data.complaint ? String(data.complaint) : undefined,
-						status: (data.status as PatientStatus) ?? 'pending',
-						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
-						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined),
-					};
-				});
-				setPatients(mapped);
-				patientsLoaded = true;
-				checkAllLoaded();
+				if (!isMountedRef.current || unsubscribed) return;
+				
+				try {
+					const mapped = snapshot.docs.map(docSnap => {
+						const data = docSnap.data() as Record<string, unknown>;
+						const created = (data.registeredAt as { toDate?: () => Date } | undefined)?.toDate?.();
+						return {
+							id: docSnap.id,
+							patientId: data.patientId ? String(data.patientId) : undefined,
+							name: data.name ? String(data.name) : undefined,
+							dob: data.dob ? String(data.dob) : undefined,
+							gender: data.gender ? String(data.gender) : undefined,
+							phone: data.phone ? String(data.phone) : undefined,
+							email: data.email ? String(data.email) : undefined,
+							address: data.address ? String(data.address) : undefined,
+							complaint: data.complaint ? String(data.complaint) : undefined,
+							status: (data.status as PatientStatus) ?? 'pending',
+							assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
+							registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined),
+						};
+					});
+					safeSetState(setPatients, mapped);
+					patientsLoaded = true;
+					checkAllLoaded();
+				} catch (error) {
+					console.error('Error processing patients snapshot', error);
+					if (isMountedRef.current && !unsubscribed) {
+						safeSetState(setPatients, []);
+						patientsLoaded = true;
+						checkAllLoaded();
+					}
+				}
 			},
 			error => {
+				if (unsubscribed) return;
 				console.error('Failed to load patients', error);
-				setPatients([]);
-				patientsLoaded = true;
-				checkAllLoaded();
+				if (isMountedRef.current) {
+					safeSetState(setPatients, []);
+					patientsLoaded = true;
+					checkAllLoaded();
+				}
 			}
 		);
 
 		const unsubscribeAppointments = onSnapshot(
 			collection(db, 'appointments'),
 			(snapshot: QuerySnapshot) => {
-				const mapped = snapshot.docs.map(docSnap => {
-					const data = docSnap.data() as Record<string, unknown>;
-					return {
-						id: docSnap.id,
-						patientId: data.patientId ? String(data.patientId) : undefined,
-						patient: data.patient ? String(data.patient) : undefined,
-						doctor: data.doctor ? String(data.doctor) : undefined,
-						date: data.date ? String(data.date) : undefined,
-						time: data.time ? String(data.time) : undefined,
-						status: data.status ? String(data.status) : undefined,
-						notes: data.notes ? String(data.notes) : undefined,
-					};
-				});
-				setAppointments(mapped);
-				appointmentsLoaded = true;
-				checkAllLoaded();
+				if (!isMountedRef.current || unsubscribed) return;
+				
+				try {
+					const mapped = snapshot.docs.map(docSnap => {
+						const data = docSnap.data() as Record<string, unknown>;
+						return {
+							id: docSnap.id,
+							patientId: data.patientId ? String(data.patientId) : undefined,
+							patient: data.patient ? String(data.patient) : undefined,
+							doctor: data.doctor ? String(data.doctor) : undefined,
+							date: data.date ? String(data.date) : undefined,
+							time: data.time ? String(data.time) : undefined,
+							status: data.status ? String(data.status) : undefined,
+							notes: data.notes ? String(data.notes) : undefined,
+						};
+					});
+					safeSetState(setAppointments, mapped);
+					appointmentsLoaded = true;
+					checkAllLoaded();
+				} catch (error) {
+					console.error('Error processing appointments snapshot', error);
+					if (isMountedRef.current && !unsubscribed) {
+						safeSetState(setAppointments, []);
+						appointmentsLoaded = true;
+						checkAllLoaded();
+					}
+				}
 			},
 			error => {
+				if (unsubscribed) return;
 				console.error('Failed to load appointments', error);
-				setAppointments([]);
-				appointmentsLoaded = true;
-				checkAllLoaded();
+				if (isMountedRef.current) {
+					safeSetState(setAppointments, []);
+					appointmentsLoaded = true;
+					checkAllLoaded();
+				}
 			}
 		);
 
 		const unsubscribeStaff = onSnapshot(
 			collection(db, 'staff'),
 			(snapshot: QuerySnapshot) => {
-				const mapped = snapshot.docs.map(docSnap => {
-					const data = docSnap.data() as Record<string, unknown>;
-					return {
-						id: docSnap.id,
-						userName: data.userName ? String(data.userName) : '',
-						role: data.role ? String(data.role) : '',
-						status: data.status ? String(data.status) : '',
-					};
-				});
-				setStaff(mapped);
-				staffLoaded = true;
-				checkAllLoaded();
+				if (!isMountedRef.current || unsubscribed) return;
+				
+				try {
+					const mapped = snapshot.docs.map(docSnap => {
+						const data = docSnap.data() as Record<string, unknown>;
+						return {
+							id: docSnap.id,
+							userName: data.userName ? String(data.userName) : '',
+							role: data.role ? String(data.role) : '',
+							status: data.status ? String(data.status) : '',
+						};
+					});
+					safeSetState(setStaff, mapped);
+					staffLoaded = true;
+					checkAllLoaded();
+				} catch (error) {
+					console.error('Error processing staff snapshot', error);
+					if (isMountedRef.current && !unsubscribed) {
+						safeSetState(setStaff, []);
+						staffLoaded = true;
+						checkAllLoaded();
+					}
+				}
 			},
 			error => {
+				if (unsubscribed) return;
 				console.error('Failed to load staff', error);
-				setStaff([]);
-				staffLoaded = true;
-				checkAllLoaded();
+				if (isMountedRef.current) {
+					safeSetState(setStaff, []);
+					staffLoaded = true;
+					checkAllLoaded();
+				}
 			}
 		);
 
 		// Fallback timeout to ensure loading completes even if something goes wrong
 		const timeout = setTimeout(() => {
-			setLoading(false);
+			if (isMountedRef.current && !unsubscribed) {
+				setLoading(false);
+			}
 		}, 5000);
 
 		return () => {
+			unsubscribed = true;
+			isMountedRef.current = false;
 			clearTimeout(timeout);
-			unsubscribePatients();
-			unsubscribeAppointments();
-			unsubscribeStaff();
+			
+			// Unsubscribe in a try-catch to prevent errors during cleanup
+			try {
+				unsubscribePatients();
+			} catch (error) {
+				console.error('Error unsubscribing patients', error);
+			}
+			try {
+				unsubscribeAppointments();
+			} catch (error) {
+				console.error('Error unsubscribing appointments', error);
+			}
+			try {
+				unsubscribeStaff();
+			} catch (error) {
+				console.error('Error unsubscribing staff', error);
+			}
 		};
 	}, []);
 

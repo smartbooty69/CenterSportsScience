@@ -3,12 +3,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Sidebar, { type SidebarLink } from '@/components/Sidebar';
-import Dashboard from './components/Dashboard';
-import Calendar from './components/Calendar';
-import EditReport from './components/EditReport';
-import Availability from './components/Availability';
-import Transfer from './components/Transfer';
-import ROM from './components/ROM';
+import Dashboard from '@/components/clinical-team/Dashboard';
+import Calendar from '@/components/clinical-team/Calendar';
+import EditReport from '@/components/clinical-team/EditReport';
+import Availability from '@/components/clinical-team/Availability';
+import Transfer from '@/components/clinical-team/Transfer';
+import ROM from '@/components/clinical-team/ROM';
+import { useAuth } from '@/contexts/AuthContext';
 
 type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer' | 'rom';
 
@@ -22,10 +23,38 @@ const clinicalTeamLinks: SidebarLink[] = [
 ];
 
 export default function ClinicalTeamLayout({ children }: { children: React.ReactNode }) {
+	const { user, loading } = useAuth();
 	const pathname = usePathname();
 	const router = useRouter();
 	const [activePage, setActivePage] = useState<ClinicalTeamPage>('dashboard');
 	const isNavigatingRef = useRef(false);
+
+	// Role-based access control
+	useEffect(() => {
+		if (loading) return; // Wait for auth to load
+
+		if (!user) {
+			// Not authenticated - redirect to login
+			router.push('/login');
+			return;
+		}
+
+		const userRole = user.role?.trim() ?? '';
+		const allowedRoles = ['ClinicalTeam', 'Physiotherapist', 'StrengthAndConditioning'];
+		
+		// Check if user has a clinical team role
+		if (!allowedRoles.includes(userRole)) {
+			// Redirect to their appropriate dashboard based on role
+			if (userRole === 'Admin') {
+				router.push('/admin');
+			} else if (userRole === 'FrontDesk') {
+				router.push('/frontdesk');
+			} else {
+				// Unknown role - redirect to login
+				router.push('/login');
+			}
+		}
+	}, [user, loading, router]);
 
 	// Detect route from pathname
 	useEffect(() => {
@@ -86,6 +115,25 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 				return <Dashboard onNavigate={handleLinkClick} />;
 		}
 	};
+
+	// Show loading state while checking authentication
+	if (loading) {
+		return (
+			<div className="flex min-h-svh items-center justify-center bg-slate-50">
+				<div className="text-center">
+					<div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-sky-600 border-r-transparent"></div>
+					<p className="text-sm text-slate-600">Loading...</p>
+				</div>
+			</div>
+		);
+	}
+
+	// Don't render if user doesn't have access (will redirect)
+	const userRole = user?.role?.trim() ?? '';
+	const allowedRoles = ['ClinicalTeam', 'Physiotherapist', 'StrengthAndConditioning'];
+	if (!user || !allowedRoles.includes(userRole)) {
+		return null;
+	}
 
 	return (
 		<div className="min-h-svh bg-slate-50">

@@ -118,36 +118,90 @@ export function useNotifications(userId?: string | null) {
 		}));
 
 		const notificationsRef = collection(db, 'notifications');
+		
+		// Try the indexed query first (with orderBy)
 		const notificationsQuery = query(
 			notificationsRef,
 			where('userId', '==', userId),
 			orderBy('createdAt', 'desc')
 		);
 
-		const unsubscribe = onSnapshot(
-			notificationsQuery,
-			snapshot => {
-				const records = snapshot.docs.map(mapNotification);
-
-				setState(prev => ({
-					...prev,
-					notifications: records,
-					loading: false,
-					error: null,
-				}));
-			},
-			error => {
-				console.error('Failed to fetch notifications', error);
-				setState(prev => ({
-					...prev,
-					notifications: [],
-					loading: false,
-					error: 'Unable to load notifications.',
-				}));
-			}
+		// Fallback query without orderBy (doesn't require index)
+		const fallbackQuery = query(
+			notificationsRef,
+			where('userId', '==', userId)
 		);
 
-		return () => unsubscribe();
+		let unsubscribe: (() => void) | undefined;
+		let hasTriedFallback = false;
+
+		const tryQuery = (queryToUse: typeof notificationsQuery | typeof fallbackQuery, isFallback = false) => {
+			// Clean up previous subscription if exists
+			if (unsubscribe) {
+				unsubscribe();
+			}
+
+			unsubscribe = onSnapshot(
+				queryToUse,
+				snapshot => {
+					let records = snapshot.docs.map(mapNotification);
+					
+					// If using fallback, sort in memory
+					if (isFallback) {
+						records = records.sort((a, b) => {
+							const dateA = new Date(a.createdAt).getTime();
+							const dateB = new Date(b.createdAt).getTime();
+							return dateB - dateA; // Descending order
+						});
+					}
+
+					setState(prev => ({
+						...prev,
+						notifications: records,
+						loading: false,
+						error: null,
+					}));
+				},
+				error => {
+					console.error('Failed to fetch notifications', error);
+					
+					// Check if it's an index error and we haven't tried fallback yet
+					const isIndexError = error?.code === 'failed-precondition' || 
+						error?.message?.includes('index') ||
+						error?.message?.includes('requires an index');
+					
+					if (isIndexError && !hasTriedFallback) {
+						console.warn('Index not found, using fallback query. Please create the index:', error);
+						// Extract index URL from error if available
+						if (error?.message) {
+							const urlMatch = error.message.match(/https:\/\/[^\s]+/);
+							if (urlMatch) {
+								console.warn('Create index at:', urlMatch[0]);
+							}
+						}
+						hasTriedFallback = true;
+						// Try again with fallback query
+						tryQuery(fallbackQuery, true);
+					} else {
+						setState(prev => ({
+							...prev,
+							notifications: [],
+							loading: false,
+							error: 'Unable to load notifications. Please create the required Firestore index.',
+						}));
+					}
+				}
+			);
+		};
+
+		// Start with the indexed query
+		tryQuery(notificationsQuery, false);
+
+		return () => {
+			if (unsubscribe) {
+				unsubscribe();
+			}
+		};
 	}, [userId]);
 
 	useEffect(() => {

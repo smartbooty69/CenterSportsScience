@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 
 
 // Dummy staff data
@@ -270,9 +271,99 @@ const dummyAppointments = [
 ];
 
 export default function Seed() {
+	const { user } = useAuth();
 	const [seeding, setSeeding] = useState(false);
 	const [progress, setProgress] = useState<string>('');
 	const [results, setResults] = useState<{ staff: number; patients: number; appointments: number } | null>(null);
+	const [testUsersCreated, setTestUsersCreated] = useState(false);
+	const [testUsersError, setTestUsersError] = useState<string | null>(null);
+
+	// Test user credentials
+	const testUsers = [
+		{
+			email: 'admin@test.com',
+			password: 'admin123',
+			displayName: 'Admin User',
+			role: 'Admin',
+		},
+		{
+			email: 'frontdesk@test.com',
+			password: 'frontdesk123',
+			displayName: 'Front Desk User',
+			role: 'FrontDesk',
+		},
+		{
+			email: 'clinical@test.com',
+			password: 'clinical123',
+			displayName: 'Clinical Team User',
+			role: 'ClinicalTeam',
+		},
+	];
+
+	const handleCreateTestUsers = async () => {
+		if (!user) {
+			setTestUsersError('You must be logged in as an admin to create test users.');
+			return;
+		}
+
+		setSeeding(true);
+		setTestUsersError(null);
+		setProgress('Creating test users...');
+
+		try {
+			// Get the current user's ID token
+			const token = await auth.currentUser?.getIdToken();
+			if (!token) {
+				throw new Error('Unable to get authentication token. Please log in again.');
+			}
+
+			const createdUsers = [];
+			const errors = [];
+
+			for (const testUser of testUsers) {
+				try {
+					const response = await fetch('/api/admin/users', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							Authorization: `Bearer ${token}`,
+						},
+						body: JSON.stringify(testUser),
+					});
+
+					const result = await response.json();
+
+					if (response.ok && result.status === 'ok') {
+						createdUsers.push(testUser);
+					} else {
+						// Check if user already exists
+						if (result.message?.includes('already exists') || result.message?.includes('email')) {
+							createdUsers.push(testUser); // Count as success if already exists
+						} else {
+							errors.push(`${testUser.email}: ${result.message || 'Failed to create'}`);
+						}
+					}
+				} catch (error) {
+					errors.push(`${testUser.email}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+				}
+			}
+
+			if (createdUsers.length > 0) {
+				setTestUsersCreated(true);
+				setProgress(`Successfully created/verified ${createdUsers.length} test users!`);
+			}
+
+			if (errors.length > 0) {
+				setTestUsersError(`Some errors occurred: ${errors.join('; ')}`);
+			}
+		} catch (error) {
+			console.error('Error creating test users:', error);
+			setTestUsersError(error instanceof Error ? error.message : 'Failed to create test users');
+			setProgress('');
+		} finally {
+			setSeeding(false);
+		}
+	};
 
 	const handleSeedAll = async () => {
 		setSeeding(true);
@@ -441,8 +532,45 @@ export default function Seed() {
 					<h2 className="mb-4 text-lg font-semibold text-slate-900">Seed Options</h2>
 
 					<div className="space-y-4">
-						<div>
-							<h3 className="mb-2 text-sm font-medium text-slate-700">Seed All Data</h3>
+						{/* Test Users Section */}
+						<div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+							<h3 className="mb-2 text-sm font-medium text-blue-900">Test User Accounts</h3>
+							<p className="mb-3 text-xs text-blue-700">
+								Create 3 test user accounts for accessing different dashboards. These users will be created in Firebase Authentication.
+							</p>
+							<button
+								type="button"
+								onClick={handleCreateTestUsers}
+								disabled={seeding}
+								className="btn-primary"
+							>
+								<i className="fas fa-user-plus text-xs" aria-hidden="true" />
+								{seeding ? 'Creating...' : 'Create Test Users'}
+							</button>
+							{testUsersCreated && (
+								<div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3">
+									<h4 className="mb-2 text-xs font-semibold text-green-900">Test User Credentials:</h4>
+									<div className="space-y-2 text-xs">
+										{testUsers.map((user, idx) => (
+											<div key={idx} className="rounded border border-green-200 bg-white p-2">
+												<p className="font-semibold text-green-900">{user.displayName} ({user.role})</p>
+												<p className="text-green-700">Email: <code className="bg-green-50 px-1 rounded">{user.email}</code></p>
+												<p className="text-green-700">Password: <code className="bg-green-50 px-1 rounded">{user.password}</code></p>
+											</div>
+										))}
+									</div>
+								</div>
+							)}
+							{testUsersError && (
+								<div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+									<strong>Error:</strong> {testUsersError}
+								</div>
+							)}
+						</div>
+
+						<div className="border-t border-slate-200 pt-4">
+							<div>
+								<h3 className="mb-2 text-sm font-medium text-slate-700">Seed All Data</h3>
 							<p className="mb-3 text-xs text-slate-500">
 								Seeds {dummyStaff.length} staff members, {dummyPatients.length} patients, and{' '}
 								{dummyAppointments.length} appointments.
