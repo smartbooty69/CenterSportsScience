@@ -81,8 +81,7 @@ const VAS_EMOJIS = ['😀', '😁', '🙂', '😊', '😌', '😟', '😣', '�
 
 const getVasDescriptor = (value?: string) => {
 	const score = Number(value || '5');
-	const emoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, score) - 1)];
-	return `${score}/10 ${emoji}`;
+	return `${score}/10`;
 };
 
 const getHydrationDescriptor = (value?: string) => {
