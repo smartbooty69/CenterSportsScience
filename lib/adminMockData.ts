@@ -96,16 +96,19 @@ export const DEFAULT_ADMIN_PATIENTS: AdminPatientRecord[] = [
 export type AdminAppointmentStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled';
 
 export interface AdminAppointmentRecord {
+	appointmentId?: string;
 	patientId: string;
 	patient: string;
 	doctor: string;
 	date: string;
 	time: string;
 	status: AdminAppointmentStatus;
+	notes?: string;
 	billing?: {
 		amount: string;
 		date: string;
 	};
+	createdAt?: string;
 }
 
 export const DEFAULT_ADMIN_APPOINTMENTS: AdminAppointmentRecord[] = [

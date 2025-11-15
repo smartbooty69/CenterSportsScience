@@ -679,14 +679,19 @@ export default function Patients() {
 				registeredAt: editingId ? undefined : serverTimestamp(),
 			};
 
+			console.log('Saving patient...', { editingId, patientData });
+
 			if (editingId) {
 				// Update existing patient
 				await updateDoc(doc(db, 'patients', editingId), patientData);
+				console.log('Patient updated successfully');
 			} else {
 				// Create new patient
-				await addDoc(collection(db, 'patients'), patientData);
+				const docRef = await addDoc(collection(db, 'patients'), patientData);
+				console.log('Patient created successfully with document ID:', docRef.id);
 			}
 
+			// Close dialog and reset form
 			setIsDialogOpen(false);
 			setEditingId(null);
 			setFormState({
@@ -700,9 +705,24 @@ export default function Patients() {
 				complaint: '',
 				status: 'pending',
 			});
+
+			// Show success message
+			if (!editingId) {
+				// Small delay to ensure dialog closes before showing alert
+				setTimeout(() => {
+					alert(`Patient "${trimmedName}" (ID: ${trimmedId}) has been added successfully!`);
+				}, 100);
+			}
 		} catch (error) {
 			console.error('Failed to save patient', error);
-			alert('Failed to save patient. Please try again.');
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+			console.error('Error details:', {
+				message: errorMessage,
+				error,
+				formData: formState,
+				editingId,
+			});
+			alert(`Failed to save patient: ${errorMessage}. Please check the console for details.`);
 		}
 	};
 

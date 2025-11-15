@@ -4,6 +4,12 @@ import { db } from '@/lib/firebase';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { sendWhatsAppNotification } from '@/lib/whatsapp';
+import type { AdminAppointmentRecord } from '@/lib/adminMockData';
+
+type AppointmentWithReminderMeta = AdminAppointmentRecord & {
+	id: string;
+	reminderSent?: Timestamp | Date | string | null;
+};
 
 /**
  * API endpoint to send appointment reminders
@@ -48,8 +54,8 @@ export async function GET(request: NextRequest) {
 		const appointmentsSnapshot = await getDocs(q);
 		const appointments = appointmentsSnapshot.docs.map(docSnap => ({
 			id: docSnap.id,
-			...docSnap.data(),
-		}));
+			...(docSnap.data() as AdminAppointmentRecord),
+		})) as AppointmentWithReminderMeta[];
 
 		if (appointments.length === 0) {
 			return NextResponse.json({
@@ -138,17 +144,19 @@ export async function GET(request: NextRequest) {
 			}
 
 			// Check if reminder already sent today
-			const reminderSent = appointment.reminderSent;
-			if (reminderSent) {
+			const existingReminderSent = appointment.reminderSent;
+			if (existingReminderSent) {
 				let reminderDate: Date;
-				if (reminderSent instanceof Timestamp) {
-					reminderDate = reminderSent.toDate();
-				} else if (reminderSent?.toDate) {
-					reminderDate = reminderSent.toDate();
-				} else if (reminderSent instanceof Date) {
-					reminderDate = reminderSent;
+				if (existingReminderSent instanceof Timestamp) {
+					reminderDate = existingReminderSent.toDate();
+				} else if (
+					typeof (existingReminderSent as unknown as { toDate?: () => Date }).toDate === 'function'
+				) {
+					reminderDate = (existingReminderSent as unknown as { toDate: () => Date }).toDate();
+				} else if (existingReminderSent instanceof Date) {
+					reminderDate = existingReminderSent;
 				} else {
-					reminderDate = new Date(reminderSent);
+					reminderDate = new Date(existingReminderSent);
 				}
 
 				const today = new Date();

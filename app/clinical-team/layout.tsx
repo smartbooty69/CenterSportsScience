@@ -1,32 +1,74 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Sidebar, { type SidebarLink } from '@/components/Sidebar';
 import Dashboard from './components/Dashboard';
 import Calendar from './components/Calendar';
 import EditReport from './components/EditReport';
 import Availability from './components/Availability';
 import Transfer from './components/Transfer';
+import ROM from './components/ROM';
 
-type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer';
+type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer' | 'rom';
 
 const clinicalTeamLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-dumbbell' },
 	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-week' },
 	{ href: '#edit-report', label: 'View/Edit Reports', icon: 'fas fa-notes-medical' },
+	{ href: '#rom', label: 'ROM Assessment', icon: 'fas fa-clipboard-check' },
 	{ href: '#availability', label: 'My Availability', icon: 'fas fa-calendar-check' },
 	{ href: '#transfer', label: 'Transfer Patients', icon: 'fas fa-exchange-alt' },
 ];
 
 export default function ClinicalTeamLayout({ children }: { children: React.ReactNode }) {
+	const pathname = usePathname();
+	const router = useRouter();
 	const [activePage, setActivePage] = useState<ClinicalTeamPage>('dashboard');
+	const isNavigatingRef = useRef(false);
+
+	// Detect route from pathname
+	useEffect(() => {
+		// Don't override if we're intentionally navigating
+		if (isNavigatingRef.current) {
+			isNavigatingRef.current = false;
+			return;
+		}
+
+		if (pathname?.includes('/edit-report')) {
+			setActivePage('edit-report');
+		} else if (pathname?.includes('/calendar')) {
+			setActivePage('calendar');
+		} else if (pathname?.includes('/availability')) {
+			setActivePage('availability');
+		} else if (pathname?.includes('/transfer')) {
+			setActivePage('transfer');
+		} else if (pathname?.includes('/rom')) {
+			setActivePage('rom');
+		}
+		// Don't set to dashboard when on base route - let hash navigation handle it
+	}, [pathname]);
 
 	const handleLinkClick = (href: string) => {
 		const page = href.replace('#', '') as ClinicalTeamPage;
-		setActivePage(page);
+		
+		// If we're on a direct route, navigate back to base route first
+		if (pathname !== '/clinical-team') {
+			isNavigatingRef.current = true;
+			setActivePage(page);
+			router.push('/clinical-team');
+		} else {
+			setActivePage(page);
+		}
 	};
 
 	const renderPage = () => {
+		// If we're on a direct route (children exists and is not null), render children
+		// Otherwise use hash-based navigation
+		if (children && pathname !== '/clinical-team') {
+			return children;
+		}
+
 		switch (activePage) {
 			case 'dashboard':
 				return <Dashboard onNavigate={handleLinkClick} />;
@@ -34,6 +76,8 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 				return <Calendar />;
 			case 'edit-report':
 				return <EditReport />;
+			case 'rom':
+				return <ROM />;
 			case 'availability':
 				return <Availability />;
 			case 'transfer':

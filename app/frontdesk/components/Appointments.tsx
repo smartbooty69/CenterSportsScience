@@ -1,12 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, deleteDoc, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, deleteDoc, addDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import type { AdminAppointmentStatus } from '@/lib/adminMockData';
 import { sendEmailNotification } from '@/lib/email';
+import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
+import { checkAppointmentConflict } from '@/lib/appointmentUtils';
+import AppointmentTemplates from '@/components/appointments/AppointmentTemplates';
+import RecurringAppointmentDialog from '@/components/appointments/RecurringAppointmentDialog';
 
 type AppointmentStatusFilter = 'all' | AdminAppointmentStatus;
 
@@ -47,6 +51,29 @@ interface PatientRecord {
 	email?: string;
 }
 
+interface StaffMember {
+	id: string;
+	userName: string;
+	role: string;
+	status: string;
+	availability?: {
+		[day: string]: {
+			enabled: boolean;
+			slots: Array<{ start: string; end: string }>;
+		};
+	};
+}
+
+type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+
+interface BookingForm {
+	patientId: string;
+	staffId: string;
+	date: string;
+	time: string;
+	notes?: string;
+}
+
 function formatDateLabel(value: string) {
 	if (!value) return '—';
 	const parsed = new Date(value);
@@ -57,12 +84,24 @@ function formatDateLabel(value: string) {
 export default function Appointments() {
 	const [appointments, setAppointments] = useState<FrontdeskAppointment[]>([]);
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
+	const [staff, setStaff] = useState<StaffMember[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [statusFilter, setStatusFilter] = useState<AppointmentStatusFilter>('all');
 	const [searchTerm, setSearchTerm] = useState('');
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [notesDraft, setNotesDraft] = useState('');
 	const [updating, setUpdating] = useState<Record<string, boolean>>({});
+	const [showBookingModal, setShowBookingModal] = useState(false);
+	const [bookingForm, setBookingForm] = useState<BookingForm>({
+		patientId: '',
+		staffId: '',
+		date: '',
+		time: '',
+		notes: '',
+	});
+	const [bookingLoading, setBookingLoading] = useState(false);
+	const [showRecurringDialog, setShowRecurringDialog] = useState(false);
+	const [conflictWarning, setConflictWarning] = useState<string | null>(null);
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -123,6 +162,82 @@ export default function Appointments() {
 
 		return () => unsubscribe();
 	}, []);
+
+	// Load staff from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'staff'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					return {
+						id: docSnap.id,
+						userName: data.userName ? String(data.userName) : '',
+						role: data.role ? String(data.role) : '',
+						status: data.status ? String(data.status) : '',
+						availability: data.availability as StaffMember['availability'],
+					} as StaffMember;
+				});
+				setStaff(mapped.filter(s => s.status === 'Active'));
+			},
+			error => {
+				console.error('Failed to load staff', error);
+				setStaff([]);
+			}
+		);
+
+		return () => unsubscribe();
+	}, []);
+
+	// Get day of week from date string
+	const getDayOfWeek = (dateString: string): DayOfWeek | null => {
+		if (!dateString) return null;
+		const date = new Date(dateString);
+		if (Number.isNaN(date.getTime())) return null;
+		const days: DayOfWeek[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+		return days[date.getDay()];
+	};
+
+	// Generate available time slots based on staff availability and existing appointments
+	const availableTimeSlots = useMemo(() => {
+		if (!bookingForm.staffId || !bookingForm.date) return [];
+
+		const selectedStaff = staff.find(s => s.id === bookingForm.staffId);
+		if (!selectedStaff?.availability) return [];
+
+		const dayOfWeek = getDayOfWeek(bookingForm.date);
+		if (!dayOfWeek) return [];
+
+		const dayAvailability = selectedStaff.availability[dayOfWeek];
+		if (!dayAvailability?.enabled || !dayAvailability.slots?.length) return [];
+
+		// Get all booked appointments for this staff and date
+		const bookedSlots = appointments
+			.filter(apt => apt.doctor === selectedStaff.userName && apt.date === bookingForm.date && apt.status !== 'cancelled')
+			.map(apt => apt.time);
+
+		// Generate 30-minute slots from availability
+		const slots: string[] = [];
+		dayAvailability.slots.forEach(slot => {
+			const [startHour, startMin] = slot.start.split(':').map(Number);
+			const [endHour, endMin] = slot.end.split(':').map(Number);
+			const startTime = new Date();
+			startTime.setHours(startHour, startMin, 0, 0);
+			const endTime = new Date();
+			endTime.setHours(endHour, endMin, 0, 0);
+
+			let currentTime = new Date(startTime);
+			while (currentTime < endTime) {
+				const timeString = `${String(currentTime.getHours()).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')}`;
+				if (!bookedSlots.includes(timeString)) {
+					slots.push(timeString);
+				}
+				currentTime.setMinutes(currentTime.getMinutes() + 30);
+			}
+		});
+
+		return slots.sort();
+	}, [bookingForm.staffId, bookingForm.date, staff, appointments]);
 
 	const filtered = useMemo(() => {
 		const query = searchTerm.trim().toLowerCase();
@@ -188,6 +303,33 @@ export default function Appointments() {
 					console.error('Failed to send status change email:', emailError);
 				}
 			}
+
+			// Send SMS notification if status changed and patient has valid phone
+			if (oldStatus !== status && patientDetails?.phone && isValidPhoneNumber(patientDetails.phone)) {
+				try {
+					if (status === 'cancelled') {
+						// Send cancellation SMS
+						await sendSMSNotification({
+							to: patientDetails.phone,
+							template: 'appointment-cancelled',
+							data: {
+								patientName: appointment.patient,
+								patientPhone: patientDetails.phone,
+								patientId: appointment.patientId,
+								doctor: appointment.doctor,
+								date: appointment.date,
+								time: appointment.time,
+								appointmentId: appointment.appointmentId,
+							},
+						});
+					}
+					// Note: We don't have an SMS template for other status changes (ongoing, completed)
+					// Only sending SMS for cancellations as per available templates
+				} catch (smsError) {
+					// Log error but don't fail status update
+					console.error('Failed to send status change SMS:', smsError);
+				}
+			}
 		} catch (error) {
 			console.error('Failed to update appointment status', error);
 			alert(`Failed to update appointment status: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -246,6 +388,118 @@ export default function Appointments() {
 		setNotesDraft('');
 	};
 
+	const handleOpenBookingModal = () => {
+		setShowBookingModal(true);
+		setBookingForm({
+			patientId: '',
+			staffId: '',
+			date: '',
+			time: '',
+			notes: '',
+		});
+	};
+
+	const handleCloseBookingModal = () => {
+		setShowBookingModal(false);
+		setBookingForm({
+			patientId: '',
+			staffId: '',
+			date: '',
+			time: '',
+			notes: '',
+		});
+	};
+
+	const handleCreateAppointment = async () => {
+		if (!bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time) {
+			alert('Please fill in all required fields.');
+			return;
+		}
+
+		const selectedPatient = patients.find(p => p.patientId === bookingForm.patientId);
+		const selectedStaff = staff.find(s => s.id === bookingForm.staffId);
+
+		if (!selectedPatient || !selectedStaff) {
+			alert('Invalid patient or staff selection.');
+			return;
+		}
+
+		// Check for conflicts using utility function
+		const conflict = checkAppointmentConflict(
+			appointments.map(apt => ({
+				id: apt.id,
+				appointmentId: apt.appointmentId,
+				patient: apt.patient,
+				doctor: apt.doctor,
+				date: apt.date,
+				time: apt.time,
+				status: apt.status,
+			})),
+			{
+				doctor: selectedStaff.userName,
+				date: bookingForm.date,
+				time: bookingForm.time,
+			},
+			30
+		);
+
+		if (conflict.hasConflict) {
+			const confirmMessage = `Conflict detected with ${conflict.conflictingAppointments.length} appointment(s):\n${conflict.conflictingAppointments.map(apt => `- ${apt.patient} on ${apt.date} at ${apt.time}`).join('\n')}\n\nContinue anyway?`;
+			if (!window.confirm(confirmMessage)) {
+				return;
+			}
+		}
+
+		setBookingLoading(true);
+		try {
+			// Generate appointment ID
+			const appointmentId = `APT${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+			await addDoc(collection(db, 'appointments'), {
+				appointmentId,
+				patientId: bookingForm.patientId,
+				patient: selectedPatient.name,
+				doctor: selectedStaff.userName,
+				staffId: selectedStaff.id,
+				date: bookingForm.date,
+				time: bookingForm.time,
+				status: 'pending' as AdminAppointmentStatus,
+				notes: bookingForm.notes?.trim() || null,
+				createdAt: serverTimestamp(),
+			});
+
+			// Send email notification if patient has email
+			if (selectedPatient.email) {
+				try {
+					await sendEmailNotification({
+						to: selectedPatient.email,
+						subject: `Appointment Scheduled - ${bookingForm.date}`,
+						template: 'appointment-scheduled',
+						data: {
+							patientName: selectedPatient.name,
+							patientEmail: selectedPatient.email,
+							patientId: bookingForm.patientId,
+							doctor: selectedStaff.userName,
+							date: bookingForm.date,
+							time: bookingForm.time,
+							appointmentId,
+						},
+					});
+				} catch (emailError) {
+					console.error('Failed to send appointment confirmation email:', emailError);
+				}
+			}
+
+			handleCloseBookingModal();
+			alert('Appointment created successfully!');
+		} catch (error) {
+			console.error('Failed to create appointment', error);
+			alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setBookingLoading(false);
+		}
+	};
+
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
@@ -253,6 +507,12 @@ export default function Appointments() {
 					badge="Front Desk"
 					title="Appointments"
 					description="Review scheduled visits, update statuses in real time, and manage front desk hand-offs with the same layout used in the legacy Super Admin console."
+					actions={
+						<button type="button" onClick={handleOpenBookingModal} className="btn-primary">
+							<i className="fas fa-plus text-xs" aria-hidden="true" />
+							Book Appointment
+						</button>
+					}
 				/>
 
 				<div className="border-t border-slate-200" />
@@ -447,6 +707,247 @@ export default function Appointments() {
 					)}
 				</section>
 			</div>
+
+			{/* Booking Modal */}
+			{showBookingModal && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">Book New Appointment</h2>
+								<p className="text-xs text-slate-500">Select patient, staff, date, and available time slot</p>
+							</div>
+							<button
+								type="button"
+								onClick={handleCloseBookingModal}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+								aria-label="Close dialog"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="max-h-[600px] overflow-y-auto px-6 py-4">
+							<div className="space-y-4">
+								{/* Patient Selection */}
+								<div>
+									<label className="block text-sm font-medium text-slate-700">
+										Patient <span className="text-rose-500">*</span>
+									</label>
+									<select
+										value={bookingForm.patientId}
+										onChange={e => setBookingForm(prev => ({ ...prev, patientId: e.target.value }))}
+										className="select-base mt-2"
+										required
+									>
+										<option value="">Select a patient</option>
+										{patients.map(patient => (
+											<option key={patient.id} value={patient.patientId}>
+												{patient.name} ({patient.patientId})
+											</option>
+										))}
+									</select>
+								</div>
+
+								{/* Staff Selection */}
+								<div>
+									<label className="block text-sm font-medium text-slate-700">
+										Clinician <span className="text-rose-500">*</span>
+									</label>
+									<select
+										value={bookingForm.staffId}
+										onChange={e => {
+											setBookingForm(prev => ({ ...prev, staffId: e.target.value, date: '', time: '' }));
+										}}
+										className="select-base mt-2"
+										required
+									>
+										<option value="">Select a clinician</option>
+										{staff.map(member => (
+											<option key={member.id} value={member.id}>
+												{member.userName} ({member.role})
+											</option>
+										))}
+									</select>
+								</div>
+
+								{/* Appointment Templates */}
+								{bookingForm.staffId && (
+									<div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+										<AppointmentTemplates
+											doctor={staff.find(s => s.id === bookingForm.staffId)?.userName}
+											onSelectTemplate={template => {
+												const selectedStaff = staff.find(s => s.userName === template.doctor);
+												if (selectedStaff) {
+													setBookingForm(prev => ({
+														...prev,
+														staffId: selectedStaff.id,
+														time: template.time,
+														notes: template.notes || prev.notes,
+													}));
+												}
+											}}
+										/>
+									</div>
+								)}
+
+								{/* Date Selection */}
+								{bookingForm.staffId && (
+									<div>
+										<label className="block text-sm font-medium text-slate-700">
+											Date <span className="text-rose-500">*</span>
+										</label>
+										<input
+											type="date"
+											value={bookingForm.date}
+											onChange={e => {
+												setBookingForm(prev => ({ ...prev, date: e.target.value, time: '' }));
+											}}
+											min={new Date().toISOString().split('T')[0]}
+											className="input-base mt-2"
+											required
+										/>
+										{bookingForm.date && getDayOfWeek(bookingForm.date) && (
+											<p className="mt-1 text-xs text-slate-500">
+												Selected: {getDayOfWeek(bookingForm.date)}
+											</p>
+										)}
+									</div>
+								)}
+
+								{/* Time Slot Selection */}
+								{bookingForm.date && availableTimeSlots.length > 0 && (
+									<div>
+										<label className="block text-sm font-medium text-slate-700">
+											Available Time Slots <span className="text-rose-500">*</span>
+										</label>
+										<div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
+											{availableTimeSlots.map(slot => (
+												<button
+													key={slot}
+													type="button"
+													onClick={() => setBookingForm(prev => ({ ...prev, time: slot }))}
+													className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+														bookingForm.time === slot
+															? 'border-sky-500 bg-sky-50 text-sky-700'
+															: 'border-slate-300 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50'
+													}`}
+												>
+													{slot}
+												</button>
+											))}
+										</div>
+										{availableTimeSlots.length === 0 && (
+											<p className="mt-2 text-sm text-amber-600">
+												No available time slots for this date. Please select another date.
+											</p>
+										)}
+									</div>
+								)}
+
+								{bookingForm.date && availableTimeSlots.length === 0 && (
+									<div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+										<i className="fas fa-exclamation-triangle mr-2" aria-hidden="true" />
+										The selected clinician is not available on this date. Please select another date or clinician.
+									</div>
+								)}
+
+								{/* Notes */}
+								<div>
+									<label className="block text-sm font-medium text-slate-700">Notes (Optional)</label>
+									<textarea
+										value={bookingForm.notes}
+										onChange={e => setBookingForm(prev => ({ ...prev, notes: e.target.value }))}
+										className="input-base mt-2"
+										rows={3}
+										placeholder="Add any additional notes about this appointment..."
+									/>
+								</div>
+							</div>
+						</div>
+						<footer className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={() => {
+									const selectedPatient = patients.find(p => p.patientId === bookingForm.patientId);
+									const selectedStaff = staff.find(s => s.id === bookingForm.staffId);
+									if (selectedPatient && selectedStaff) {
+										setShowRecurringDialog(true);
+									}
+								}}
+								className="btn-secondary"
+								disabled={!bookingForm.patientId || !bookingForm.staffId}
+							>
+								<i className="fas fa-redo mr-2 text-xs" aria-hidden="true" />
+								Recurring Appointments
+							</button>
+							<div className="flex gap-3">
+								<button
+									type="button"
+									onClick={handleCloseBookingModal}
+									className="btn-secondary"
+									disabled={bookingLoading}
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									onClick={handleCreateAppointment}
+									className="btn-primary"
+									disabled={bookingLoading || !bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time}
+								>
+								{bookingLoading ? (
+									<>
+										<div className="inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-white border-t-transparent animate-spin mr-2" aria-hidden="true" />
+										Creating...
+									</>
+								) : (
+									<>
+										<i className="fas fa-check text-xs" aria-hidden="true" />
+										Create Appointment
+									</>
+								)}
+							</button>
+							</div>
+						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Recurring Appointment Dialog */}
+			{showRecurringDialog && bookingForm.patientId && bookingForm.staffId && (
+				<RecurringAppointmentDialog
+					isOpen={showRecurringDialog}
+					patientId={bookingForm.patientId}
+					patient={patients.find(p => p.patientId === bookingForm.patientId)?.name || ''}
+					doctor={staff.find(s => s.id === bookingForm.staffId)?.userName || ''}
+					onClose={() => setShowRecurringDialog(false)}
+					onConfirm={async data => {
+						try {
+							const response = await fetch('/api/appointments/recurring', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({
+									patientId: bookingForm.patientId,
+									patient: patients.find(p => p.patientId === bookingForm.patientId)?.name || '',
+									doctor: staff.find(s => s.id === bookingForm.staffId)?.userName || '',
+									...data,
+								}),
+							});
+							const result = await response.json();
+							if (result.success) {
+								alert(`Successfully created ${result.data.count} recurring appointments!`);
+								setShowRecurringDialog(false);
+								handleCloseBookingModal();
+							} else {
+								alert(result.message || 'Failed to create recurring appointments');
+							}
+						} catch (error) {
+							console.error('Failed to create recurring appointments:', error);
+							alert('Failed to create recurring appointments. Please try again.');
+						}
+					}}
+				/>
+			)}
 		</div>
 	);
 }

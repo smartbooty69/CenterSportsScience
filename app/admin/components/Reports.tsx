@@ -478,7 +478,7 @@ export default function Reports() {
 								</tr>
 							) : (
 								filteredRows.map(row => (
-									<tr key={row.patient.patientId}>
+									<tr key={row.patient.id || row.patient.patientId}>
 										<td className="px-4 py-4 font-medium text-slate-800">{row.patient.patientId}</td>
 										<td className="px-4 py-4 text-slate-700">{row.patient.name}</td>
 										<td className="px-4 py-4 text-slate-600">{row.age}</td>
