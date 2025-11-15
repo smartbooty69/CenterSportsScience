@@ -31,9 +31,9 @@ export default function TransferConfirmationDialog({
 						<i className="fas fa-exclamation-triangle text-xl text-amber-600" aria-hidden="true" />
 					</div>
 					<div className="flex-1">
-						<h3 className="text-lg font-semibold text-slate-900">Confirm Patient Transfer</h3>
+						<h3 className="text-lg font-semibold text-slate-900">Send Transfer Request</h3>
 						<p className="mt-1 text-sm text-slate-600">
-							Are you sure you want to transfer this patient to a different therapist?
+							This will send a transfer request to the selected therapist. The patient will only be transferred after they accept the request.
 						</p>
 					</div>
 				</div>
@@ -69,7 +69,7 @@ export default function TransferConfirmationDialog({
 
 				<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
 					<i className="fas fa-info-circle mr-2" aria-hidden="true" />
-					Both therapists will be notified of this transfer.
+					The receiving therapist will be notified and must accept the request before the transfer is completed.
 				</div>
 
 				<div className="mt-6 flex items-center justify-end gap-3">
@@ -90,12 +90,12 @@ export default function TransferConfirmationDialog({
 						{transferring ? (
 							<>
 								<div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-								Transferring...
+								Sending Request...
 							</>
 						) : (
 							<>
-								<i className="fas fa-check text-xs" aria-hidden="true" />
-								Confirm Transfer
+								<i className="fas fa-paper-plane text-xs" aria-hidden="true" />
+								Send Request
 							</>
 						)}
 					</button>

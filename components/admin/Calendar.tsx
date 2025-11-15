@@ -379,7 +379,7 @@ export default function Calendar() {
 				startDateTime = event.appointment.date || '';
 			}
 			
-			// Include doctor name in title for frontdesk view
+			// Include doctor name in title for admin view
 			const patientName = event.patient?.name || event.appointment.patient || 'Patient';
 			const doctorName = event.appointment.doctor ? ` - ${event.appointment.doctor}` : '';
 			const title: string = `${patientName}${doctorName}`;
@@ -535,7 +535,7 @@ export default function Calendar() {
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
 				<PageHeader
-					badge="Front Desk"
+					badge="Admin"
 					title="Clinical Team Schedule"
 					description="View all clinical team schedules and appointments. Filter by doctor to focus on specific clinicians."
 					actions={

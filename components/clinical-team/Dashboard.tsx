@@ -6,23 +6,7 @@ import { collection, onSnapshot, type QuerySnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/PageHeader';
-
-type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
-
-interface PatientRecord {
-	id: string;
-	patientId?: string;
-	name?: string;
-	dob?: string;
-	gender?: string;
-	phone?: string;
-	email?: string;
-	address?: string;
-	complaint?: string;
-	status?: PatientStatus;
-	assignedDoctor?: string;
-	registeredAt?: string;
-}
+import type { PatientRecordBasic } from '@/lib/types';
 
 interface AppointmentRecord {
 	id: string;
@@ -206,7 +190,7 @@ interface DashboardProps {
 
 export default function Dashboard({ onNavigate }: DashboardProps) {
 	const { user } = useAuth();
-	const [patients, setPatients] = useState<PatientRecord[]>([]);
+	const [patients, setPatients] = useState<PatientRecordBasic[]>([]);
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
 	const [modal, setModal] = useState<ModalView>(null);
 
@@ -643,7 +627,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 											</tr>
 										</thead>
 										<tbody className="divide-y divide-slate-100">
-											{(modalRows as PatientRecord[]).map((patient, index) => {
+											{(modalRows as PatientRecordBasic[]).map((patient, index) => {
 												const rawStatus = (patient.status ?? 'pending') as PatientStatus;
 												const status =
 													rawStatus === 'pending' ||

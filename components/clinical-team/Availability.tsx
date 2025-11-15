@@ -48,6 +48,9 @@ export default function Availability() {
 	});
 	const [selectedDate, setSelectedDate] = useState<string | null>(null);
 	const [editingDateSchedule, setEditingDateSchedule] = useState<DayAvailability | null>(null);
+	const [appointmentsForDate, setAppointmentsForDate] = useState<Array<{ time: string; patient: string; status: string }>>([]);
+	const [loadingAppointments, setLoadingAppointments] = useState(false);
+	const [currentStaffUserName, setCurrentStaffUserName] = useState<string | null>(null);
 
 	// Find staff document by user email
 	useEffect(() => {
@@ -65,7 +68,9 @@ export default function Availability() {
 				
 				if (!querySnapshot.empty) {
 					const staffDoc = querySnapshot.docs[0];
+					const data = staffDoc.data();
 					setStaffDocId(staffDoc.id);
+					setCurrentStaffUserName(data.userName ? String(data.userName) : null);
 					
 					// Set up real-time listener for this staff document
 					const staffRef = doc(db, 'staff', staffDoc.id);
@@ -79,6 +84,7 @@ export default function Availability() {
 
 							if (snapshot.exists()) {
 								const data = snapshot.data();
+								setCurrentStaffUserName(data.userName ? String(data.userName) : null);
 								const loadedDateSpecific = data.dateSpecificAvailability as DateSpecificAvailability | undefined;
 
 								if (loadedDateSpecific) {
@@ -89,23 +95,27 @@ export default function Availability() {
 								}
 							} else {
 								setDateSpecific({});
+								setCurrentStaffUserName(null);
 							}
 							setLoading(false);
 						},
 						error => {
 							console.error('Failed to load availability', error);
 							setDateSpecific({});
+							setCurrentStaffUserName(null);
 							setLoading(false);
 						}
 					);
 				} else {
 					console.warn('No staff document found for user email:', user.email);
 					setDateSpecific({});
+					setCurrentStaffUserName(null);
 					setLoading(false);
 				}
 			} catch (error) {
 				console.error('Failed to find staff document', error);
 				setDateSpecific({});
+				setCurrentStaffUserName(null);
 				setLoading(false);
 			}
 		};
@@ -172,17 +182,87 @@ export default function Availability() {
 		return { enabled: false, slots: [{ start: '09:00', end: '17:00' }] };
 	};
 
-	const handleDateClick = (date: string) => {
+	// Check if a time slot has appointments
+	const hasAppointmentsInSlot = (slot: TimeSlot, date: string): boolean => {
+		return appointmentsForDate.some(apt => {
+			if (apt.status === 'cancelled') return false;
+			
+			const [aptHours, aptMinutes] = apt.time.split(':').map(Number);
+			const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
+			const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
+			
+			const aptTime = aptHours * 60 + aptMinutes;
+			const slotStart = slotStartHours * 60 + slotStartMinutes;
+			let slotEnd = slotEndHours * 60 + slotEndMinutes;
+			
+			// Handle slots that span midnight
+			if (slotEnd <= slotStart) {
+				slotEnd += 24 * 60; // Add 24 hours
+			}
+			
+			// Check if appointment time is within the slot
+			return aptTime >= slotStart && aptTime < slotEnd;
+		});
+	};
+
+	// Load appointments for a specific date with real-time updates
+	// Use userName from staff document (which is what appointments use) instead of displayName
+	useEffect(() => {
+		if (!selectedDate || !currentStaffUserName) {
+			setAppointmentsForDate([]);
+			return;
+		}
+
+		setLoadingAppointments(true);
+		const appointmentsQuery = query(
+			collection(db, 'appointments'),
+			where('doctor', '==', currentStaffUserName),
+			where('date', '==', selectedDate)
+		);
+
+		const unsubscribe = onSnapshot(
+			appointmentsQuery,
+			(snapshot) => {
+				const appointments = snapshot.docs.map(doc => ({
+					time: doc.data().time as string,
+					patient: doc.data().patient as string,
+					status: doc.data().status as string,
+				}));
+				setAppointmentsForDate(appointments);
+				setLoadingAppointments(false);
+			},
+			(error) => {
+				console.error('Failed to load appointments for date', error);
+				setAppointmentsForDate([]);
+				setLoadingAppointments(false);
+			}
+		);
+
+		return () => unsubscribe();
+	}, [selectedDate, currentStaffUserName]);
+
+	const handleDateClick = async (date: string) => {
 		setSelectedDate(date);
 		const currentSchedule = getDateSchedule(date);
 		setEditingDateSchedule({
 			enabled: currentSchedule.enabled,
 			slots: currentSchedule.slots.map(slot => ({ ...slot })),
 		});
+		// Appointments will be loaded automatically via useEffect when selectedDate changes
 	};
 
 	const saveDateSchedule = async () => {
 		if (!selectedDate || !editingDateSchedule || !staffDocId) return;
+
+		// Check if any slots have appointments
+		const slotsWithAppointments = editingDateSchedule.slots.filter(slot => 
+			hasAppointmentsInSlot(slot, selectedDate)
+		);
+
+		if (slotsWithAppointments.length > 0) {
+			alert('Cannot modify availability for time slots that have appointments assigned. Please transfer or cancel appointments first.');
+			return;
+		}
 
 		const updatedSchedule = {
 			...dateSpecific,
@@ -225,6 +305,18 @@ export default function Availability() {
 	const removeDateSchedule = async (date: string) => {
 		if (!window.confirm('Remove schedule for this date?') || !staffDocId) return;
 
+		// Load appointments for this date to check
+		await loadAppointmentsForDate(date);
+		
+		// Check if any slots have appointments
+		const schedule = getDateSchedule(date);
+		const hasAppointments = schedule.slots.some(slot => hasAppointmentsInSlot(slot, date));
+		
+		if (hasAppointments) {
+			alert('Cannot remove schedule for this date because it has appointments assigned. Please transfer or cancel appointments first.');
+			return;
+		}
+
 		const updatedSchedule = { ...dateSpecific };
 		delete updatedSchedule[date];
 
@@ -265,7 +357,14 @@ export default function Availability() {
 	};
 
 	const handleDateSlotChange = (slotIndex: number, field: 'start' | 'end', value: string) => {
-		if (!editingDateSchedule) return;
+		if (!editingDateSchedule || !selectedDate) return;
+
+		// Check if this slot has appointments
+		const currentSlot = editingDateSchedule.slots[slotIndex];
+		if (hasAppointmentsInSlot(currentSlot, selectedDate)) {
+			alert('Cannot modify this time slot because it has appointments assigned. Please transfer or cancel appointments first.');
+			return;
+		}
 
 		const newSlots = [...editingDateSchedule.slots];
 		const updatedSlot = { ...newSlots[slotIndex], [field]: value };
@@ -302,7 +401,14 @@ export default function Availability() {
 	};
 
 	const handleDateRemoveSlot = (slotIndex: number) => {
-		if (!editingDateSchedule || editingDateSchedule.slots.length <= 1) return;
+		if (!editingDateSchedule || editingDateSchedule.slots.length <= 1 || !selectedDate) return;
+
+		// Check if this slot has appointments
+		const slotToRemove = editingDateSchedule.slots[slotIndex];
+		if (hasAppointmentsInSlot(slotToRemove, selectedDate)) {
+			alert('Cannot remove this time slot because it has appointments assigned. Please transfer or cancel appointments first.');
+			return;
+		}
 		setEditingDateSchedule({
 			...editingDateSchedule,
 			slots: editingDateSchedule.slots.filter((_, idx) => idx !== slotIndex),
@@ -625,6 +731,7 @@ export default function Availability() {
 									onClick={() => {
 										setSelectedDate(null);
 										setEditingDateSchedule(null);
+										setAppointmentsForDate([]);
 									}}
 									className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
 								>
@@ -632,40 +739,88 @@ export default function Availability() {
 								</button>
 							</header>
 							<div className="px-6 py-4">
+								{loadingAppointments ? (
+									<div className="py-4 text-center text-sm text-slate-500">
+										Loading appointments...
+									</div>
+								) : appointmentsForDate.length > 0 && (
+									<div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+										<i className="fas fa-info-circle mr-2" />
+										<strong>Note:</strong> Some time slots have appointments assigned. These slots cannot be modified until appointments are transferred or cancelled.
+									</div>
+								)}
 								<div className="space-y-3">
-									{editingDateSchedule.slots.map((slot, slotIndex) => (
-										<div key={slotIndex} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-											<div className="flex-1">
-												<label className="block text-xs font-medium text-slate-500">Start Time</label>
-												<input
-													type="time"
-													value={slot.start}
-													onChange={e => handleDateSlotChange(slotIndex, 'start', e.target.value)}
-													className="input-base"
-												/>
+									{editingDateSchedule.slots.map((slot, slotIndex) => {
+										const hasAppointments = selectedDate ? hasAppointmentsInSlot(slot, selectedDate) : false;
+										const slotAppointments = selectedDate ? appointmentsForDate.filter(apt => {
+											if (apt.status === 'cancelled') return false;
+											const [aptHours, aptMinutes] = apt.time.split(':').map(Number);
+											const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
+											const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
+											const aptTime = aptHours * 60 + aptMinutes;
+											const slotStart = slotStartHours * 60 + slotStartMinutes;
+											let slotEnd = slotEndHours * 60 + slotEndMinutes;
+											if (slotEnd <= slotStart) slotEnd += 24 * 60;
+											return aptTime >= slotStart && aptTime < slotEnd;
+										}) : [];
+										
+										return (
+											<div 
+												key={slotIndex} 
+												className={`flex items-center gap-3 rounded-lg border p-3 ${
+													hasAppointments 
+														? 'border-amber-300 bg-amber-50' 
+														: 'border-slate-200 bg-slate-50'
+												}`}
+											>
+												<div className="flex-1">
+													<label className="block text-xs font-medium text-slate-500">
+														Start Time
+														{hasAppointments && <span className="ml-1 text-amber-600">(Has appointments)</span>}
+													</label>
+													<input
+														type="time"
+														value={slot.start}
+														onChange={e => handleDateSlotChange(slotIndex, 'start', e.target.value)}
+														className="input-base"
+														disabled={hasAppointments}
+													/>
+													{hasAppointments && slotAppointments.length > 0 && (
+														<div className="mt-1 text-xs text-amber-700">
+															{slotAppointments.map((apt, idx) => (
+																<div key={idx}>
+																	{apt.time} - {apt.patient}
+																</div>
+															))}
+														</div>
+													)}
+												</div>
+												<div className="flex-1">
+													<label className="block text-xs font-medium text-slate-500">End Time</label>
+													<input
+														type="time"
+														value={slot.end}
+														onChange={e => handleDateSlotChange(slotIndex, 'end', e.target.value)}
+														className="input-base"
+														disabled={hasAppointments}
+													/>
+												</div>
+												<div className="flex items-end">
+													{editingDateSchedule.slots.length > 1 && (
+														<button
+															type="button"
+															onClick={() => handleDateRemoveSlot(slotIndex)}
+															className={BUTTON_DANGER}
+															disabled={hasAppointments}
+															title={hasAppointments ? 'Cannot remove slot with appointments' : 'Remove slot'}
+														>
+															<span className="text-lg leading-none" aria-hidden="true">-</span>
+														</button>
+													)}
+												</div>
 											</div>
-											<div className="flex-1">
-												<label className="block text-xs font-medium text-slate-500">End Time</label>
-												<input
-													type="time"
-													value={slot.end}
-													onChange={e => handleDateSlotChange(slotIndex, 'end', e.target.value)}
-													className="input-base"
-												/>
-											</div>
-											<div className="flex items-end">
-												{editingDateSchedule.slots.length > 1 && (
-													<button
-														type="button"
-														onClick={() => handleDateRemoveSlot(slotIndex)}
-														className={BUTTON_DANGER}
-													>
-														<span className="text-lg leading-none" aria-hidden="true">-</span>
-													</button>
-												)}
-											</div>
-										</div>
-									))}
+										);
+									})}
 									<button
 										type="button"
 										onClick={handleDateAddSlot}
@@ -677,20 +832,35 @@ export default function Availability() {
 								</div>
 
 								<div className="mt-6 border-t border-slate-200 pt-4">
-									<label className="flex items-center gap-3">
-										<input
-											type="checkbox"
-											checked={editingDateSchedule.enabled}
-											onChange={e =>
-												setEditingDateSchedule({
-													...editingDateSchedule,
-													enabled: e.target.checked,
-												})
-											}
-											className="h-5 w-5 rounded border-slate-300 text-sky-600 focus:ring-sky-200"
-										/>
-										<span className="text-sm font-medium text-slate-700">Available on this date</span>
-									</label>
+									{(() => {
+										const hasAnyAppointments = selectedDate && editingDateSchedule.slots.some(slot => 
+											hasAppointmentsInSlot(slot, selectedDate)
+										);
+										return (
+											<label className="flex items-center gap-3">
+												<input
+													type="checkbox"
+													checked={editingDateSchedule.enabled}
+													onChange={e => {
+														if (hasAnyAppointments) {
+															alert('Cannot change availability status when there are appointments assigned. Please transfer or cancel appointments first.');
+															return;
+														}
+														setEditingDateSchedule({
+															...editingDateSchedule,
+															enabled: e.target.checked,
+														});
+													}}
+													disabled={!!hasAnyAppointments}
+													className="h-5 w-5 rounded border-slate-300 text-sky-600 focus:ring-sky-200 disabled:opacity-50 disabled:cursor-not-allowed"
+												/>
+												<span className={`text-sm font-medium ${hasAnyAppointments ? 'text-slate-400' : 'text-slate-700'}`}>
+													Available on this date
+													{hasAnyAppointments && <span className="ml-1 text-xs text-amber-600">(Has appointments)</span>}
+												</span>
+											</label>
+										);
+									})()}
 									<p className="mt-1 text-xs text-slate-500">
 										Check this box to confirm you're available on this date with the time slots above.
 									</p>
@@ -702,6 +872,7 @@ export default function Availability() {
 									onClick={() => {
 										setSelectedDate(null);
 										setEditingDateSchedule(null);
+										setAppointmentsForDate([]);
 									}}
 									className="btn-secondary"
 								>

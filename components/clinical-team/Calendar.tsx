@@ -12,23 +12,7 @@ import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import NotificationCenter, { type UpcomingReminder } from '@/components/notifications/NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
-
-type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
-
-interface PatientRecord {
-	id: string;
-	patientId?: string;
-	name?: string;
-	dob?: string;
-	gender?: string;
-	phone?: string;
-	email?: string;
-	address?: string;
-	complaint?: string;
-	status?: PatientStatus;
-	assignedDoctor?: string;
-	registeredAt?: string;
-}
+import type { PatientRecordBasic } from '@/lib/types';
 
 interface AppointmentRecord {
 	id: string;
@@ -44,7 +28,7 @@ interface AppointmentRecord {
 interface CalendarEvent {
 	id: string;
 	appointment: AppointmentRecord;
-	patient: PatientRecord | undefined;
+	patient: PatientRecordBasic | undefined;
 	dateKey: string;
 }
 
@@ -109,7 +93,7 @@ function normalize(value?: string | null) {
 export default function Calendar() {
 	const { user } = useAuth();
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
-	const [patients, setPatients] = useState<PatientRecord[]>([]);
+	const [patients, setPatients] = useState<PatientRecordBasic[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 	const [dateSpecificAvailability, setDateSpecificAvailability] = useState<DateSpecificAvailability | null>(null);
 
@@ -368,7 +352,7 @@ export default function Calendar() {
 	}, [user?.email]);
 
 	const patientLookup = useMemo(() => {
-		const map = new Map<string, PatientRecord>();
+		const map = new Map<string, PatientRecordBasic>();
 		for (const patient of patients) {
 			if (patient.patientId) {
 				map.set(patient.patientId, patient);
@@ -453,7 +437,7 @@ export default function Calendar() {
 		clickInfo.jsEvent.preventDefault();
 		const eventData = clickInfo.event.extendedProps as {
 			appointment: AppointmentRecord;
-			patient: PatientRecord | undefined;
+			patient: PatientRecordBasic | undefined;
 		};
 		if (eventData) {
 			const event: CalendarEvent = {

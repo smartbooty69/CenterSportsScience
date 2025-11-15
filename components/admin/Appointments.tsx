@@ -67,6 +67,8 @@ export default function Appointments() {
 		isOpen: false,
 		appointment: null,
 	});
+	const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+	const [showPatientAppointmentsModal, setShowPatientAppointmentsModal] = useState(false);
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -175,6 +177,65 @@ export default function Appointments() {
 			.filter(Boolean)
 			.sort((a, b) => a.localeCompare(b));
 	}, [staff]);
+
+	// Group appointments by patient
+	const groupedByPatient = useMemo(() => {
+		// Group by patientId
+		const grouped = new Map<string, FirestoreAppointmentRecord[]>();
+		appointments.forEach(appointment => {
+			const key = appointment.patientId || 'unknown';
+			if (!grouped.has(key)) {
+				grouped.set(key, []);
+			}
+			grouped.get(key)!.push(appointment);
+		});
+
+		// Sort appointments within each group and convert to array
+		const result: Array<{ patientId: string; patientName: string; appointments: FirestoreAppointmentRecord[] }> = [];
+		grouped.forEach((appts, patientId) => {
+			const sorted = appts.sort((a, b) => {
+				const aDate = new Date(`${a.date}T${a.time}`).getTime();
+				const bDate = new Date(`${b.date}T${b.time}`).getTime();
+				return bDate - aDate;
+			});
+			result.push({
+				patientId,
+				patientName: sorted[0].patient || patientLookup.get(patientId)?.name || patientId || 'N/A',
+				appointments: sorted,
+			});
+		});
+
+		// Sort groups by most recent appointment
+		return result.sort((a, b) => {
+			const aDate = new Date(`${a.appointments[0].date}T${a.appointments[0].time}`).getTime();
+			const bDate = new Date(`${b.appointments[0].date}T${b.appointments[0].time}`).getTime();
+			return bDate - aDate;
+		});
+	}, [appointments, patientLookup]);
+
+	// Get appointments for selected patient
+	const selectedPatientAppointments = useMemo(() => {
+		if (!selectedPatientId) return [];
+		return appointments
+			.filter(apt => apt.patientId === selectedPatientId)
+			.sort((a, b) => {
+				const aDate = new Date(`${a.date}T${a.time}`).getTime();
+				const bDate = new Date(`${b.date}T${b.time}`).getTime();
+				return bDate - aDate;
+			});
+	}, [appointments, selectedPatientId]);
+
+	// Calculate total appointments count for header
+	const totalAppointmentsCount = useMemo(() => {
+		return groupedByPatient.reduce((sum, group) => sum + group.appointments.length, 0);
+	}, [groupedByPatient]);
+
+	function formatDateLabel(value: string) {
+		if (!value) return '—';
+		const parsed = new Date(value);
+		if (Number.isNaN(parsed.getTime())) return value;
+		return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed);
+	}
 
 	const openDialog = (id: string) => {
 		const appointment = appointments.find(a => a.id === id);
@@ -526,102 +587,124 @@ export default function Appointments() {
 				<div className="border-t border-slate-200" />
 
 				<section className="rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
-				<div className="overflow-x-auto">
-					<table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-700">
-						<thead className="bg-sky-50 text-xs uppercase tracking-wide text-sky-700">
-							<tr>
-								<th className="px-4 py-3 font-semibold">#</th>
-								<th className="px-4 py-3 font-semibold">Patient</th>
-								<th className="px-4 py-3 font-semibold">Patient ID</th>
-								<th className="px-4 py-3 font-semibold">Clinician</th>
-								<th className="px-4 py-3 font-semibold">Date</th>
-								<th className="px-4 py-3 font-semibold">Time</th>
-								<th className="px-4 py-3 font-semibold">Status</th>
-								<th className="px-4 py-3 font-semibold text-right">Action</th>
-							</tr>
-						</thead>
-						<tbody className="divide-y divide-slate-100">
-							{appointments.length === 0 ? (
+					<header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<h2 className="text-lg font-semibold text-slate-900">Appointment queue</h2>
+							<p className="text-sm text-slate-500">
+								{groupedByPatient.length} patient{groupedByPatient.length === 1 ? '' : 's'} with {totalAppointmentsCount} appointment{totalAppointmentsCount === 1 ? '' : 's'}
+							</p>
+						</div>
+					</header>
+
+					<div className="overflow-x-auto">
+						<table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-700">
+							<thead className="bg-sky-50 text-xs uppercase tracking-wide text-sky-700">
 								<tr>
-									<td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-500">
-										No appointments found.
-									</td>
+									<th className="px-4 py-3 font-semibold">Patient</th>
+									<th className="px-4 py-3 font-semibold">Appointments</th>
+									<th className="px-4 py-3 font-semibold">Next Appointment</th>
+									<th className="px-4 py-3 font-semibold">Status Summary</th>
+									<th className="px-4 py-3 font-semibold text-right">Actions</th>
 								</tr>
-							) : (
-								appointments.map((appointment, index) => {
-									const patient = appointment.patientId
-										? patientLookup.get(appointment.patientId)
-										: undefined;
-									const patientName = appointment.patient || patient?.name || appointment.patientId || 'N/A';
-									return (
-										<tr key={appointment.id}>
-											<td className="px-4 py-4 text-sm text-slate-500">{index + 1}</td>
-											<td className="px-4 py-4 font-medium text-slate-800">{patientName}</td>
-											<td className="px-4 py-4 text-slate-600">{appointment.patientId || '—'}</td>
-											<td className="px-4 py-4 text-slate-600">
-												{appointment.doctor ? (
-													<span className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
-														<i className="fas fa-user-md mr-1 text-[11px]" aria-hidden="true" />
-														{appointment.doctor}
-													</span>
-												) : (
-													<span className="text-sm text-slate-400">Unassigned</span>
-												)}
-											</td>
-											<td className="px-4 py-4 text-slate-600">{appointment.date}</td>
-											<td className="px-4 py-4 text-slate-600">{appointment.time}</td>
-											<td className="px-4 py-4">
-												<span
-													className={[
-														'inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold',
-														statusChipClasses[appointment.status],
-													].join(' ')}
-												>
-													{statusLabels[appointment.status]}
-												</span>
-											</td>
-											<td className="px-4 py-4 text-right text-sm">
-												<div className="flex items-center justify-end gap-2">
-													{appointment.status !== 'cancelled' && (
-														<>
-															<button
-																type="button"
-																onClick={() => setRescheduleDialog({ isOpen: true, appointment })}
-																className="inline-flex items-center rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-800 focus-visible:border-amber-400 focus-visible:text-amber-800 focus-visible:outline-none"
-																title="Reschedule appointment"
-															>
-																<i className="fas fa-calendar-alt mr-1 text-[11px]" aria-hidden="true" />
-																Reschedule
-															</button>
-															<button
-																type="button"
-																onClick={() => setCancelDialog({ isOpen: true, appointment })}
-																className="inline-flex items-center rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-400 hover:text-rose-800 focus-visible:border-rose-400 focus-visible:text-rose-800 focus-visible:outline-none"
-																title="Cancel appointment"
-															>
-																<i className="fas fa-times-circle mr-1 text-[11px]" aria-hidden="true" />
-																Cancel
-															</button>
-														</>
+							</thead>
+							<tbody className="divide-y divide-slate-100">
+								{appointments.length === 0 ? (
+									<tr>
+										<td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+											No appointments found.
+										</td>
+									</tr>
+								) : (
+									groupedByPatient.map(group => {
+										const patient = group.patientId ? patientLookup.get(group.patientId) : undefined;
+										const nextAppointment = group.appointments[0]; // Most recent/upcoming
+										const statusCounts = {
+											pending: group.appointments.filter(a => a.status === 'pending').length,
+											ongoing: group.appointments.filter(a => a.status === 'ongoing').length,
+											completed: group.appointments.filter(a => a.status === 'completed').length,
+											cancelled: group.appointments.filter(a => a.status === 'cancelled').length,
+										};
+
+										return (
+											<tr key={group.patientId}>
+												<td className="px-4 py-4">
+													<p className="text-sm font-medium text-slate-800">{group.patientName}</p>
+													<p className="text-xs text-slate-500">
+														<span className="font-semibold text-slate-600">ID:</span> {group.patientId}
+													</p>
+													{patient?.phone && (
+														<p className="text-xs text-slate-500">
+															Phone: {patient.phone}
+														</p>
 													)}
+													{patient?.email && (
+														<p className="text-xs text-slate-500">
+															Email: {patient.email}
+														</p>
+													)}
+												</td>
+												<td className="px-4 py-4">
+													<p className="text-sm font-semibold text-slate-900">
+														{group.appointments.length} appointment{group.appointments.length === 1 ? '' : 's'}
+													</p>
+												</td>
+												<td className="px-4 py-4 text-sm text-slate-600">
+													{nextAppointment ? (
+														<>
+															<p>{formatDateLabel(nextAppointment.date)} at {nextAppointment.time || '—'}</p>
+															<p className="text-xs text-slate-500">
+																with {nextAppointment.doctor || 'Not assigned'}
+															</p>
+														</>
+													) : (
+														'—'
+													)}
+												</td>
+												<td className="px-4 py-4">
+													<div className="flex flex-wrap gap-1">
+														{statusCounts.pending > 0 && (
+															<span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${statusChipClasses.pending}`}>
+																{statusCounts.pending} Pending
+															</span>
+														)}
+														{statusCounts.ongoing > 0 && (
+															<span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${statusChipClasses.ongoing}`}>
+																{statusCounts.ongoing} Ongoing
+															</span>
+														)}
+														{statusCounts.completed > 0 && (
+															<span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${statusChipClasses.completed}`}>
+																{statusCounts.completed} Completed
+															</span>
+														)}
+														{statusCounts.cancelled > 0 && (
+															<span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${statusChipClasses.cancelled}`}>
+																{statusCounts.cancelled} Cancelled
+															</span>
+														)}
+													</div>
+												</td>
+												<td className="px-4 py-4 text-right">
 													<button
 														type="button"
-														onClick={() => openDialog(appointment.id)}
-														className="inline-flex items-center rounded-full border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-400 hover:text-sky-800 focus-visible:border-sky-400 focus-visible:text-sky-800 focus-visible:outline-none"
+														onClick={() => {
+															setSelectedPatientId(group.patientId);
+															setShowPatientAppointmentsModal(true);
+														}}
+														className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-500 focus-visible:bg-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
 													>
-														<i className="fas fa-pen mr-1 text-[11px]" aria-hidden="true" />
-														Edit
+														<i className="fas fa-eye mr-2 text-xs" aria-hidden="true" />
+														View All
 													</button>
-												</div>
-											</td>
-										</tr>
-									);
-								})
-							)}
-						</tbody>
-					</table>
-				</div>
-			</section>
+												</td>
+											</tr>
+										);
+									})
+								)}
+							</tbody>
+						</table>
+					</div>
+				</section>
 
 			{isDialogOpen && editingId !== null && (
 				<div
@@ -769,6 +852,138 @@ export default function Appointments() {
 				onClose={() => setCancelDialog({ isOpen: false, appointment: null })}
 				onConfirm={handleCancel}
 			/>
+
+			{/* Patient Appointments Modal */}
+			{showPatientAppointmentsModal && selectedPatientId && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-2xl max-h-[90vh] flex flex-col">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">
+									{selectedPatientAppointments[0]?.patient || 'Patient'} Appointments
+								</h2>
+								<p className="text-xs text-slate-500">
+									{selectedPatientAppointments.length} appointment{selectedPatientAppointments.length === 1 ? '' : 's'} total
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => {
+									setShowPatientAppointmentsModal(false);
+									setSelectedPatientId(null);
+								}}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+								aria-label="Close dialog"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="flex-1 overflow-y-auto px-6 py-4">
+							{selectedPatientAppointments.length === 0 ? (
+								<div className="py-8 text-center text-sm text-slate-500">
+									No appointments found for this patient.
+								</div>
+							) : (
+								<div className="overflow-x-auto">
+									<table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-700">
+										<thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 sticky top-0">
+											<tr>
+												<th className="px-4 py-3 font-semibold">#</th>
+												<th className="px-4 py-3 font-semibold">Clinician</th>
+												<th className="px-4 py-3 font-semibold">Date</th>
+												<th className="px-4 py-3 font-semibold">Time</th>
+												<th className="px-4 py-3 font-semibold">Status</th>
+												<th className="px-4 py-3 font-semibold text-right">Actions</th>
+											</tr>
+										</thead>
+										<tbody className="divide-y divide-slate-100">
+											{selectedPatientAppointments.map((appointment, index) => {
+												const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
+												return (
+													<tr key={appointment.id}>
+														<td className="px-4 py-4 text-sm text-slate-500">{index + 1}</td>
+														<td className="px-4 py-4 text-slate-600">
+															{appointment.doctor ? (
+																<span className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
+																	<i className="fas fa-user-md mr-1 text-[11px]" aria-hidden="true" />
+																	{appointment.doctor}
+																</span>
+															) : (
+																<span className="text-sm text-slate-400">Unassigned</span>
+															)}
+														</td>
+														<td className="px-4 py-4 text-slate-600">{formatDateLabel(appointment.date)}</td>
+														<td className="px-4 py-4 text-slate-600">{appointment.time || '—'}</td>
+														<td className="px-4 py-4">
+															<span
+																className={[
+																	'inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold',
+																	statusChipClasses[appointment.status],
+																].join(' ')}
+															>
+																{statusLabels[appointment.status]}
+															</span>
+														</td>
+														<td className="px-4 py-4 text-right text-sm">
+															<div className="flex items-center justify-end gap-2">
+																{appointment.status !== 'cancelled' && (
+																	<>
+																		<button
+																			type="button"
+																			onClick={() => setRescheduleDialog({ isOpen: true, appointment })}
+																			className="inline-flex items-center rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-800 focus-visible:border-amber-400 focus-visible:text-amber-800 focus-visible:outline-none"
+																			title="Reschedule appointment"
+																		>
+																			<i className="fas fa-calendar-alt mr-1 text-[11px]" aria-hidden="true" />
+																			Reschedule
+																		</button>
+																		<button
+																			type="button"
+																			onClick={() => setCancelDialog({ isOpen: true, appointment })}
+																			className="inline-flex items-center rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-400 hover:text-rose-800 focus-visible:border-rose-400 focus-visible:text-rose-800 focus-visible:outline-none"
+																			title="Cancel appointment"
+																		>
+																			<i className="fas fa-times-circle mr-1 text-[11px]" aria-hidden="true" />
+																			Cancel
+																		</button>
+																	</>
+																)}
+																<button
+																	type="button"
+																	onClick={() => {
+																		setShowPatientAppointmentsModal(false);
+																		openDialog(appointment.id);
+																	}}
+																	className="inline-flex items-center rounded-full border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-400 hover:text-sky-800 focus-visible:border-sky-400 focus-visible:text-sky-800 focus-visible:outline-none"
+																>
+																	<i className="fas fa-pen mr-1 text-[11px]" aria-hidden="true" />
+																	Edit
+																</button>
+															</div>
+														</td>
+													</tr>
+												);
+											})}
+										</tbody>
+									</table>
+								</div>
+							)}
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={() => {
+									setShowPatientAppointmentsModal(false);
+									setSelectedPatientId(null);
+								}}
+								className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:border-slate-300 focus-visible:text-slate-800 focus-visible:outline-none"
+							>
+								Close
+							</button>
+						</footer>
+					</div>
+				</div>
+			)}
 			</div>
 		</div>
 	);

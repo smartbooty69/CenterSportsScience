@@ -1,133 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, addDoc, deleteDoc, query, where, orderBy, getDocs, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AdminGenderOption, AdminPatientStatus } from '@/lib/adminMockData';
 import { generatePhysiotherapyReportPDF, type PatientReportData } from '@/lib/pdfGenerator';
-
-interface PatientRecord {
-	id: string;
-	patientId: string;
-	name: string;
-	dob: string;
-	gender: AdminGenderOption;
-	phone?: string;
-	email?: string;
-	address?: string;
-	complaint?: string;
-	status: AdminPatientStatus;
-	registeredAt: string;
-	assignedDoctor?: string;
-	// Report fields
-	complaints?: string;
-	presentHistory?: string;
-	pastHistory?: string;
-	med_xray?: boolean;
-	med_mri?: boolean;
-	med_report?: boolean;
-	med_ct?: boolean;
-	surgicalHistory?: string;
-	per_smoking?: boolean;
-	per_drinking?: boolean;
-	per_alcohol?: boolean;
-	per_drugs?: boolean;
-	drugsText?: string;
-	sleepCycle?: string;
-	hydration?: string;
-	nutrition?: string;
-	siteSide?: string;
-	onset?: string;
-	duration?: string;
-	natureOfInjury?: string;
-	typeOfPain?: string;
-	vasScale?: string;
-	aggravatingFactor?: string;
-	relievingFactor?: string;
-	rom?: Record<string, any>;
-	treatmentProvided?: string;
-	progressNotes?: string;
-	physioName?: string;
-	physioId?: string;
-
-	// New fields from the image form
-	dateOfConsultation?: string;
-	referredBy?: string;
-	chiefComplaint?: string;
-	onsetType?: 'Acute' | 'Chronic' | 'Post-surgical' | 'Traumatic';
-	mechanismOfInjury?: string;
-	painType?: string; // Sharp/Dull/Burning
-	painIntensity?: string; // VAS/NPRS
-	clinicalDiagnosis?: string;
-	
-	// Treatment Plan (table data)
-	treatmentPlan?: Array<{
-		therapy: string;
-		frequency: string;
-		remarks: string;
-	}>;
-	
-	// Follow-Up Visits (table data)
-	followUpVisits?: Array<{
-		visitDate: string;
-		painLevel: string;
-		findings: string;
-	}>;
-	
-	// Current Status
-	currentPainStatus?: 'Improved' | 'Same' | 'Worsened';
-	currentRom?: string; // "Improved by _*"
-	currentStrength?: string; // "_% improvement noted"
-	currentFunctionalAbility?: 'Improved' | 'Restricted';
-	complianceWithHEP?: 'Excellent' | 'Moderate' | 'Poor';
-	
-	// Recommendations
-	recommendations?: string;
-	physiotherapistRemarks?: string;
-	
-	// New fields for On Observation
-	built?: string;
-	posture?: 'Manual' | 'Kinetisense';
-	gaitAnalysis?: 'Manual' | 'OptaGAIT';
-	mobilityAids?: string;
-	localObservation?: string;
-	swelling?: string;
-	muscleWasting?: string;
-	postureManualNotes?: string;
-	postureFileName?: string;
-	postureFileData?: string;
-	gaitManualNotes?: string;
-	gaitFileName?: string;
-	gaitFileData?: string;
-	
-	// New fields for On Palpation
-	tenderness?: string;
-	warmth?: string;
-	scar?: string;
-	crepitus?: string;
-	odema?: string;
-
-	// Manual Muscle Testing
-	mmt?: Record<string, any>;
-
-	// Special assessments & diagnoses
-	specialTest?: string;
-	differentialDiagnosis?: string;
-	finalDiagnosis?: string;
-
-	// Physiotherapy management
-	shortTermGoals?: string;
-	longTermGoals?: string;
-	rehabProtocol?: string;
-	advice?: string;
-	managementRemarks?: string;
-
-	nextFollowUpDate?: string;
-	nextFollowUpTime?: string;
-}
+import type { PatientRecordFull } from '@/lib/types';
 
 const VAS_EMOJIS = ['😀','😁','🙂','😊','😌','😟','😣','😢','😭','😱'];
 const HYDRATION_EMOJIS = ['😄','😃','🙂','😐','😕','😟','😢','😭'];
@@ -187,6 +68,13 @@ const ROM_HAS_SIDE: Record<string, boolean> = {
 
 const ROM_JOINTS = Object.keys(ROM_MOTIONS);
 
+const STATUS_OPTIONS: Array<{ value: AdminPatientStatus; label: string }> = [
+	{ value: 'pending', label: 'Pending' },
+	{ value: 'ongoing', label: 'Ongoing' },
+	{ value: 'completed', label: 'Completed' },
+	{ value: 'cancelled', label: 'Cancelled' },
+];
+
 const MOTION_TO_MMT: Record<string, string> = {
 	Flexion: 'Flexors',
 	Extension: 'Extensors',
@@ -216,7 +104,7 @@ const MOTION_TO_MMT: Record<string, string> = {
 };
 
 
-function getMedicalHistoryText(p: PatientRecord): string {
+function getMedicalHistoryText(p: PatientRecordFull): string {
 	const items: string[] = [];
 	if (p.med_xray) items.push('X RAYS');
 	if (p.med_mri) items.push('MRI');
@@ -225,7 +113,7 @@ function getMedicalHistoryText(p: PatientRecord): string {
 	return items.join(', ') || 'N/A';
 }
 
-function getPersonalHistoryText(p: PatientRecord): string {
+function getPersonalHistoryText(p: PatientRecordFull): string {
 	const items: string[] = [];
 	if (p.per_smoking) items.push('Smoking');
 	if (p.per_drinking) items.push('Drinking');
@@ -240,20 +128,52 @@ function normalize(value?: string | null) {
 	return value?.trim().toLowerCase() ?? '';
 }
 
+// Remove undefined values from an object (Firestore doesn't allow undefined)
+function removeUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
+	const cleaned: Partial<T> = {};
+	for (const key in obj) {
+		const value = obj[key];
+		if (value !== undefined) {
+			// Handle nested objects
+			if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+				const cleanedNested = removeUndefined(value);
+				// Only include if nested object has at least one property
+				if (Object.keys(cleanedNested).length > 0) {
+					cleaned[key] = cleanedNested as any;
+				}
+			} else {
+				cleaned[key] = value;
+			}
+		}
+	}
+	return cleaned;
+}
+
 export default function EditReport() {
 	const router = useRouter();
 	const { user } = useAuth();
 	const [patientIdParam, setPatientIdParam] = useState<string | null>(null);
 
-	const [patients, setPatients] = useState<PatientRecord[]>([]);
-	const [selectedPatient, setSelectedPatient] = useState<PatientRecord | null>(null);
+	const [patients, setPatients] = useState<PatientRecordFull[]>([]);
+	const [selectedPatient, setSelectedPatient] = useState<PatientRecordFull | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [savedMessage, setSavedMessage] = useState(false);
+	const [updatingStatus, setUpdatingStatus] = useState<Record<string, boolean>>({});
 	const [searchTerm, setSearchTerm] = useState('');
 	const [selectedRomJoint, setSelectedRomJoint] = useState('');
 	const [selectedMmtJoint, setSelectedMmtJoint] = useState('');
-	const [formData, setFormData] = useState<Partial<PatientRecord>>({});
+	const [formData, setFormData] = useState<Partial<PatientRecordFull>>({});
+	const [showVersionHistory, setShowVersionHistory] = useState(false);
+	const [versionHistory, setVersionHistory] = useState<Array<{
+		id: string;
+		version: number;
+		createdAt: string;
+		createdBy: string;
+		data: Partial<PatientRecordFull>;
+	}>>([]);
+	const [loadingVersions, setLoadingVersions] = useState(false);
+	const [viewingVersion, setViewingVersion] = useState<typeof versionHistory[0] | null>(null);
 	const vasValue = Number(formData.vasScale || '5');
 	const vasEmoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, vasValue) - 1)];
 	const hydrationValue = Number(formData.hydration || '4');
@@ -366,7 +286,7 @@ export default function EditReport() {
 						managementRemarks: data.managementRemarks ? String(data.managementRemarks) : undefined,
 						nextFollowUpDate: data.nextFollowUpDate ? String(data.nextFollowUpDate) : undefined,
 						nextFollowUpTime: data.nextFollowUpTime ? String(data.nextFollowUpTime) : undefined,
-					} as PatientRecord;
+					} as PatientRecordFull;
 				});
 				setPatients(mapped);
 				setLoading(false);
@@ -393,10 +313,47 @@ export default function EditReport() {
 	}, [patientIdParam, patients, selectedPatient]);
 
 	const filteredPatients = useMemo(() => {
+		// Debug logging in development
+		if (process.env.NODE_ENV === 'development') {
+			console.log('EditReport - Filtering patients:', {
+				totalPatients: patients.length,
+				clinicianName,
+				userDisplayName: user?.displayName,
+				sampleAssignedDoctors: patients.slice(0, 5).map(p => ({
+					patientId: p.patientId,
+					assignedDoctor: p.assignedDoctor,
+					normalized: normalize(p.assignedDoctor)
+				}))
+			});
+		}
+
 		// First filter by assigned doctor (only show patients assigned to current staff member)
-		const assignedPatients = clinicianName
-			? patients.filter(patient => normalize(patient.assignedDoctor) === clinicianName)
-			: patients;
+		let assignedPatients: PatientRecordFull[];
+		
+		if (!clinicianName) {
+			// If no clinician name, show all patients
+			assignedPatients = patients;
+		} else {
+			// Filter by assigned doctor
+			assignedPatients = patients.filter(patient => {
+				const normalizedAssigned = normalize(patient.assignedDoctor);
+				return normalizedAssigned === clinicianName;
+			});
+			
+			// If no patients match the assigned doctor filter, show all patients
+			// This handles cases where patients might not have assignedDoctor set
+			// or where the name matching isn't working correctly
+			if (assignedPatients.length === 0 && patients.length > 0) {
+				if (process.env.NODE_ENV === 'development') {
+					console.warn('EditReport - No patients matched assignedDoctor filter. Showing all patients.', {
+						clinicianName,
+						totalPatients: patients.length,
+						uniqueAssignedDoctors: [...new Set(patients.map(p => p.assignedDoctor).filter(Boolean))]
+					});
+				}
+				assignedPatients = patients;
+			}
+		}
 
 		// Then filter by search term
 		const query = searchTerm.trim().toLowerCase();
@@ -409,19 +366,19 @@ export default function EditReport() {
 				(patient.phone || '').toLowerCase().includes(query)
 			);
 		});
-	}, [patients, searchTerm, clinicianName]);
+	}, [patients, searchTerm, clinicianName, user?.displayName]);
 
-	const handleSelectPatient = (patient: PatientRecord) => {
+	const handleSelectPatient = (patient: PatientRecordFull) => {
 		setSelectedPatient(patient);
 		setFormData(patient);
 		router.push(`/clinical-team/edit-report?patientId=${patient.patientId}`);
 	};
 
-	const handleFieldChange = (field: keyof PatientRecord, value: any) => {
+	const handleFieldChange = (field: keyof PatientRecordFull, value: any) => {
 		setFormData(prev => ({ ...prev, [field]: value }));
 	};
 
-	const handleCheckboxChange = (field: keyof PatientRecord, checked: boolean) => {
+	const handleCheckboxChange = (field: keyof PatientRecordFull, checked: boolean) => {
 		setFormData(prev => ({ ...prev, [field]: checked }));
 	};
 
@@ -509,7 +466,7 @@ export default function EditReport() {
 		});
 	};
 
-	const handleFileUpload = (dataField: keyof PatientRecord, nameField: keyof PatientRecord, file: File | null) => {
+	const handleFileUpload = (dataField: keyof PatientRecordFull, nameField: keyof PatientRecordFull, file: File | null) => {
 		if (!file) {
 			setFormData(prev => ({ ...prev, [dataField]: '', [nameField]: '' }));
 			return;
@@ -523,6 +480,29 @@ export default function EditReport() {
 			}
 		};
 		reader.readAsDataURL(file);
+	};
+
+	const handleStatusChange = async (patientId: string, newStatus: AdminPatientStatus) => {
+		if (!patientId || updatingStatus[patientId]) return;
+
+		setUpdatingStatus(prev => ({ ...prev, [patientId]: true }));
+		try {
+			const patientRef = doc(db, 'patients', patientId);
+			await updateDoc(patientRef, {
+				status: newStatus,
+			});
+			// Update local state
+			setPatients(prev => prev.map(p => p.id === patientId ? { ...p, status: newStatus } : p));
+			if (selectedPatient?.id === patientId) {
+				setSelectedPatient(prev => prev ? { ...prev, status: newStatus } : null);
+				setFormData(prev => ({ ...prev, status: newStatus }));
+			}
+		} catch (error) {
+			console.error('Failed to update patient status', error);
+			alert(`Failed to update patient status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setUpdatingStatus(prev => ({ ...prev, [patientId]: false }));
+		}
 	};
 
 	const handleSave = async () => {
@@ -612,13 +592,328 @@ export default function EditReport() {
 				updatedAt: serverTimestamp(),
 			};
 
+			// Create report snapshot before updating
+			// Get current report data from selectedPatient to create a snapshot
+			const currentReportData: Partial<PatientRecordFull> = {
+				complaints: selectedPatient.complaints,
+				presentHistory: selectedPatient.presentHistory,
+				pastHistory: selectedPatient.pastHistory,
+				med_xray: selectedPatient.med_xray,
+				med_mri: selectedPatient.med_mri,
+				med_report: selectedPatient.med_report,
+				med_ct: selectedPatient.med_ct,
+				surgicalHistory: selectedPatient.surgicalHistory,
+				per_smoking: selectedPatient.per_smoking,
+				per_drinking: selectedPatient.per_drinking,
+				per_alcohol: selectedPatient.per_alcohol,
+				per_drugs: selectedPatient.per_drugs,
+				drugsText: selectedPatient.drugsText,
+				sleepCycle: selectedPatient.sleepCycle,
+				hydration: selectedPatient.hydration,
+				nutrition: selectedPatient.nutrition,
+				siteSide: selectedPatient.siteSide,
+				onset: selectedPatient.onset,
+				duration: selectedPatient.duration,
+				natureOfInjury: selectedPatient.natureOfInjury,
+				typeOfPain: selectedPatient.typeOfPain,
+				vasScale: selectedPatient.vasScale,
+				aggravatingFactor: selectedPatient.aggravatingFactor,
+				relievingFactor: selectedPatient.relievingFactor,
+				rom: selectedPatient.rom,
+				treatmentProvided: selectedPatient.treatmentProvided,
+				progressNotes: selectedPatient.progressNotes,
+				physioName: selectedPatient.physioName,
+				physioId: selectedPatient.physioId,
+				dateOfConsultation: selectedPatient.dateOfConsultation,
+				referredBy: selectedPatient.referredBy,
+				chiefComplaint: selectedPatient.chiefComplaint,
+				onsetType: selectedPatient.onsetType,
+				mechanismOfInjury: selectedPatient.mechanismOfInjury,
+				painType: selectedPatient.painType,
+				painIntensity: selectedPatient.painIntensity,
+				clinicalDiagnosis: selectedPatient.clinicalDiagnosis,
+				treatmentPlan: selectedPatient.treatmentPlan,
+				followUpVisits: selectedPatient.followUpVisits,
+				currentPainStatus: selectedPatient.currentPainStatus,
+				currentRom: selectedPatient.currentRom,
+				currentStrength: selectedPatient.currentStrength,
+				currentFunctionalAbility: selectedPatient.currentFunctionalAbility,
+				complianceWithHEP: selectedPatient.complianceWithHEP,
+				recommendations: selectedPatient.recommendations,
+				physiotherapistRemarks: selectedPatient.physiotherapistRemarks,
+				built: selectedPatient.built,
+				posture: selectedPatient.posture,
+				gaitAnalysis: selectedPatient.gaitAnalysis,
+				mobilityAids: selectedPatient.mobilityAids,
+				localObservation: selectedPatient.localObservation,
+				swelling: selectedPatient.swelling,
+				muscleWasting: selectedPatient.muscleWasting,
+				postureManualNotes: selectedPatient.postureManualNotes,
+				postureFileName: selectedPatient.postureFileName,
+				postureFileData: selectedPatient.postureFileData,
+				gaitManualNotes: selectedPatient.gaitManualNotes,
+				gaitFileName: selectedPatient.gaitFileName,
+				gaitFileData: selectedPatient.gaitFileData,
+				tenderness: selectedPatient.tenderness,
+				warmth: selectedPatient.warmth,
+				scar: selectedPatient.scar,
+				crepitus: selectedPatient.crepitus,
+				odema: selectedPatient.odema,
+				mmt: selectedPatient.mmt,
+				specialTest: selectedPatient.specialTest,
+				differentialDiagnosis: selectedPatient.differentialDiagnosis,
+				finalDiagnosis: selectedPatient.finalDiagnosis,
+				shortTermGoals: selectedPatient.shortTermGoals,
+				longTermGoals: selectedPatient.longTermGoals,
+				rehabProtocol: selectedPatient.rehabProtocol,
+				advice: selectedPatient.advice,
+				managementRemarks: selectedPatient.managementRemarks,
+				nextFollowUpDate: selectedPatient.nextFollowUpDate,
+				nextFollowUpTime: selectedPatient.nextFollowUpTime,
+			};
+
+			// Check if there's any existing report data to save as previous report
+			const hasReportData = Object.values(currentReportData).some(val => 
+				val !== undefined && val !== null && val !== '' && 
+				!(Array.isArray(val) && val.length === 0) &&
+				!(typeof val === 'object' && Object.keys(val).length === 0)
+			);
+
+			// Create report snapshot if there's existing report data
+			if (hasReportData) {
+				// Get the latest report number for this patient
+				const versionsQuery = query(
+					collection(db, 'reportVersions'),
+					where('patientId', '==', selectedPatient.patientId),
+					orderBy('version', 'desc')
+				);
+				const versionsSnapshot = await getDocs(versionsQuery);
+				const nextVersion = versionsSnapshot.docs.length > 0 
+					? (versionsSnapshot.docs[0].data().version as number) + 1 
+					: 1;
+
+				// Save report snapshot (remove undefined values for Firestore)
+				await addDoc(collection(db, 'reportVersions'), {
+					patientId: selectedPatient.patientId,
+					patientName: selectedPatient.name,
+					version: nextVersion,
+					reportData: removeUndefined(currentReportData),
+					createdBy: user?.displayName || user?.email || 'Unknown',
+					createdById: user?.uid || '',
+					createdAt: serverTimestamp(),
+				});
+			}
+
+			// Update the patient document with new report data
 			await updateDoc(patientRef, reportData);
+
+			// Update selectedPatient state to reflect the new data
+			setSelectedPatient(prev => prev ? { ...prev, ...reportData } : null);
 
 			setSavedMessage(true);
 			setTimeout(() => setSavedMessage(false), 3000);
 		} catch (error) {
 			console.error('Failed to save report', error);
 			alert('Failed to save report. Please try again.');
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const loadVersionHistory = async () => {
+		if (!selectedPatient?.patientId) return;
+
+		setLoadingVersions(true);
+		try {
+			const versionsQuery = query(
+				collection(db, 'reportVersions'),
+				where('patientId', '==', selectedPatient.patientId),
+				orderBy('version', 'desc')
+			);
+			const versionsSnapshot = await getDocs(versionsQuery);
+			const versions = versionsSnapshot.docs.map(doc => {
+					const data = doc.data();
+					const createdAt = (data.createdAt as Timestamp | undefined)?.toDate?.();
+					return {
+						id: doc.id,
+						version: data.version as number,
+						createdAt: createdAt ? createdAt.toISOString() : new Date().toISOString(),
+						createdBy: (data.createdBy as string) || 'Unknown',
+						data: (data.reportData as Partial<PatientRecordFull>) || {},
+					};
+				});
+			setVersionHistory(versions);
+		} catch (error) {
+			console.error('Failed to load report history', error);
+			alert('Failed to load report history. Please try again.');
+		} finally {
+			setLoadingVersions(false);
+		}
+	};
+
+	const handleViewVersionHistory = async () => {
+		setShowVersionHistory(true);
+		await loadVersionHistory();
+	};
+
+	const handleDeleteVersion = async (version: typeof versionHistory[0]) => {
+		if (!confirm(`Are you sure you want to delete Report #${version.version}? This action cannot be undone.`)) {
+			return;
+		}
+
+		try {
+			const versionRef = doc(db, 'reportVersions', version.id);
+			await deleteDoc(versionRef);
+			
+			// Reload report history
+			await loadVersionHistory();
+			
+			alert(`Report #${version.version} has been deleted successfully.`);
+		} catch (error) {
+			console.error('Failed to delete report', error);
+			alert('Failed to delete report. Please try again.');
+		}
+	};
+
+	const handleRestoreVersion = async (version: typeof versionHistory[0]) => {
+		if (!selectedPatient?.id || !confirm(`Are you sure you want to load Report #${version.version}? This will replace the current report data and save the current state as a new report.`)) {
+			return;
+		}
+
+		setSaving(true);
+		try {
+			const patientRef = doc(db, 'patients', selectedPatient.id);
+
+			// Create a report snapshot of current data before loading previous report
+			const currentReportData: Partial<PatientRecordFull> = {
+				complaints: selectedPatient.complaints,
+				presentHistory: selectedPatient.presentHistory,
+				pastHistory: selectedPatient.pastHistory,
+				med_xray: selectedPatient.med_xray,
+				med_mri: selectedPatient.med_mri,
+				med_report: selectedPatient.med_report,
+				med_ct: selectedPatient.med_ct,
+				surgicalHistory: selectedPatient.surgicalHistory,
+				per_smoking: selectedPatient.per_smoking,
+				per_drinking: selectedPatient.per_drinking,
+				per_alcohol: selectedPatient.per_alcohol,
+				per_drugs: selectedPatient.per_drugs,
+				drugsText: selectedPatient.drugsText,
+				sleepCycle: selectedPatient.sleepCycle,
+				hydration: selectedPatient.hydration,
+				nutrition: selectedPatient.nutrition,
+				siteSide: selectedPatient.siteSide,
+				onset: selectedPatient.onset,
+				duration: selectedPatient.duration,
+				natureOfInjury: selectedPatient.natureOfInjury,
+				typeOfPain: selectedPatient.typeOfPain,
+				vasScale: selectedPatient.vasScale,
+				aggravatingFactor: selectedPatient.aggravatingFactor,
+				relievingFactor: selectedPatient.relievingFactor,
+				rom: selectedPatient.rom,
+				treatmentProvided: selectedPatient.treatmentProvided,
+				progressNotes: selectedPatient.progressNotes,
+				physioName: selectedPatient.physioName,
+				physioId: selectedPatient.physioId,
+				dateOfConsultation: selectedPatient.dateOfConsultation,
+				referredBy: selectedPatient.referredBy,
+				chiefComplaint: selectedPatient.chiefComplaint,
+				onsetType: selectedPatient.onsetType,
+				mechanismOfInjury: selectedPatient.mechanismOfInjury,
+				painType: selectedPatient.painType,
+				painIntensity: selectedPatient.painIntensity,
+				clinicalDiagnosis: selectedPatient.clinicalDiagnosis,
+				treatmentPlan: selectedPatient.treatmentPlan,
+				followUpVisits: selectedPatient.followUpVisits,
+				currentPainStatus: selectedPatient.currentPainStatus,
+				currentRom: selectedPatient.currentRom,
+				currentStrength: selectedPatient.currentStrength,
+				currentFunctionalAbility: selectedPatient.currentFunctionalAbility,
+				complianceWithHEP: selectedPatient.complianceWithHEP,
+				recommendations: selectedPatient.recommendations,
+				physiotherapistRemarks: selectedPatient.physiotherapistRemarks,
+				built: selectedPatient.built,
+				posture: selectedPatient.posture,
+				gaitAnalysis: selectedPatient.gaitAnalysis,
+				mobilityAids: selectedPatient.mobilityAids,
+				localObservation: selectedPatient.localObservation,
+				swelling: selectedPatient.swelling,
+				muscleWasting: selectedPatient.muscleWasting,
+				postureManualNotes: selectedPatient.postureManualNotes,
+				postureFileName: selectedPatient.postureFileName,
+				postureFileData: selectedPatient.postureFileData,
+				gaitManualNotes: selectedPatient.gaitManualNotes,
+				gaitFileName: selectedPatient.gaitFileName,
+				gaitFileData: selectedPatient.gaitFileData,
+				tenderness: selectedPatient.tenderness,
+				warmth: selectedPatient.warmth,
+				scar: selectedPatient.scar,
+				crepitus: selectedPatient.crepitus,
+				odema: selectedPatient.odema,
+				mmt: selectedPatient.mmt,
+				specialTest: selectedPatient.specialTest,
+				differentialDiagnosis: selectedPatient.differentialDiagnosis,
+				finalDiagnosis: selectedPatient.finalDiagnosis,
+				shortTermGoals: selectedPatient.shortTermGoals,
+				longTermGoals: selectedPatient.longTermGoals,
+				rehabProtocol: selectedPatient.rehabProtocol,
+				advice: selectedPatient.advice,
+				managementRemarks: selectedPatient.managementRemarks,
+				nextFollowUpDate: selectedPatient.nextFollowUpDate,
+				nextFollowUpTime: selectedPatient.nextFollowUpTime,
+			};
+
+			// Check if there's current report data to save as previous report
+			const hasCurrentData = Object.values(currentReportData).some(val => 
+				val !== undefined && val !== null && val !== '' && 
+				!(Array.isArray(val) && val.length === 0) &&
+				!(typeof val === 'object' && Object.keys(val).length === 0)
+			);
+
+			// Save current state as report before loading previous report
+			if (hasCurrentData) {
+				const versionsQuery = query(
+					collection(db, 'reportVersions'),
+					where('patientId', '==', selectedPatient.patientId),
+					orderBy('version', 'desc')
+				);
+				const versionsSnapshot = await getDocs(versionsQuery);
+				const nextVersion = versionsSnapshot.docs.length > 0 
+					? (versionsSnapshot.docs[0].data().version as number) + 1 
+					: 1;
+
+				await addDoc(collection(db, 'reportVersions'), {
+					patientId: selectedPatient.patientId,
+					patientName: selectedPatient.name,
+					version: nextVersion,
+					reportData: removeUndefined(currentReportData),
+					createdBy: user?.displayName || user?.email || 'Unknown',
+					createdById: user?.uid || '',
+					createdAt: serverTimestamp(),
+					restoredFrom: version.version, // Track that this was created from a restore
+				});
+			}
+
+			// Load the version data into the form
+			setFormData(version.data);
+			
+			// Update the patient document with restored data
+			const reportData: Record<string, any> = {
+				...version.data,
+				updatedAt: serverTimestamp(),
+			};
+			await updateDoc(patientRef, reportData);
+
+			// Update selectedPatient state
+			setSelectedPatient(prev => prev ? { ...prev, ...reportData } : null);
+
+			// Reload report history to show the new report
+			await loadVersionHistory();
+
+			alert(`Report #${version.version} has been loaded successfully.`);
+		} catch (error) {
+			console.error('Failed to load report', error);
+			alert('Failed to load report. Please try again.');
 		} finally {
 			setSaving(false);
 		}
@@ -964,17 +1259,23 @@ export default function EditReport() {
 												<td className="px-4 py-4 text-sm font-medium text-slate-800">{patient.patientId}</td>
 												<td className="px-4 py-4 text-sm text-slate-700">{patient.name}</td>
 												<td className="px-4 py-4">
-													<span
-														className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-															patient.status === 'completed'
-																? 'bg-emerald-100 text-emerald-700'
-																: patient.status === 'ongoing'
-																	? 'bg-sky-100 text-sky-700'
-																	: 'bg-amber-100 text-amber-700'
-														}`}
-													>
-														{patient.status}
-													</span>
+													<div className="flex items-center gap-2">
+														<select
+															value={patient.status}
+															onChange={event => handleStatusChange(patient.id, event.target.value as AdminPatientStatus)}
+															disabled={updatingStatus[patient.id]}
+															className="select-base text-xs py-1 px-2 min-w-[120px]"
+														>
+															{STATUS_OPTIONS.map(option => (
+																<option key={option.value} value={option.value}>
+																	{option.label}
+																</option>
+															))}
+														</select>
+														{updatingStatus[patient.id] && (
+															<div className="h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent" />
+														)}
+													</div>
 												</td>
 												<td className="px-4 py-4 text-sm text-slate-600">{patient.assignedDoctor || 'Unassigned'}</td>
 												<td className="px-4 py-4 text-right">
@@ -1132,7 +1433,10 @@ export default function EditReport() {
 						type="button"
 						onClick={() => {
 							setSelectedPatient(null);
-							router.push('/clinical-team/edit-report');
+							setFormData({});
+							setPatientIdParam(null);
+							setShowVersionHistory(false);
+							router.replace('/clinical-team/edit-report');
 						}}
 						className="btn-secondary"
 					>
@@ -2086,6 +2390,15 @@ export default function EditReport() {
 							<i className="fas fa-download text-xs" aria-hidden="true" />
 							Download PDF
 						</button>
+						<button 
+							type="button" 
+							onClick={handleViewVersionHistory} 
+							className="btn-secondary" 
+							disabled={!selectedPatient}
+						>
+							<i className="fas fa-history text-xs" aria-hidden="true" />
+							Report History
+						</button>
 						<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
 							<i className="fas fa-save text-xs" aria-hidden="true" />
 							{saving ? 'Saving...' : 'Save Report'}
@@ -2093,6 +2406,460 @@ export default function EditReport() {
 					</div>
 				</div>
 			</div>
+
+			{/* Report History Modal */}
+			{showVersionHistory && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+					<div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+						<div className="flex items-center justify-between p-6 border-b border-slate-200">
+							<h2 className="text-xl font-semibold text-slate-900">
+								Report History - {selectedPatient?.name} ({selectedPatient?.patientId})
+							</h2>
+							<button
+								type="button"
+								onClick={() => setShowVersionHistory(false)}
+								className="text-slate-400 hover:text-slate-600 transition"
+								aria-label="Close"
+							>
+								<i className="fas fa-times text-xl" />
+							</button>
+						</div>
+						<div className="flex-1 overflow-y-auto p-6">
+							{loadingVersions ? (
+								<div className="text-center py-12">
+									<div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-slate-900 border-r-transparent"></div>
+									<p className="mt-4 text-sm text-slate-600">Loading report history...</p>
+								</div>
+							) : versionHistory.length === 0 ? (
+								<div className="text-center py-12">
+									<p className="text-slate-600">No report history available for this patient.</p>
+									<p className="text-sm text-slate-500 mt-2">Previous reports will appear here when you save changes to the report.</p>
+								</div>
+							) : (
+								<div className="space-y-4">
+									{versionHistory.map((version) => (
+										<div
+											key={version.id}
+											className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition"
+										>
+											<div className="flex items-center justify-between mb-3">
+												<div>
+													<div className="flex items-center gap-2">
+														<span className="font-semibold text-slate-900">Report #{version.version}</span>
+														{version.version === versionHistory[0]?.version && (
+															<span className="px-2 py-1 text-xs font-medium bg-sky-100 text-sky-700 rounded">
+																Latest
+															</span>
+														)}
+													</div>
+													<p className="text-sm text-slate-600 mt-1">
+														Saved by {version.createdBy} on{' '}
+														{new Date(version.createdAt).toLocaleString()}
+													</p>
+												</div>
+											</div>
+											<div className="text-xs text-slate-500 space-y-1 mb-3">
+												{version.data.dateOfConsultation && (
+													<p>Consultation Date: {version.data.dateOfConsultation}</p>
+												)}
+												{version.data.chiefComplaint && (
+													<p>Chief Complaint: {version.data.chiefComplaint}</p>
+												)}
+												{version.data.clinicalDiagnosis && (
+													<p>Diagnosis: {version.data.clinicalDiagnosis}</p>
+												)}
+											</div>
+											<button
+												type="button"
+												onClick={() => setViewingVersion(version)}
+												className="px-4 py-2 text-sm font-medium text-sky-600 bg-sky-50 border border-sky-200 rounded-md hover:bg-sky-100 transition"
+											>
+												<i className="fas fa-eye mr-2" />
+												View Full Report
+											</button>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+						<div className="flex items-center justify-end p-6 border-t border-slate-200">
+							<button
+								type="button"
+								onClick={() => setShowVersionHistory(false)}
+								className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200 transition"
+							>
+								Close
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* View Report Modal */}
+			{viewingVersion && selectedPatient && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+					<div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+						<div className="flex items-center justify-between p-6 border-b border-slate-200">
+							<h2 className="text-xl font-semibold text-slate-900">
+								Report #{viewingVersion.version} - {selectedPatient.name} ({selectedPatient.patientId})
+							</h2>
+							<button
+								type="button"
+								onClick={() => setViewingVersion(null)}
+								className="text-slate-400 hover:text-slate-600 transition"
+								aria-label="Close"
+							>
+								<i className="fas fa-times text-xl" />
+							</button>
+						</div>
+						<div className="flex-1 overflow-y-auto p-6">
+							<div className="section-card">
+								{/* Patient Information */}
+								<div className="mb-8 border-b border-slate-200 pb-6">
+									<h2 className="mb-4 text-xl font-bold text-sky-600">Physiotherapy Report</h2>
+									<div className="mb-4 text-right text-sm text-slate-600">
+										<div>
+											<b>Clinic:</b> Centre For Sports Science, Kanteerava Stadium
+										</div>
+										<div>
+											<b>Report Date:</b> {viewingVersion.data.dateOfConsultation || new Date(viewingVersion.createdAt).toLocaleDateString()}
+										</div>
+										<div>
+											<b>Saved:</b> {new Date(viewingVersion.createdAt).toLocaleString()} by {viewingVersion.createdBy}
+										</div>
+									</div>
+									<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+										<div>
+											<label className="block text-xs font-medium text-slate-500">Patient Name</label>
+											<input
+												type="text"
+												value={selectedPatient.name}
+												readOnly
+												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+											/>
+										</div>
+										<div>
+											<label className="block text-xs font-medium text-slate-500">Patient ID</label>
+											<input
+												type="text"
+												value={selectedPatient.patientId}
+												readOnly
+												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+											/>
+										</div>
+										<div>
+											<label className="block text-xs font-medium text-slate-500">Date of Birth</label>
+											<input
+												type="date"
+												value={selectedPatient.dob}
+												readOnly
+												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+											/>
+										</div>
+										<div>
+											<label className="block text-xs font-medium text-slate-500">Assigned Doctor</label>
+											<input
+												type="text"
+												value={selectedPatient.assignedDoctor || ''}
+												readOnly
+												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+											/>
+										</div>
+									</div>
+								</div>
+
+								{/* Assessment Section - Read Only */}
+								<div className="space-y-6">
+									{viewingVersion.data.dateOfConsultation && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Date of Consultation</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+												{viewingVersion.data.dateOfConsultation}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.complaints && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Complaints</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+												{viewingVersion.data.complaints}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.chiefComplaint && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Chief Complaint</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+												{viewingVersion.data.chiefComplaint}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.presentHistory && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Present History</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+												{viewingVersion.data.presentHistory}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.pastHistory && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Past History</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+												{viewingVersion.data.pastHistory}
+											</div>
+										</div>
+									)}
+
+									{((viewingVersion.data.med_xray || viewingVersion.data.med_mri || viewingVersion.data.med_report || viewingVersion.data.med_ct) || viewingVersion.data.surgicalHistory) && (
+										<div className="grid gap-4 sm:grid-cols-2">
+											{(viewingVersion.data.med_xray || viewingVersion.data.med_mri || viewingVersion.data.med_report || viewingVersion.data.med_ct) && (
+												<div>
+													<label className="block text-xs font-medium text-slate-500 mb-1">Medical History</label>
+													<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+														{[
+															viewingVersion.data.med_xray && 'X-RAYS',
+															viewingVersion.data.med_mri && 'MRI',
+															viewingVersion.data.med_report && 'Reports',
+															viewingVersion.data.med_ct && 'CT Scans'
+														].filter(Boolean).join(', ') || '—'}
+													</div>
+												</div>
+											)}
+											{viewingVersion.data.surgicalHistory && (
+												<div>
+													<label className="block text-xs font-medium text-slate-500 mb-1">Surgical History</label>
+													<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+														{viewingVersion.data.surgicalHistory}
+													</div>
+												</div>
+											)}
+										</div>
+									)}
+
+									{((viewingVersion.data.per_smoking || viewingVersion.data.per_drinking || viewingVersion.data.per_alcohol || viewingVersion.data.per_drugs) || viewingVersion.data.sleepCycle || viewingVersion.data.hydration || viewingVersion.data.nutrition) && (
+										<div className="grid gap-4 sm:grid-cols-2">
+											{(viewingVersion.data.per_smoking || viewingVersion.data.per_drinking || viewingVersion.data.per_alcohol || viewingVersion.data.per_drugs) && (
+												<div>
+													<label className="block text-xs font-medium text-slate-500 mb-1">Personal History</label>
+													<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+														{[
+															viewingVersion.data.per_smoking && 'Smoking',
+															viewingVersion.data.per_drinking && 'Drinking',
+															viewingVersion.data.per_alcohol && 'Alcohol',
+															viewingVersion.data.per_drugs && `Drugs${viewingVersion.data.drugsText ? ` (${viewingVersion.data.drugsText})` : ''}`
+														].filter(Boolean).join(', ') || '—'}
+													</div>
+												</div>
+											)}
+											{viewingVersion.data.sleepCycle && (
+												<div>
+													<label className="block text-xs font-medium text-slate-500 mb-1">Sleep Cycle</label>
+													<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+														{viewingVersion.data.sleepCycle}
+													</div>
+												</div>
+											)}
+											{viewingVersion.data.hydration && (
+												<div>
+													<label className="block text-xs font-medium text-slate-500 mb-1">Hydration</label>
+													<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+														{viewingVersion.data.hydration}/8 {HYDRATION_EMOJIS[Math.min(HYDRATION_EMOJIS.length - 1, Math.max(1, Number(viewingVersion.data.hydration)) - 1)]}
+													</div>
+												</div>
+											)}
+											{viewingVersion.data.nutrition && (
+												<div>
+													<label className="block text-xs font-medium text-slate-500 mb-1">Nutrition</label>
+													<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+														{viewingVersion.data.nutrition}
+													</div>
+												</div>
+											)}
+										</div>
+									)}
+
+									{(viewingVersion.data.siteSide || viewingVersion.data.onset || viewingVersion.data.duration || viewingVersion.data.natureOfInjury || viewingVersion.data.typeOfPain || viewingVersion.data.aggravatingFactor || viewingVersion.data.relievingFactor) && (
+										<div>
+											<h3 className="text-sm font-semibold text-sky-600 mb-3 border-b border-sky-200 pb-2">Pain Assessment</h3>
+											<div className="grid gap-4 sm:grid-cols-2">
+												{viewingVersion.data.siteSide && (
+													<div>
+														<label className="block text-xs font-medium text-slate-500 mb-1">Site and Side</label>
+														<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+															{viewingVersion.data.siteSide}
+														</div>
+													</div>
+												)}
+												{viewingVersion.data.onset && (
+													<div>
+														<label className="block text-xs font-medium text-slate-500 mb-1">Onset</label>
+														<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+															{viewingVersion.data.onset}
+														</div>
+													</div>
+												)}
+												{viewingVersion.data.duration && (
+													<div>
+														<label className="block text-xs font-medium text-slate-500 mb-1">Duration</label>
+														<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+															{viewingVersion.data.duration}
+														</div>
+													</div>
+												)}
+												{viewingVersion.data.natureOfInjury && (
+													<div>
+														<label className="block text-xs font-medium text-slate-500 mb-1">Nature of Injury</label>
+														<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+															{viewingVersion.data.natureOfInjury}
+														</div>
+													</div>
+												)}
+												{viewingVersion.data.typeOfPain && (
+													<div>
+														<label className="block text-xs font-medium text-slate-500 mb-1">Type of Pain</label>
+														<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+															{viewingVersion.data.typeOfPain}
+														</div>
+													</div>
+												)}
+												{viewingVersion.data.aggravatingFactor && (
+													<div>
+														<label className="block text-xs font-medium text-slate-500 mb-1">Aggravating Factor</label>
+														<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+															{viewingVersion.data.aggravatingFactor}
+														</div>
+													</div>
+												)}
+												{viewingVersion.data.relievingFactor && (
+													<div>
+														<label className="block text-xs font-medium text-slate-500 mb-1">Relieving Factor</label>
+														<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+															{viewingVersion.data.relievingFactor}
+														</div>
+													</div>
+												)}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.clinicalDiagnosis && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Clinical Diagnosis</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+												{viewingVersion.data.clinicalDiagnosis}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.vasScale && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">VAS Scale</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+												{viewingVersion.data.vasScale} {VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, Number(viewingVersion.data.vasScale)) - 1)]}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.rom && Object.keys(viewingVersion.data.rom).length > 0 && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-2">ROM (Range of Motion)</label>
+											<div className="bg-slate-50 border border-slate-200 rounded-md p-4">
+												{Object.entries(viewingVersion.data.rom).map(([joint, data]: [string, any]) => (
+													<div key={joint} className="mb-4 last:mb-0">
+														<h6 className="text-sm font-semibold text-sky-600 mb-2">{joint}</h6>
+														{data && typeof data === 'object' && (
+															<div className="text-xs text-slate-700 space-y-1 ml-4">
+																{Object.entries(data).map(([motion, value]: [string, any]) => (
+																	<div key={motion}>
+																		<span className="font-medium">{motion}:</span> {String(value || '—')}
+																	</div>
+																))}
+															</div>
+														)}
+													</div>
+												))}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.mmt && Object.keys(viewingVersion.data.mmt).length > 0 && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-2">MMT (Manual Muscle Testing)</label>
+											<div className="bg-slate-50 border border-slate-200 rounded-md p-4">
+												{Object.entries(viewingVersion.data.mmt).map(([joint, data]: [string, any]) => (
+													<div key={joint} className="mb-4 last:mb-0">
+														<h6 className="text-sm font-semibold text-sky-600 mb-2">{joint}</h6>
+														{data && typeof data === 'object' && (
+															<div className="text-xs text-slate-700 space-y-1 ml-4">
+																{Object.entries(data).map(([motion, value]: [string, any]) => (
+																	<div key={motion}>
+																		<span className="font-medium">{motion}:</span> {String(value || '—')}
+																	</div>
+																))}
+															</div>
+														)}
+													</div>
+												))}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.recommendations && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Recommendations</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+												{viewingVersion.data.recommendations}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.physiotherapistRemarks && (
+										<div>
+											<label className="block text-xs font-medium text-slate-500 mb-1">Physiotherapist Remarks</label>
+											<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 whitespace-pre-wrap">
+												{viewingVersion.data.physiotherapistRemarks}
+											</div>
+										</div>
+									)}
+
+									{viewingVersion.data.nextFollowUpDate && (
+										<div className="grid gap-4 sm:grid-cols-2">
+											<div>
+												<label className="block text-xs font-medium text-slate-500 mb-1">Next Follow-up Date</label>
+												<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+													{viewingVersion.data.nextFollowUpDate}
+												</div>
+											</div>
+											{viewingVersion.data.nextFollowUpTime && (
+												<div>
+													<label className="block text-xs font-medium text-slate-500 mb-1">Next Follow-up Time</label>
+													<div className="text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+														{viewingVersion.data.nextFollowUpTime}
+													</div>
+												</div>
+											)}
+										</div>
+									)}
+								</div>
+							</div>
+						</div>
+						<div className="flex items-center justify-end p-6 border-t border-slate-200">
+							<button
+								type="button"
+								onClick={() => setViewingVersion(null)}
+								className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200 transition"
+							>
+								Close
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

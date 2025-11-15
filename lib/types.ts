@@ -1,3 +1,5 @@
+import type { AdminGenderOption, AdminPatientStatus } from './adminMockData';
+
 export interface User {
 	userName: string;
 	userEmail: string;
@@ -17,6 +19,148 @@ export interface Patient {
 	address: string;
 	status: 'pending' | 'ongoing' | 'completed';
 	registeredAt: string;
+}
+
+export interface PatientRecord {
+	id: string;
+	patientId: string;
+	name: string;
+	phone?: string;
+	email?: string;
+}
+
+export type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
+
+export interface PatientRecordBasic {
+	id: string;
+	patientId?: string;
+	name?: string;
+	dob?: string;
+	gender?: string;
+	phone?: string;
+	email?: string;
+	address?: string;
+	complaint?: string;
+	status?: PatientStatus;
+	assignedDoctor?: string;
+	registeredAt?: string;
+}
+
+export interface PatientRecordTransfer {
+	id: string;
+	patientId: string;
+	name: string;
+	assignedDoctor?: string;
+	status: 'pending' | 'ongoing' | 'completed' | 'cancelled';
+}
+
+export interface PatientRecordFull {
+	id: string;
+	patientId: string;
+	name: string;
+	dob: string;
+	gender: AdminGenderOption;
+	phone?: string;
+	email?: string;
+	address?: string;
+	complaint?: string;
+	status: AdminPatientStatus;
+	registeredAt: string;
+	assignedDoctor?: string;
+	// Report fields
+	complaints?: string;
+	presentHistory?: string;
+	pastHistory?: string;
+	med_xray?: boolean;
+	med_mri?: boolean;
+	med_report?: boolean;
+	med_ct?: boolean;
+	surgicalHistory?: string;
+	per_smoking?: boolean;
+	per_drinking?: boolean;
+	per_alcohol?: boolean;
+	per_drugs?: boolean;
+	drugsText?: string;
+	sleepCycle?: string;
+	hydration?: string;
+	nutrition?: string;
+	siteSide?: string;
+	onset?: string;
+	duration?: string;
+	natureOfInjury?: string;
+	typeOfPain?: string;
+	vasScale?: string;
+	aggravatingFactor?: string;
+	relievingFactor?: string;
+	rom?: Record<string, any>;
+	treatmentProvided?: string;
+	progressNotes?: string;
+	physioName?: string;
+	physioId?: string;
+	// New fields from the image form
+	dateOfConsultation?: string;
+	referredBy?: string;
+	chiefComplaint?: string;
+	onsetType?: 'Acute' | 'Chronic' | 'Post-surgical' | 'Traumatic';
+	mechanismOfInjury?: string;
+	painType?: string; // Sharp/Dull/Burning
+	painIntensity?: string; // VAS/NPRS
+	clinicalDiagnosis?: string;
+	// Treatment Plan (table data)
+	treatmentPlan?: Array<{
+		therapy: string;
+		frequency: string;
+		remarks: string;
+	}>;
+	// Follow-Up Visits (table data)
+	followUpVisits?: Array<{
+		visitDate: string;
+		painLevel: string;
+		findings: string;
+	}>;
+	// Current Status
+	currentPainStatus?: 'Improved' | 'Same' | 'Worsened';
+	currentRom?: string; // "Improved by _*"
+	currentStrength?: string; // "_% improvement noted"
+	currentFunctionalAbility?: 'Improved' | 'Restricted';
+	complianceWithHEP?: 'Excellent' | 'Moderate' | 'Poor';
+	// Recommendations
+	recommendations?: string;
+	physiotherapistRemarks?: string;
+	// New fields for On Observation
+	built?: string;
+	posture?: 'Manual' | 'Kinetisense';
+	gaitAnalysis?: 'Manual' | 'OptaGAIT';
+	mobilityAids?: string;
+	localObservation?: string;
+	swelling?: string;
+	muscleWasting?: string;
+	postureManualNotes?: string;
+	postureFileName?: string;
+	postureFileData?: string;
+	gaitManualNotes?: string;
+	gaitFileName?: string;
+	gaitFileData?: string;
+	// New fields for On Palpation
+	tenderness?: string;
+	warmth?: string;
+	scar?: string;
+	crepitus?: string;
+	odema?: string;
+	// Manual Muscle Testing
+	mmt?: Record<string, any>;
+	// Special assessments & diagnoses
+	specialTest?: string;
+	differentialDiagnosis?: string;
+	finalDiagnosis?: string;
+	// Physiotherapy management
+	shortTermGoals?: string;
+	longTermGoals?: string;
+	rehabProtocol?: string;
+	advice?: string;
+	managementRemarks?: string;
+	nextFollowUpDate?: string;
+	nextFollowUpTime?: string;
 }
 
 export interface Appointment {

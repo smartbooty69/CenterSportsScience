@@ -51,10 +51,25 @@ export default function LoginPage() {
 		}
 
 		try {
-			// Normalize email (trim whitespace)
+			// Normalize email (trim whitespace and convert to lowercase)
 			const email = username.trim().toLowerCase();
+			// Trim password to remove any accidental whitespace
+			const trimmedPassword = password.trim();
 			
-			const credential = await signInWithEmailAndPassword(auth, email, password);
+			// Validate email format
+			const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+			if (!emailRegex.test(email)) {
+				setError('Please enter a valid email address.');
+				setSubmitting(false);
+				return;
+			}
+			
+			// Log in development mode only (for debugging)
+			if (process.env.NODE_ENV === 'development') {
+				console.log('Attempting login with email:', email);
+			}
+			
+			const credential = await signInWithEmailAndPassword(auth, email, trimmedPassword);
 			const user = credential.user;
 			
 			// Wait a bit for auth state to update
@@ -106,27 +121,63 @@ export default function LoginPage() {
 			await signOut(auth);
 			setSubmitting(false);
 		} catch (err: any) {
-			console.error('Login error:', err);
 			const code = err?.code || '';
 			const message = err?.message || '';
 			
-			// Handle Firebase Auth errors
-			if (code === 'auth/invalid-credential' || code === 'auth/invalid-email' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+			// Log detailed error in development mode only
+			if (process.env.NODE_ENV === 'development') {
+				// Safely serialize error for logging
+				const errorDetails: any = {
+					code,
+					message,
+					email: username.trim().toLowerCase(),
+				};
+				
+				// Add error properties safely
+				if (err) {
+					if (err.code) errorDetails.code = err.code;
+					if (err.message) errorDetails.message = err.message;
+					if (err.stack) errorDetails.stack = err.stack;
+					// Try to get string representation
+					try {
+						errorDetails.errorString = String(err);
+						errorDetails.errorType = err.constructor?.name || typeof err;
+					} catch (e) {
+						errorDetails.errorString = '[Unable to stringify error]';
+					}
+				} else {
+					errorDetails.error = 'Error object is null or undefined';
+				}
+				
+				console.error('Login error details:', errorDetails);
+				// Also log the raw error separately for debugging
+				console.error('Raw error object:', err);
+			}
+			
+			// Handle Firebase Auth errors with specific messages
+			if (code === 'auth/invalid-credential') {
 				setError('Invalid email or password. Please check your credentials and try again.');
+			} else if (code === 'auth/user-not-found') {
+				setError('No account found with this email address. Please check your email and try again.');
+			} else if (code === 'auth/wrong-password') {
+				setError('Incorrect password. Please try again or reset your password.');
+			} else if (code === 'auth/invalid-email') {
+				setError('Please enter a valid email address.');
 			} else if (code === 'auth/user-disabled') {
 				setError('This account has been disabled. Contact an administrator.');
 			} else if (code === 'auth/too-many-requests') {
 				setError('Too many failed login attempts. Please try again later.');
 			} else if (code === 'auth/network-request-failed') {
 				setError('Network error. Please check your connection and try again.');
-			} else if (code === 'auth/invalid-email') {
-				setError('Please enter a valid email address.');
 			} else if (code === 'auth/weak-password') {
 				setError('Password is too weak.');
+			} else if (code === 'auth/operation-not-allowed') {
+				setError('Email/password authentication is not enabled. Contact an administrator.');
 			} else if (message.includes('Firebase')) {
 				setError('Authentication service error. Please try again later.');
 			} else {
-				setError(`Sign-in failed: ${message || 'Please try again.'}`);
+				// Generic error message - don't expose internal error details to users
+				setError('Sign-in failed. Please check your credentials and try again.');
 			}
 			setSubmitting(false);
 		}

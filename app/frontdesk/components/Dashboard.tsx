@@ -8,23 +8,7 @@ import DashboardWidget from '@/components/dashboard/DashboardWidget';
 import StatsChart from '@/components/dashboard/StatsChart';
 import { db } from '@/lib/firebase';
 import type { AdminAppointmentStatus } from '@/lib/adminMockData';
-
-type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
-
-interface PatientRecord {
-	id: string;
-	patientId?: string;
-	name?: string;
-	dob?: string;
-	gender?: string;
-	phone?: string;
-	email?: string;
-	address?: string;
-	complaint?: string;
-	status?: PatientStatus;
-	assignedDoctor?: string;
-	registeredAt?: string;
-}
+import type { PatientRecordBasic } from '@/lib/types';
 
 const STATUS_BADGES: Record<'pending' | 'ongoing' | 'completed' | 'cancelled', string> = {
 	pending: 'status-badge-pending',
@@ -134,7 +118,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps) {
-	const [patients, setPatients] = useState<PatientRecord[]>([]);
+	const [patients, setPatients] = useState<PatientRecordBasic[]>([]);
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 	const [modal, setModal] = useState<ModalType>(null);
@@ -354,7 +338,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 		}
 	}, [modal]);
 
-	const modalRows = useMemo<PatientRecord[]>(() => {
+	const modalRows = useMemo<PatientRecordBasic[]>(() => {
 		switch (modal) {
 			case 'patients':
 				return patients;

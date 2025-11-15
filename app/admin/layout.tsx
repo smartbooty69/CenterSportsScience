@@ -9,16 +9,18 @@ import Patients from '@/components/admin/Patients';
 import Appointments from '@/components/admin/Appointments';
 import Billing from '@/components/admin/Billing';
 import Reports from '@/components/admin/Reports';
+import Calendar from '@/components/admin/Calendar';
 import Seed from '@/components/admin/Seed';
 import { useAuth } from '@/contexts/AuthContext';
 
-type AdminPage = 'dashboard' | 'users' | 'patients' | 'appointments' | 'billing' | 'reports' | 'seed';
+type AdminPage = 'dashboard' | 'users' | 'patients' | 'appointments' | 'billing' | 'reports' | 'calendar' | 'seed';
 
 const adminLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-columns' },
 	{ href: '#users', label: 'Employee Management', icon: 'fas fa-users-cog' },
 	{ href: '#patients', label: 'Patient Management', icon: 'fas fa-user-injured' },
-	{ href: '#appointments', label: 'Appointments', icon: 'fas fa-calendar-alt' },
+	{ href: '#appointments', label: 'Appointments', icon: 'fas fa-calendar-check' },
+	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-alt' },
 	{ href: '#billing', label: 'Billing & Payments', icon: 'fas fa-file-invoice-dollar' },
 	{ href: '#reports', label: 'Reports & Analytics', icon: 'fas fa-chart-pie' },
 	{ href: '#seed', label: 'Seed Data', icon: 'fas fa-database' },
@@ -70,6 +72,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 				return <Patients />;
 			case 'appointments':
 				return <Appointments />;
+			case 'calendar':
+				return <Calendar />;
 			case 'billing':
 				return <Billing />;
 			case 'reports':

@@ -6,11 +6,11 @@ import { collection, doc, onSnapshot, updateDoc, deleteDoc, addDoc, serverTimest
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import type { AdminAppointmentStatus } from '@/lib/adminMockData';
+import type { PatientRecord } from '@/lib/types';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { checkAppointmentConflict } from '@/lib/appointmentUtils';
 import AppointmentTemplates from '@/components/appointments/AppointmentTemplates';
-import RecurringAppointmentDialog from '@/components/appointments/RecurringAppointmentDialog';
 
 type AppointmentStatusFilter = 'all' | AdminAppointmentStatus;
 
@@ -43,12 +43,13 @@ const STATUS_OPTIONS: Array<{ value: AppointmentStatusFilter; label: string }> =
 	{ value: 'cancelled', label: 'Cancelled' },
 ];
 
-interface PatientRecord {
-	id: string;
-	patientId: string;
-	name: string;
-	phone?: string;
-	email?: string;
+interface DayAvailability {
+	enabled: boolean;
+	slots: Array<{ start: string; end: string }>;
+}
+
+interface DateSpecificAvailability {
+	[date: string]: DayAvailability; // date in YYYY-MM-DD format
 }
 
 interface StaffMember {
@@ -58,11 +59,9 @@ interface StaffMember {
 	status: string;
 	userEmail?: string;
 	availability?: {
-		[day: string]: {
-			enabled: boolean;
-			slots: Array<{ start: string; end: string }>;
-		};
+		[day: string]: DayAvailability;
 	};
+	dateSpecificAvailability?: DateSpecificAvailability;
 }
 
 type DayOfWeek = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
@@ -71,7 +70,9 @@ interface BookingForm {
 	patientId: string;
 	staffId: string;
 	date: string;
-	time: string;
+	time: string; // Keep for backward compatibility with templates
+	selectedTimes: string[]; // Array of selected time slots for current date
+	selectedAppointments: Map<string, string[]>; // Map of date -> array of time slots (saved selections across multiple days)
 	notes?: string;
 }
 
@@ -98,11 +99,14 @@ export default function Appointments() {
 		staffId: '',
 		date: '',
 		time: '',
+		selectedTimes: [],
+		selectedAppointments: new Map(),
 		notes: '',
 	});
 	const [bookingLoading, setBookingLoading] = useState(false);
-	const [showRecurringDialog, setShowRecurringDialog] = useState(false);
 	const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+	const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+	const [showPatientAppointmentsModal, setShowPatientAppointmentsModal] = useState(false);
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -178,6 +182,7 @@ export default function Appointments() {
 						status: data.status ? String(data.status) : '',
 						userEmail: data.userEmail ? String(data.userEmail) : undefined,
 						availability: data.availability as StaffMember['availability'],
+						dateSpecificAvailability: data.dateSpecificAvailability as DateSpecificAvailability | undefined,
 					} as StaffMember;
 				});
 				// Only include clinical roles (exclude FrontDesk and Admin)
@@ -198,56 +203,202 @@ export default function Appointments() {
 	// Get day of week from date string
 	const getDayOfWeek = (dateString: string): DayOfWeek | null => {
 		if (!dateString) return null;
-		const date = new Date(dateString);
+		const date = new Date(dateString + 'T00:00:00'); // Parse as local time to avoid timezone issues
 		if (Number.isNaN(date.getTime())) return null;
 		const days: DayOfWeek[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 		return days[date.getDay()];
 	};
 
+	// Helper to format date as YYYY-MM-DD in local timezone (same as Availability.tsx)
+	const formatDateKey = (dateString: string): string => {
+		if (!dateString) return '';
+		const date = new Date(dateString + 'T00:00:00');
+		if (Number.isNaN(date.getTime())) return dateString;
+		const year = date.getFullYear();
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const day = String(date.getDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
+	};
+
+	// Get availability for a specific date (ONLY checks date-specific, no fallback to day-of-week)
+	const getDateAvailability = (staffMember: StaffMember, dateString: string): DayAvailability | null => {
+		// Only check date-specific availability - if no schedule exists for this specific date, return null
+		const dateKey = formatDateKey(dateString);
+		
+		// Debug logging
+		if (process.env.NODE_ENV === 'development') {
+			console.log('🔍 Checking availability for:', {
+				dateString,
+				dateKey,
+				hasDateSpecific: !!staffMember.dateSpecificAvailability,
+				dateSpecificKeys: staffMember.dateSpecificAvailability ? Object.keys(staffMember.dateSpecificAvailability) : [],
+			});
+		}
+		
+		// Only return availability if there's a date-specific schedule for this exact date
+		if (staffMember.dateSpecificAvailability?.[dateKey]) {
+			const dateSpecific = staffMember.dateSpecificAvailability[dateKey];
+			if (process.env.NODE_ENV === 'development') {
+				console.log('✅ Using date-specific availability for', dateKey, dateSpecific);
+			}
+			return dateSpecific;
+		}
+
+		// No schedule exists for this specific date - return null (don't show any slots)
+		if (process.env.NODE_ENV === 'development') {
+			console.log('❌ No date-specific schedule found for', dateKey, '- not showing any slots');
+		}
+		return null;
+	};
+
 	// Generate available time slots based on staff availability and existing appointments
 	const availableTimeSlots = useMemo(() => {
-		if (!bookingForm.staffId || !bookingForm.date) return [];
+		if (!bookingForm.staffId || !bookingForm.date) {
+			if (process.env.NODE_ENV === 'development') {
+				console.log('No staff or date selected for time slots');
+			}
+			return [];
+		}
 
 		const selectedStaff = staff.find(s => s.id === bookingForm.staffId);
-		if (!selectedStaff?.availability) return [];
+		if (!selectedStaff) {
+			if (process.env.NODE_ENV === 'development') {
+				console.log('Staff member not found for ID:', bookingForm.staffId);
+			}
+			return [];
+		}
 
-		const dayOfWeek = getDayOfWeek(bookingForm.date);
-		if (!dayOfWeek) return [];
+		// Get availability for this specific date (checks date-specific first, then day-of-week)
+		const dayAvailability = getDateAvailability(selectedStaff, bookingForm.date);
+		if (!dayAvailability) {
+			if (process.env.NODE_ENV === 'development') {
+				console.log('❌ No availability found for date:', bookingForm.date, 'staff:', selectedStaff.userName);
+				console.log('Staff data:', {
+					id: selectedStaff.id,
+					userName: selectedStaff.userName,
+					hasAvailability: !!selectedStaff.availability,
+					hasDateSpecific: !!selectedStaff.dateSpecificAvailability,
+				});
+			}
+			return []; // Return empty array - no slots should be shown
+		}
 
-		const dayAvailability = selectedStaff.availability[dayOfWeek];
-		if (!dayAvailability?.enabled || !dayAvailability.slots?.length) return [];
+		if (!dayAvailability.enabled) {
+			if (process.env.NODE_ENV === 'development') {
+				console.log('❌ Availability is disabled for date:', bookingForm.date);
+			}
+			return []; // Return empty array - no slots should be shown
+		}
+
+		if (!dayAvailability.slots || dayAvailability.slots.length === 0) {
+			if (process.env.NODE_ENV === 'development') {
+				console.log('❌ No time slots defined in availability');
+			}
+			return []; // Return empty array - no slots should be shown
+		}
 
 		// Get all booked appointments for this staff and date
 		const bookedSlots = appointments
 			.filter(apt => apt.doctor === selectedStaff.userName && apt.date === bookingForm.date && apt.status !== 'cancelled')
 			.map(apt => apt.time);
 
-		// Generate 30-minute slots from availability
+		if (process.env.NODE_ENV === 'development') {
+			console.log('📋 Availability Details:', {
+				date: bookingForm.date,
+				staff: selectedStaff.userName,
+				enabled: dayAvailability.enabled,
+				slots: dayAvailability.slots,
+				bookedSlots: bookedSlots,
+			});
+		}
+
+		// Get current date and time for filtering past slots
+		const now = new Date();
+		const selectedDate = new Date(bookingForm.date + 'T00:00:00');
+		const isToday = selectedDate.toDateString() === now.toDateString();
+		const currentTimeString = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+		// Generate 30-minute slots STRICTLY from availability ranges only
 		const slots: string[] = [];
-		dayAvailability.slots.forEach(slot => {
+		
+		// Validate each slot range before processing
+		dayAvailability.slots.forEach((slot, index) => {
+			if (!slot.start || !slot.end) {
+				if (process.env.NODE_ENV === 'development') {
+					console.warn(`⚠️ Invalid slot at index ${index}: missing start or end time`, slot);
+				}
+				return; // Skip invalid slots
+			}
+
 			const [startHour, startMin] = slot.start.split(':').map(Number);
 			const [endHour, endMin] = slot.end.split(':').map(Number);
+
+			// Validate parsed times
+			if (isNaN(startHour) || isNaN(startMin) || isNaN(endHour) || isNaN(endMin)) {
+				if (process.env.NODE_ENV === 'development') {
+					console.warn(`⚠️ Invalid time format in slot:`, slot);
+				}
+				return; // Skip invalid slots
+			}
+
 			const startTime = new Date();
 			startTime.setHours(startHour, startMin, 0, 0);
 			const endTime = new Date();
 			endTime.setHours(endHour, endMin, 0, 0);
 
+			// Handle case where end time is before start time (e.g., overnight)
+			if (endTime < startTime) {
+				endTime.setDate(endTime.getDate() + 1);
+			}
+
+			// Only generate slots within this specific availability range
 			let currentTime = new Date(startTime);
 			while (currentTime < endTime) {
 				const timeString = `${String(currentTime.getHours()).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')}`;
-				if (!bookedSlots.includes(timeString)) {
-					slots.push(timeString);
+				
+				// Skip if already booked
+				if (bookedSlots.includes(timeString)) {
+					currentTime.setMinutes(currentTime.getMinutes() + 30);
+					continue;
 				}
+
+				// If it's today, filter out past time slots
+				if (isToday) {
+					// Compare time strings (HH:MM format) to determine if slot is in the past
+					if (timeString < currentTimeString) {
+						currentTime.setMinutes(currentTime.getMinutes() + 30);
+						continue; // Skip past time slots
+					}
+				}
+				
+				slots.push(timeString);
 				currentTime.setMinutes(currentTime.getMinutes() + 30);
 			}
 		});
 
-		return slots.sort();
+		const sortedSlots = [...new Set(slots)].sort(); // Remove duplicates and sort
+		
+		if (process.env.NODE_ENV === 'development') {
+			console.log('📅 Generated available time slots from availability:', {
+				date: bookingForm.date,
+				staff: selectedStaff.userName,
+				isToday,
+				currentTime: currentTimeString,
+				availabilityRanges: dayAvailability.slots.map(s => `${s.start}-${s.end}`),
+				bookedSlots,
+				generatedSlots: sortedSlots,
+				totalSlots: sortedSlots.length,
+				filteredPastSlots: isToday ? 'Yes - past slots filtered' : 'No - future date',
+			});
+		}
+		
+		return sortedSlots;
 	}, [bookingForm.staffId, bookingForm.date, staff, appointments]);
 
-	const filtered = useMemo(() => {
+	// Group appointments by patient
+	const groupedByPatient = useMemo(() => {
 		const query = searchTerm.trim().toLowerCase();
-		return appointments
+		const filtered = appointments
 			.filter(appointment => {
 				const matchesStatus = statusFilter === 'all' || appointment.status === statusFilter;
 				const matchesQuery =
@@ -257,13 +408,57 @@ export default function Appointments() {
 					appointment.doctor.toLowerCase().includes(query) ||
 					appointment.appointmentId.toLowerCase().includes(query);
 				return matchesStatus && matchesQuery;
-			})
+			});
+
+		// Group by patientId
+		const grouped = new Map<string, FrontdeskAppointment[]>();
+		filtered.forEach(appointment => {
+			const key = appointment.patientId;
+			if (!grouped.has(key)) {
+				grouped.set(key, []);
+			}
+			grouped.get(key)!.push(appointment);
+		});
+
+		// Sort appointments within each group and convert to array
+		const result: Array<{ patientId: string; patientName: string; appointments: FrontdeskAppointment[] }> = [];
+		grouped.forEach((appts, patientId) => {
+			const sorted = appts.sort((a, b) => {
+				const aDate = new Date(`${a.date}T${a.time}`).getTime();
+				const bDate = new Date(`${b.date}T${b.time}`).getTime();
+				return bDate - aDate;
+			});
+			result.push({
+				patientId,
+				patientName: sorted[0].patient,
+				appointments: sorted,
+			});
+		});
+
+		// Sort groups by most recent appointment
+		return result.sort((a, b) => {
+			const aDate = new Date(`${a.appointments[0].date}T${a.appointments[0].time}`).getTime();
+			const bDate = new Date(`${b.appointments[0].date}T${b.appointments[0].time}`).getTime();
+			return bDate - aDate;
+		});
+	}, [appointments, searchTerm, statusFilter]);
+
+	// Get appointments for selected patient
+	const selectedPatientAppointments = useMemo(() => {
+		if (!selectedPatientId) return [];
+		return appointments
+			.filter(apt => apt.patientId === selectedPatientId)
 			.sort((a, b) => {
 				const aDate = new Date(`${a.date}T${a.time}`).getTime();
 				const bDate = new Date(`${b.date}T${b.time}`).getTime();
 				return bDate - aDate;
 			});
-	}, [appointments, searchTerm, statusFilter]);
+	}, [appointments, selectedPatientId]);
+
+	// Calculate total appointments count for header
+	const totalAppointmentsCount = useMemo(() => {
+		return groupedByPatient.reduce((sum, group) => sum + group.appointments.length, 0);
+	}, [groupedByPatient]);
 
 	const pendingCount = appointments.filter(appointment => appointment.status === 'pending').length;
 	const ongoingCount = appointments.filter(appointment => appointment.status === 'ongoing').length;
@@ -416,6 +611,38 @@ export default function Appointments() {
 		setNotesDraft('');
 	};
 
+	// Save current day's selections to the appointments map
+	const saveCurrentDaySelections = () => {
+		if (bookingForm.date && bookingForm.selectedTimes.length > 0) {
+			setBookingForm(prev => {
+				const newMap = new Map(prev.selectedAppointments);
+				newMap.set(prev.date, [...prev.selectedTimes]);
+				return {
+					...prev,
+					selectedAppointments: newMap,
+				};
+			});
+		}
+	};
+
+	// Load saved selections for a date
+	const loadSavedSelections = (date: string) => {
+		const saved = bookingForm.selectedAppointments.get(date);
+		if (saved && saved.length > 0) {
+			setBookingForm(prev => ({
+				...prev,
+				selectedTimes: [...saved],
+				time: saved.length === 1 ? saved[0] : prev.time,
+			}));
+		} else {
+			setBookingForm(prev => ({
+				...prev,
+				selectedTimes: [],
+				time: '',
+			}));
+		}
+	};
+
 	const handleOpenBookingModal = () => {
 		setShowBookingModal(true);
 		setBookingForm({
@@ -423,6 +650,8 @@ export default function Appointments() {
 			staffId: '',
 			date: '',
 			time: '',
+			selectedTimes: [],
+			selectedAppointments: new Map(),
 			notes: '',
 		});
 	};
@@ -434,13 +663,40 @@ export default function Appointments() {
 			staffId: '',
 			date: '',
 			time: '',
+			selectedTimes: [],
+			selectedAppointments: new Map(),
 			notes: '',
 		});
 	};
 
 	const handleCreateAppointment = async () => {
-		if (!bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time) {
-			alert('Please fill in all required fields.');
+		// Save current day's selections first
+		saveCurrentDaySelections();
+
+		// Collect all appointments from all saved days
+		const allAppointments: Array<{ date: string; times: string[] }> = [];
+		
+		// Add current day if it has selections
+		if (bookingForm.date && bookingForm.selectedTimes.length > 0) {
+			allAppointments.push({
+				date: bookingForm.date,
+				times: [...bookingForm.selectedTimes],
+			});
+		}
+
+		// Add all other saved days
+		bookingForm.selectedAppointments.forEach((times, date) => {
+			// Skip current date as we already added it
+			if (date !== bookingForm.date && times.length > 0) {
+				allAppointments.push({ date, times });
+			}
+		});
+
+		// Flatten to get total count
+		const totalAppointments = allAppointments.reduce((sum, apt) => sum + apt.times.length, 0);
+
+		if (!bookingForm.patientId || !bookingForm.staffId || totalAppointments === 0) {
+			alert('Please fill in all required fields and select at least one time slot across any day.');
 			return;
 		}
 
@@ -452,27 +708,38 @@ export default function Appointments() {
 			return;
 		}
 
-		// Check for conflicts using utility function
-		const conflict = checkAppointmentConflict(
-			appointments.map(apt => ({
-				id: apt.id,
-				appointmentId: apt.appointmentId,
-				patient: apt.patient,
-				doctor: apt.doctor,
-				date: apt.date,
-				time: apt.time,
-				status: apt.status,
-			})),
-			{
-				doctor: selectedStaff.userName,
-				date: bookingForm.date,
-				time: bookingForm.time,
-			},
-			30
-		);
+		// Check for conflicts for all appointments across all days
+		const allConflicts: Array<{ date: string; time: string; conflict: ReturnType<typeof checkAppointmentConflict> }> = [];
+		for (const apt of allAppointments) {
+			for (const time of apt.times) {
+				const conflict = checkAppointmentConflict(
+					appointments.map(a => ({
+						id: a.id,
+						appointmentId: a.appointmentId,
+						patient: a.patient,
+						doctor: a.doctor,
+						date: a.date,
+						time: a.time,
+						status: a.status,
+					})),
+					{
+						doctor: selectedStaff.userName,
+						date: apt.date,
+						time: time,
+					},
+					30
+				);
+				if (conflict.hasConflict) {
+					allConflicts.push({ date: apt.date, time, conflict });
+				}
+			}
+		}
 
-		if (conflict.hasConflict) {
-			const confirmMessage = `Conflict detected with ${conflict.conflictingAppointments.length} appointment(s):\n${conflict.conflictingAppointments.map(apt => `- ${apt.patient} on ${apt.date} at ${apt.time}`).join('\n')}\n\nContinue anyway?`;
+		if (allConflicts.length > 0) {
+			const conflictMessages = allConflicts.map(({ date, time, conflict }) => 
+				`${date} at ${time}: ${conflict.conflictingAppointments.length} conflict(s)`
+			).join('\n');
+			const confirmMessage = `Conflict detected:\n${conflictMessages}\n\nContinue anyway?`;
 			if (!window.confirm(confirmMessage)) {
 				return;
 			}
@@ -480,37 +747,52 @@ export default function Appointments() {
 
 		setBookingLoading(true);
 		try {
-			// Generate appointment ID
-			const appointmentId = `APT${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+			const createdAppointments: string[] = [];
+			let appointmentIndex = 0;
+			const baseTimestamp = Date.now();
+			
+			// Create appointments for all days and times
+			for (const apt of allAppointments) {
+				for (const time of apt.times) {
+					// Generate unique appointment ID for each
+					const appointmentId = `APT${baseTimestamp}${appointmentIndex}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-			await addDoc(collection(db, 'appointments'), {
-				appointmentId,
-				patientId: bookingForm.patientId,
-				patient: selectedPatient.name,
-				doctor: selectedStaff.userName,
-				staffId: selectedStaff.id,
-				date: bookingForm.date,
-				time: bookingForm.time,
-				status: 'pending' as AdminAppointmentStatus,
-				notes: bookingForm.notes?.trim() || null,
-				createdAt: serverTimestamp(),
-			});
+					await addDoc(collection(db, 'appointments'), {
+						appointmentId,
+						patientId: bookingForm.patientId,
+						patient: selectedPatient.name,
+						doctor: selectedStaff.userName,
+						staffId: selectedStaff.id,
+						date: apt.date,
+						time: time,
+						status: 'pending' as AdminAppointmentStatus,
+						notes: bookingForm.notes?.trim() || null,
+						createdAt: serverTimestamp(),
+					});
 
-			// Send email notification if patient has email
-			if (selectedPatient.email) {
+					createdAppointments.push(appointmentId);
+					appointmentIndex++;
+				}
+			}
+
+			// Send email notification if patient has email (only once for all appointments)
+			if (selectedPatient.email && totalAppointments > 0) {
 				try {
+					const datesList = allAppointments.map(apt => 
+						`${formatDateLabel(apt.date)}: ${apt.times.join(', ')}`
+					).join('\n');
 					await sendEmailNotification({
 						to: selectedPatient.email,
-						subject: `Appointment Scheduled - ${bookingForm.date}`,
+						subject: `${totalAppointments} Appointment(s) Scheduled`,
 						template: 'appointment-scheduled',
 						data: {
 							patientName: selectedPatient.name,
 							patientEmail: selectedPatient.email,
 							patientId: bookingForm.patientId,
 							doctor: selectedStaff.userName,
-							date: bookingForm.date,
-							time: bookingForm.time,
-							appointmentId,
+							date: allAppointments.map(a => formatDateLabel(a.date)).join(', '),
+							time: allAppointments.map(a => a.times.join(', ')).join('; '),
+							appointmentId: createdAppointments.join(', '),
 						},
 					});
 				} catch (emailError) {
@@ -519,10 +801,10 @@ export default function Appointments() {
 			}
 
 			handleCloseBookingModal();
-			alert('Appointment created successfully!');
+			alert(`Successfully created ${totalAppointments} appointment(s) across ${allAppointments.length} day(s)!`);
 		} catch (error) {
-			console.error('Failed to create appointment', error);
-			alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+			console.error('Failed to create appointment(s)', error);
+			alert(`Failed to create appointment(s): ${error instanceof Error ? error.message : 'Unknown error'}`);
 		} finally {
 			setBookingLoading(false);
 		}
@@ -594,7 +876,7 @@ export default function Appointments() {
 						<div>
 							<h2 className="text-lg font-semibold text-slate-900">Appointment queue</h2>
 							<p className="text-sm text-slate-500">
-								{filtered.length} appointment{filtered.length === 1 ? '' : 's'} scheduled
+								{groupedByPatient.length} patient{groupedByPatient.length === 1 ? '' : 's'} with {totalAppointmentsCount} appointment{totalAppointmentsCount === 1 ? '' : 's'}
 							</p>
 						</div>
 					</header>
@@ -604,7 +886,7 @@ export default function Appointments() {
 							<div className="loading-spinner" aria-hidden="true" />
 							<span className="ml-3 align-middle">Loading appointments…</span>
 						</div>
-					) : filtered.length === 0 ? (
+					) : groupedByPatient.length === 0 ? (
 						<div className="empty-state-container">
 							No appointments match your filters. Try another search or create a booking from the register page.
 						</div>
@@ -613,118 +895,93 @@ export default function Appointments() {
 							<table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-700">
 								<thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
 									<tr>
-										<th className="px-4 py-3 font-semibold">Appointment</th>
 										<th className="px-4 py-3 font-semibold">Patient</th>
-										<th className="px-4 py-3 font-semibold">Clinician</th>
-										<th className="px-4 py-3 font-semibold">When</th>
-										<th className="px-4 py-3 font-semibold">Status</th>
-										<th className="px-4 py-3 font-semibold">Notes</th>
+										<th className="px-4 py-3 font-semibold">Appointments</th>
+										<th className="px-4 py-3 font-semibold">Next Appointment</th>
+										<th className="px-4 py-3 font-semibold">Status Summary</th>
 										<th className="px-4 py-3 font-semibold text-right">Actions</th>
 									</tr>
 								</thead>
 								<tbody className="divide-y divide-slate-100">
-									{filtered.map(appointment => {
-										const patientDetails = patients.find(p => p.patientId === appointment.patientId);
-										const isEditing = editingId === appointment.appointmentId;
-										const isUpdating = updating[appointment.id] || false;
+									{groupedByPatient.map(group => {
+										const patientDetails = patients.find(p => p.patientId === group.patientId);
+										const nextAppointment = group.appointments[0]; // Most recent/upcoming
+										const statusCounts = {
+											pending: group.appointments.filter(a => a.status === 'pending').length,
+											ongoing: group.appointments.filter(a => a.status === 'ongoing').length,
+											completed: group.appointments.filter(a => a.status === 'completed').length,
+											cancelled: group.appointments.filter(a => a.status === 'cancelled').length,
+										};
 
 										return (
-											<tr key={appointment.appointmentId}>
+											<tr key={group.patientId}>
 												<td className="px-4 py-4">
-													<p className="font-semibold text-slate-900">{appointment.appointmentId}</p>
+													<p className="text-sm font-medium text-slate-800">{group.patientName}</p>
 													<p className="text-xs text-slate-500">
-														Booked {formatDateLabel(appointment.createdAt)}
-													</p>
-												</td>
-												<td className="px-4 py-4">
-													<p className="text-sm font-medium text-slate-800">{appointment.patient}</p>
-													<p className="text-xs text-slate-500">
-														<span className="font-semibold text-slate-600">ID:</span> {appointment.patientId}
+														<span className="font-semibold text-slate-600">ID:</span> {group.patientId}
 													</p>
 													<p className="text-xs text-slate-500">
 														{patientDetails?.phone ? `Phone: ${patientDetails.phone}` : 'Phone not provided'}
 													</p>
-												</td>
-												<td className="px-4 py-4 text-sm text-slate-600">{appointment.doctor || 'Not assigned'}</td>
-												<td className="px-4 py-4 text-sm text-slate-600">
-													{formatDateLabel(appointment.date)} at {appointment.time || '—'}
-												</td>
-												<td className="px-4 py-4">
-													<select
-														value={appointment.status}
-														onChange={event =>
-															handleStatusChange(
-																appointment.appointmentId,
-																event.target.value as AdminAppointmentStatus,
-															)
-														}
-														disabled={isUpdating}
-														className="select-base"
-													>
-														<option value="pending">Pending</option>
-														<option value="ongoing">Ongoing</option>
-														<option value="completed">Completed</option>
-														<option value="cancelled">Cancelled</option>
-													</select>
-												</td>
-												<td className="px-4 py-4">
-													{isEditing ? (
-														<div className="space-y-2">
-															<textarea
-																value={notesDraft}
-																onChange={event => setNotesDraft(event.target.value)}
-																className="input-base"
-																rows={2}
-															/>
-															<div className="flex items-center gap-2">
-																<button
-																	type="button"
-																	onClick={handleSaveNotes}
-																	disabled={isUpdating}
-																	className="btn-primary"
-																>
-																	{isUpdating ? 'Saving...' : 'Save'}
-																</button>
-																<button
-																	type="button"
-																	onClick={handleCancelEditing}
-																	disabled={isUpdating}
-																	className="btn-secondary"
-																>
-																	Cancel
-																</button>
-															</div>
-														</div>
-													) : (
-														<div className="space-y-2">
-															<p className="text-sm text-slate-600">{appointment.notes || 'No notes added.'}</p>
-															<button
-																type="button"
-																onClick={() => handleEditNotes(appointment)}
-																className="text-xs font-semibold text-sky-600 hover:text-sky-500"
-															>
-																Edit notes
-															</button>
-														</div>
+													{patientDetails?.email && (
+														<p className="text-xs text-slate-500">
+															Email: {patientDetails.email}
+														</p>
 													)}
 												</td>
-												<td className="px-4 py-4 text-right">
-													<div className="inline-flex items-center gap-2">
-														<span
-															className={`badge-base px-3 py-1 ${STATUS_BADGES[appointment.status]}`}
-														>
-															{appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-														</span>
-														<button
-															type="button"
-															onClick={() => handleRemove(appointment.appointmentId)}
-															disabled={isUpdating}
-															className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700 focus-visible:border-rose-300 focus-visible:text-rose-700 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-														>
-															<i className="fas fa-trash text-[10px]" aria-hidden="true" />
-															Delete
-														</button>
+												<td className="px-4 py-4">
+													<p className="text-sm font-semibold text-slate-900">
+														{group.appointments.length} appointment{group.appointments.length === 1 ? '' : 's'}
+													</p>
+												</td>
+												<td className="px-4 py-4 text-sm text-slate-600">
+													{nextAppointment ? (
+														<>
+															<p>{formatDateLabel(nextAppointment.date)} at {nextAppointment.time || '—'}</p>
+															<p className="text-xs text-slate-500">
+																with {nextAppointment.doctor || 'Not assigned'}
+															</p>
+														</>
+													) : (
+														'—'
+													)}
+												</td>
+												<td className="px-4 py-4">
+													<div className="flex flex-wrap gap-1">
+														{statusCounts.pending > 0 && (
+															<span className="badge-base status-badge-pending px-2 py-0.5 text-xs">
+																{statusCounts.pending} Pending
+															</span>
+														)}
+														{statusCounts.ongoing > 0 && (
+															<span className="badge-base status-badge-ongoing px-2 py-0.5 text-xs">
+																{statusCounts.ongoing} Ongoing
+															</span>
+														)}
+														{statusCounts.completed > 0 && (
+															<span className="badge-base status-badge-completed px-2 py-0.5 text-xs">
+																{statusCounts.completed} Completed
+															</span>
+														)}
+														{statusCounts.cancelled > 0 && (
+															<span className="badge-base status-badge-cancelled px-2 py-0.5 text-xs">
+																{statusCounts.cancelled} Cancelled
+															</span>
+														)}
 													</div>
+												</td>
+												<td className="px-4 py-4 text-right">
+													<button
+														type="button"
+														onClick={() => {
+															setSelectedPatientId(group.patientId);
+															setShowPatientAppointmentsModal(true);
+														}}
+														className="btn-primary"
+													>
+														<i className="fas fa-eye text-xs" aria-hidden="true" />
+														View All
+													</button>
 												</td>
 											</tr>
 										);
@@ -788,14 +1045,22 @@ export default function Appointments() {
 										}}
 										className="select-base mt-2"
 										required
+										disabled={bookingLoading}
 									>
-									<option value="">Select a clinician</option>
-									{staff.map(member => (
-										<option key={member.id} value={member.id}>
-											{member.userName} ({member.role === 'ClinicalTeam' ? 'Clinical Team' : member.role})
+										<option value="">
+											{staff.length === 0 ? 'No clinicians available' : 'Select a clinician'}
 										</option>
-									))}
+										{staff.map(member => (
+											<option key={member.id} value={member.id}>
+												{member.userName} ({member.role === 'ClinicalTeam' ? 'Clinical Team' : member.role})
+											</option>
+										))}
 									</select>
+									{staff.length === 0 && (
+										<p className="mt-1 text-xs text-amber-600">
+											No active clinicians found. Please ensure staff members are added and marked as Active with roles: Physiotherapist, StrengthAndConditioning, or ClinicalTeam.
+										</p>
+									)}
 								</div>
 
 								{/* Appointment Templates */}
@@ -810,6 +1075,7 @@ export default function Appointments() {
 														...prev,
 														staffId: selectedStaff.id,
 														time: template.time,
+														selectedTimes: template.time ? [template.time] : [],
 														notes: template.notes || prev.notes,
 													}));
 												}
@@ -828,7 +1094,28 @@ export default function Appointments() {
 											type="date"
 											value={bookingForm.date}
 											onChange={e => {
-												setBookingForm(prev => ({ ...prev, date: e.target.value, time: '' }));
+												const newDate = e.target.value;
+												// Save current day's selections before switching
+												if (bookingForm.date && bookingForm.selectedTimes.length > 0) {
+													saveCurrentDaySelections();
+												}
+												// Load saved selections for the new date
+												setBookingForm(prev => {
+													const newMap = new Map(prev.selectedAppointments);
+													// Save current date selections
+													if (prev.date && prev.selectedTimes.length > 0) {
+														newMap.set(prev.date, [...prev.selectedTimes]);
+													}
+													// Load new date selections
+													const saved = newMap.get(newDate);
+													return {
+														...prev,
+														date: newDate,
+														selectedTimes: saved ? [...saved] : [],
+														time: saved && saved.length === 1 ? saved[0] : '',
+														selectedAppointments: newMap,
+													};
+												});
 											}}
 											min={new Date().toISOString().split('T')[0]}
 											className="input-base mt-2"
@@ -843,39 +1130,128 @@ export default function Appointments() {
 								)}
 
 								{/* Time Slot Selection */}
-								{bookingForm.date && availableTimeSlots.length > 0 && (
+								{bookingForm.date && (
 									<div>
 										<label className="block text-sm font-medium text-slate-700">
 											Available Time Slots <span className="text-rose-500">*</span>
+											{bookingForm.selectedTimes.length > 0 && (
+												<span className="ml-2 text-xs font-normal text-slate-500">
+													({bookingForm.selectedTimes.length} selected)
+												</span>
+											)}
 										</label>
-										<div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
-											{availableTimeSlots.map(slot => (
-												<button
-													key={slot}
-													type="button"
-													onClick={() => setBookingForm(prev => ({ ...prev, time: slot }))}
-													className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-														bookingForm.time === slot
-															? 'border-sky-500 bg-sky-50 text-sky-700'
-															: 'border-slate-300 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50'
-													}`}
-												>
-													{slot}
-												</button>
-											))}
-										</div>
-										{availableTimeSlots.length === 0 && (
-											<p className="mt-2 text-sm text-amber-600">
-												No available time slots for this date. Please select another date.
-											</p>
+										{availableTimeSlots.length > 0 ? (
+											<>
+												<div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
+													{availableTimeSlots.map(slot => {
+														const isSelected = bookingForm.selectedTimes.includes(slot);
+														return (
+															<button
+																key={slot}
+																type="button"
+																onClick={() => {
+																	setBookingForm(prev => {
+																		const newSelectedTimes = isSelected
+																			? prev.selectedTimes.filter(t => t !== slot)
+																			: [...prev.selectedTimes, slot].sort();
+																		return {
+																			...prev,
+																			time: newSelectedTimes.length === 1 ? newSelectedTimes[0] : prev.time,
+																			selectedTimes: newSelectedTimes,
+																		};
+																	});
+																}}
+																className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+																	isSelected
+																		? 'border-sky-500 bg-sky-50 text-sky-700 ring-2 ring-sky-200'
+																		: 'border-slate-300 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50'
+																}`}
+															>
+																{slot}
+																{isSelected && (
+																	<i className="fas fa-check ml-1 text-xs" aria-hidden="true" />
+																)}
+															</button>
+														);
+													})}
+												</div>
+												{bookingForm.selectedTimes.length > 0 && (
+													<div className="mt-3 flex items-center justify-between rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+														<span className="text-sm text-sky-700">
+															Selected: {bookingForm.selectedTimes.join(', ')}
+														</span>
+														<div className="flex gap-2">
+															<button
+																type="button"
+																onClick={() => {
+																	saveCurrentDaySelections();
+																	alert('Selections saved! You can now navigate to another day.');
+																}}
+																className="text-xs font-medium text-sky-600 hover:text-sky-700"
+																title="Save selections for this day"
+															>
+																<i className="fas fa-save mr-1" aria-hidden="true" />
+																Save
+															</button>
+															<button
+																type="button"
+																onClick={() => setBookingForm(prev => ({ ...prev, selectedTimes: [], time: '' }))}
+																className="text-xs font-medium text-sky-600 hover:text-sky-700"
+															>
+																Clear
+															</button>
+														</div>
+													</div>
+												)}
+											</>
+										) : (
+											<div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+												<i className="fas fa-calendar-times mr-2" aria-hidden="true" />
+												No slots available. The clinician has not set a schedule for this date. Please select another date or ask the clinician to set their availability.
+											</div>
 										)}
 									</div>
 								)}
 
-								{bookingForm.date && availableTimeSlots.length === 0 && (
-									<div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-										<i className="fas fa-exclamation-triangle mr-2" aria-hidden="true" />
-										The selected clinician is not available on this date. Please select another date or clinician.
+								{/* Saved Appointments for Other Days */}
+								{bookingForm.selectedAppointments.size > 0 && (
+									<div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
+										<div className="mb-2 flex items-center justify-between">
+											<h4 className="text-sm font-semibold text-sky-900">
+												Saved Appointments ({Array.from(bookingForm.selectedAppointments.values()).reduce((sum, times) => sum + times.length, 0)} total)
+											</h4>
+										</div>
+										<div className="space-y-2">
+											{Array.from(bookingForm.selectedAppointments.entries())
+												.filter(([date]) => date !== bookingForm.date)
+												.map(([date, times]) => (
+													<div key={date} className="flex items-center justify-between rounded-md border border-sky-200 bg-white px-3 py-2">
+														<div className="flex-1">
+															<p className="text-sm font-medium text-slate-900">
+																{formatDateLabel(date)} ({getDayOfWeek(date)})
+															</p>
+															<p className="text-xs text-slate-600">{times.join(', ')}</p>
+														</div>
+														<button
+															type="button"
+															onClick={() => {
+																setBookingForm(prev => {
+																	const newMap = new Map(prev.selectedAppointments);
+																	newMap.delete(date);
+																	return {
+																		...prev,
+																		selectedAppointments: newMap,
+																	};
+																});
+															}}
+															className="ml-2 rounded p-1 text-xs text-rose-600 hover:bg-rose-50"
+															title="Remove saved appointments for this date"
+														>
+															<i className="fas fa-times" aria-hidden="true" />
+														</button>
+													</div>
+												))}
+										</div>
 									</div>
 								)}
 
@@ -892,22 +1268,7 @@ export default function Appointments() {
 								</div>
 							</div>
 						</div>
-						<footer className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
-							<button
-								type="button"
-								onClick={() => {
-									const selectedPatient = patients.find(p => p.patientId === bookingForm.patientId);
-									const selectedStaff = staff.find(s => s.id === bookingForm.staffId);
-									if (selectedPatient && selectedStaff) {
-										setShowRecurringDialog(true);
-									}
-								}}
-								className="btn-secondary"
-								disabled={!bookingForm.patientId || !bookingForm.staffId}
-							>
-								<i className="fas fa-redo mr-2 text-xs" aria-hidden="true" />
-								Recurring Appointments
-							</button>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
 							<div className="flex gap-3">
 								<button
 									type="button"
@@ -921,7 +1282,7 @@ export default function Appointments() {
 									type="button"
 									onClick={handleCreateAppointment}
 									className="btn-primary"
-									disabled={bookingLoading || !bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time}
+									disabled={bookingLoading || !bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || (bookingForm.selectedTimes.length === 0 && bookingForm.selectedAppointments.size === 0 && !bookingForm.time)}
 								>
 								{bookingLoading ? (
 									<>
@@ -931,7 +1292,17 @@ export default function Appointments() {
 								) : (
 									<>
 										<i className="fas fa-check text-xs" aria-hidden="true" />
-										Create Appointment
+										{(() => {
+											const currentDayCount = bookingForm.selectedTimes.length;
+											const otherDaysCount = Array.from(bookingForm.selectedAppointments.entries())
+												.filter(([date]) => date !== bookingForm.date)
+												.reduce((sum, [, times]) => sum + times.length, 0);
+											const totalCount = currentDayCount + otherDaysCount;
+											if (totalCount > 1) {
+												return `Create ${totalCount} Appointments`;
+											}
+											return 'Create Appointment';
+										})()}
 									</>
 								)}
 							</button>
@@ -941,41 +1312,168 @@ export default function Appointments() {
 				</div>
 			)}
 
-			{/* Recurring Appointment Dialog */}
-			{showRecurringDialog && bookingForm.patientId && bookingForm.staffId && (
-				<RecurringAppointmentDialog
-					isOpen={showRecurringDialog}
-					patientId={bookingForm.patientId}
-					patient={patients.find(p => p.patientId === bookingForm.patientId)?.name || ''}
-					doctor={staff.find(s => s.id === bookingForm.staffId)?.userName || ''}
-					onClose={() => setShowRecurringDialog(false)}
-					onConfirm={async data => {
-						try {
-							const response = await fetch('/api/appointments/recurring', {
-								method: 'POST',
-								headers: { 'Content-Type': 'application/json' },
-								body: JSON.stringify({
-									patientId: bookingForm.patientId,
-									patient: patients.find(p => p.patientId === bookingForm.patientId)?.name || '',
-									doctor: staff.find(s => s.id === bookingForm.staffId)?.userName || '',
-									...data,
-								}),
-							});
-							const result = await response.json();
-							if (result.success) {
-								alert(`Successfully created ${result.data.count} recurring appointments!`);
-								setShowRecurringDialog(false);
-								handleCloseBookingModal();
-							} else {
-								alert(result.message || 'Failed to create recurring appointments');
-							}
-						} catch (error) {
-							console.error('Failed to create recurring appointments:', error);
-							alert('Failed to create recurring appointments. Please try again.');
-						}
-					}}
-				/>
+			{/* Patient Appointments Modal */}
+			{showPatientAppointmentsModal && selectedPatientId && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-2xl max-h-[90vh] flex flex-col">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">
+									{selectedPatientAppointments[0]?.patient || 'Patient'} Appointments
+								</h2>
+								<p className="text-xs text-slate-500">
+									{selectedPatientAppointments.length} appointment{selectedPatientAppointments.length === 1 ? '' : 's'} total
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => {
+									setShowPatientAppointmentsModal(false);
+									setSelectedPatientId(null);
+								}}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+								aria-label="Close dialog"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="flex-1 overflow-y-auto px-6 py-4">
+							{selectedPatientAppointments.length === 0 ? (
+								<div className="py-8 text-center text-sm text-slate-500">
+									No appointments found for this patient.
+								</div>
+							) : (
+								<div className="overflow-x-auto">
+									<table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-700">
+										<thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 sticky top-0">
+											<tr>
+												<th className="px-4 py-3 font-semibold">Appointment</th>
+												<th className="px-4 py-3 font-semibold">Clinician</th>
+												<th className="px-4 py-3 font-semibold">When</th>
+												<th className="px-4 py-3 font-semibold">Status</th>
+												<th className="px-4 py-3 font-semibold">Notes</th>
+												<th className="px-4 py-3 font-semibold text-right">Actions</th>
+											</tr>
+										</thead>
+										<tbody className="divide-y divide-slate-100">
+											{selectedPatientAppointments.map(appointment => {
+												const patientDetails = patients.find(p => p.patientId === appointment.patientId);
+												const isEditing = editingId === appointment.appointmentId;
+												const isUpdating = updating[appointment.id] || false;
+
+												return (
+													<tr key={appointment.appointmentId}>
+														<td className="px-4 py-4">
+															<p className="font-semibold text-slate-900">{appointment.appointmentId}</p>
+															<p className="text-xs text-slate-500">
+																Booked {formatDateLabel(appointment.createdAt)}
+															</p>
+														</td>
+														<td className="px-4 py-4 text-sm text-slate-600">{appointment.doctor || 'Not assigned'}</td>
+														<td className="px-4 py-4 text-sm text-slate-600">
+															{formatDateLabel(appointment.date)} at {appointment.time || '—'}
+														</td>
+														<td className="px-4 py-4">
+															<select
+																value={appointment.status}
+																onChange={event =>
+																	handleStatusChange(
+																		appointment.appointmentId,
+																		event.target.value as AdminAppointmentStatus,
+																	)
+																}
+																disabled={isUpdating}
+																className="select-base"
+															>
+																<option value="pending">Pending</option>
+																<option value="ongoing">Ongoing</option>
+																<option value="completed">Completed</option>
+																<option value="cancelled">Cancelled</option>
+															</select>
+														</td>
+														<td className="px-4 py-4">
+															{isEditing ? (
+																<div className="space-y-2">
+																	<textarea
+																		value={notesDraft}
+																		onChange={event => setNotesDraft(event.target.value)}
+																		className="input-base"
+																		rows={2}
+																	/>
+																	<div className="flex items-center gap-2">
+																		<button
+																			type="button"
+																			onClick={handleSaveNotes}
+																			disabled={isUpdating}
+																			className="btn-primary"
+																		>
+																			{isUpdating ? 'Saving...' : 'Save'}
+																		</button>
+																		<button
+																			type="button"
+																			onClick={handleCancelEditing}
+																			disabled={isUpdating}
+																			className="btn-secondary"
+																		>
+																			Cancel
+																		</button>
+																	</div>
+																</div>
+															) : (
+																<div className="space-y-2">
+																	<p className="text-sm text-slate-600">{appointment.notes || 'No notes added.'}</p>
+																	<button
+																		type="button"
+																		onClick={() => handleEditNotes(appointment)}
+																		className="text-xs font-semibold text-sky-600 hover:text-sky-500"
+																	>
+																		Edit notes
+																	</button>
+																</div>
+															)}
+														</td>
+														<td className="px-4 py-4 text-right">
+															<div className="inline-flex items-center gap-2">
+																<span
+																	className={`badge-base px-3 py-1 ${STATUS_BADGES[appointment.status]}`}
+																>
+																	{appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+																</span>
+																<button
+																	type="button"
+																	onClick={() => handleRemove(appointment.appointmentId)}
+																	disabled={isUpdating}
+																	className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700 focus-visible:border-rose-300 focus-visible:text-rose-700 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+																>
+																	<i className="fas fa-trash text-[10px]" aria-hidden="true" />
+																	Delete
+																</button>
+															</div>
+														</td>
+													</tr>
+												);
+											})}
+										</tbody>
+									</table>
+								</div>
+							)}
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={() => {
+									setShowPatientAppointmentsModal(false);
+									setSelectedPatientId(null);
+								}}
+								className="btn-secondary"
+							>
+								Close
+							</button>
+						</footer>
+					</div>
+				</div>
 			)}
+
 		</div>
 	);
 }

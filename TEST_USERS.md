@@ -25,6 +25,13 @@ This document contains the test user credentials for accessing the different das
 - **Dashboard:** `/clinical-team`
 - **Access:** Patient management, calendar, reports, ROM assessments
 
+### 4. Therapist User (Physiotherapist)
+- **Email:** `therapist@test.com`
+- **Password:** `therapist123`
+- **Role:** Physiotherapist
+- **Dashboard:** `/clinical-team`
+- **Access:** Patient management, calendar, reports, ROM assessments, patient transfers
+
 ## How to Create These Users
 
 ### Option 1: Manual Creation in Firebase Console (Recommended for Development)
@@ -57,10 +64,20 @@ Since Firebase Admin SDK requires service account credentials, the easiest way f
      ```
    - Click "Save"
 
-3. **Repeat for all 3 users:**
+3. **Repeat for all 4 users:**
    - `admin@test.com` with role `Admin`
    - `frontdesk@test.com` with role `FrontDesk`
    - `clinical@test.com` with role `ClinicalTeam`
+   - `therapist@test.com` with role `Physiotherapist`
+
+4. **Create Staff Records (for Clinical Team and Therapist users):**
+   - Go to Firestore Database → `staff` collection
+   - For `clinical@test.com`:
+     - Click "Add document" (auto-generate ID)
+     - Add fields: `userEmail`: `clinical@test.com`, `userName`: `Clinical Team User`, `role`: `ClinicalTeam`, `status`: `Active`
+   - For `therapist@test.com`:
+     - Click "Add document" (auto-generate ID)
+     - Add fields: `userEmail`: `therapist@test.com`, `userName`: `Therapist User`, `role`: `Physiotherapist`, `status`: `Active`
 
 ### Option 2: Using the Admin Dashboard (Requires Firebase Admin SDK Setup)
 
@@ -109,13 +126,32 @@ Since Firebase Admin SDK requires service account credentials, the easiest way f
      - `createdAt`: `2025-01-15T00:00:00.000Z`
    - Click "Save"
 
-3. Repeat for all 3 users:
+3. Repeat for all 4 users:
 
 | Email | Password | Display Name | Role |
 |-------|----------|--------------|------|
 | `admin@test.com` | `admin123` | Admin User | `Admin` |
 | `frontdesk@test.com` | `frontdesk123` | Front Desk User | `FrontDesk` |
 | `clinical@test.com` | `clinical123` | Clinical Team User | `ClinicalTeam` |
+| `therapist@test.com` | `therapist123` | Therapist User | `Physiotherapist` |
+
+**Important for Therapist/Clinical Team users:** After creating the `users` collection document, you also need to create a `staff` collection document:
+
+**Step C: Create Staff Record (for therapist@test.com only)**
+- Go to Firestore Database → `staff` collection → "Add document"
+- Let Firestore auto-generate the Document ID
+- Add fields:
+  - `userEmail`: `therapist@test.com`
+  - `userName`: `Therapist User`
+  - `role`: `Physiotherapist`
+  - `status`: `Active`
+  - `createdAt`: `2025-01-15T00:00:00.000Z`
+- Click "Save"
+
+**Note:** The `clinical@test.com` user should also have a staff record if you want to test transfers between therapists. Create it the same way with:
+  - `userEmail`: `clinical@test.com`
+  - `userName`: `Clinical Team User`
+  - `role`: `ClinicalTeam`
 
 ## Notes
 

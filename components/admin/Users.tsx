@@ -15,7 +15,7 @@ import { db, auth } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
 
-type EmployeeRole = 'FrontDesk' | 'ClinicalTeam' | 'Admin';
+type EmployeeRole = 'FrontDesk' | 'ClinicalTeam' | 'Physiotherapist' | 'StrengthAndConditioning' | 'Admin';
 type EmployeeStatus = 'Active' | 'Inactive';
 
 interface Employee {
@@ -30,7 +30,7 @@ interface Employee {
 interface FormState {
 	userName: string;
 	userEmail: string;
-	userRole: Extract<EmployeeRole, 'FrontDesk' | 'ClinicalTeam'>;
+	userRole: Extract<EmployeeRole, 'FrontDesk' | 'ClinicalTeam' | 'Physiotherapist' | 'StrengthAndConditioning'>;
 	userStatus: EmployeeStatus;
 	password: string;
 }
@@ -39,11 +39,15 @@ const ROLE_LABELS: Record<EmployeeRole, string> = {
 	Admin: 'Admin',
 	FrontDesk: 'Front Desk',
 	ClinicalTeam: 'Clinical Team',
+	Physiotherapist: 'Physiotherapist',
+	StrengthAndConditioning: 'Strength & Conditioning',
 };
 
 const ROLE_OPTIONS: Array<{ value: FormState['userRole']; label: string }> = [
 	{ value: 'FrontDesk', label: 'Front Desk' },
-	{ value: 'ClinicalTeam', label: 'Clinical Team (Physiotherapist & Strength Conditioning)' },
+	{ value: 'ClinicalTeam', label: 'Clinical Team' },
+	{ value: 'Physiotherapist', label: 'Physiotherapist' },
+	{ value: 'StrengthAndConditioning', label: 'Strength & Conditioning' },
 ];
 
 const INITIAL_FORM: FormState = {
@@ -107,7 +111,12 @@ export default function Users() {
 									: null,
 						};
 					})
-					.filter(record => record.role === 'FrontDesk' || record.role === 'ClinicalTeam')
+					.filter(record => 
+						record.role === 'FrontDesk' || 
+						record.role === 'ClinicalTeam' || 
+						record.role === 'Physiotherapist' || 
+						record.role === 'StrengthAndConditioning'
+					)
 					.sort((a, b) => a.userName.localeCompare(b.userName));
 
 				setEmployees(records);
