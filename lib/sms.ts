@@ -3,7 +3,8 @@ export type SMSTemplate =
 	| 'appointment-reminder'
 	| 'appointment-cancelled'
 	| 'appointment-updated'
-	| 'patient-registered';
+	| 'patient-registered'
+	| 'billing-pending';
 
 export interface SMSData {
 	to: string;
@@ -94,6 +95,31 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 			message += `Please save this ID for future reference.`;
 			if (clinicPhone) {
 				message += `\n\nQuestions? Call ${clinicPhone}`;
+			}
+			return message;
+		}
+
+		case 'billing-pending': {
+			const billingData = data as {
+				patientName: string;
+				patientPhone: string;
+				patientId?: string;
+				billingId?: string;
+				amount: string | number;
+				date: string;
+			};
+			const amount = typeof billingData.amount === 'number' 
+				? `₹${billingData.amount.toFixed(2)}` 
+				: billingData.amount;
+			let message = `Hi ${billingData.patientName}, payment reminder from ${clinicName}.\n\n`;
+			message += `Amount Due: ${amount}\n`;
+			message += `Service Date: ${billingData.date}\n`;
+			if (billingData.billingId) {
+				message += `Bill ID: ${billingData.billingId}\n`;
+			}
+			message += `\nPlease settle at your earliest convenience.`;
+			if (clinicPhone) {
+				message += ` Questions? Call ${clinicPhone}`;
 			}
 			return message;
 		}

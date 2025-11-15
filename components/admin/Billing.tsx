@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, query, where, getDocs, addDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
 
 import {
 	type AdminAppointmentRecord,
@@ -11,6 +12,7 @@ import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
+import { getCurrentBillingCycle, getNextBillingCycle, getBillingCycleId, getMonthName, type BillingCycle } from '@/lib/billingUtils';
 
 interface StaffMember {
 	id: string;
@@ -74,8 +76,14 @@ export default function Billing() {
 	const [pendingDrafts, setPendingDrafts] = useState<Record<string, PendingDraft>>({});
 	const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
 	const [invoiceDetails, setInvoiceDetails] = useState<InvoiceDetails | null>(null);
+	const [syncing, setSyncing] = useState(false);
+	const [loading, setLoading] = useState(true);
+	const [sendingNotifications, setSendingNotifications] = useState(false);
+	const [resettingCycle, setResettingCycle] = useState(false);
 
 	const [defaultBillingDate] = useState(() => new Date().toISOString().slice(0, 10));
+	const [currentCycle, setCurrentCycle] = useState(() => getCurrentBillingCycle());
+	const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -95,14 +103,17 @@ export default function Billing() {
 						time: data.time ? String(data.time) : '',
 						status: (data.status as string) ?? 'pending',
 						billing: data.billing ? (data.billing as { amount?: string; date?: string }) : undefined,
+						amount: data.amount ? Number(data.amount) : 1200,
 						createdAt: created ? created.toISOString() : (data.createdAt as string | undefined) || new Date().toISOString(),
-					} as AdminAppointmentRecord & { id: string };
+					} as AdminAppointmentRecord & { id: string; amount?: number };
 				});
 				setAppointments(mapped);
+				setLoading(false);
 			},
 			error => {
 				console.error('Failed to load appointments', error);
 				setAppointments([]);
+				setLoading(false);
 			}
 		);
 
@@ -167,6 +178,141 @@ export default function Billing() {
 
 		return () => unsubscribe();
 	}, []);
+
+	// Load billing cycles from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'billingCycles'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data();
+					const created = (data.createdAt as Timestamp | undefined)?.toDate?.();
+					const closed = (data.closedAt as Timestamp | undefined)?.toDate?.();
+					return {
+						id: docSnap.id,
+						startDate: data.startDate ? String(data.startDate) : '',
+						endDate: data.endDate ? String(data.endDate) : '',
+						month: data.month ? Number(data.month) : 1,
+						year: data.year ? Number(data.year) : new Date().getFullYear(),
+						status: (data.status as 'active' | 'closed' | 'pending') || 'pending',
+						createdAt: created ? created.toISOString() : new Date().toISOString(),
+						closedAt: closed ? closed.toISOString() : undefined,
+					} as BillingCycle;
+				});
+				setBillingCycles(mapped);
+			},
+			error => {
+				console.error('Failed to load billing cycles', error);
+				setBillingCycles([]);
+			}
+		);
+
+		return () => unsubscribe();
+	}, []);
+
+	// Sync completed appointments to billing
+	useEffect(() => {
+		if (loading || syncing || appointments.length === 0 || patients.length === 0) return;
+
+		const syncAppointmentsToBilling = async () => {
+			setSyncing(true);
+			try {
+				const completedAppointments = appointments.filter(
+					appt => appt.status === 'completed' && !appt.billing
+				);
+
+				if (completedAppointments.length === 0) {
+					setSyncing(false);
+					return;
+				}
+
+				for (const appt of completedAppointments) {
+					if (!appt.appointmentId || !appt.patientId) continue;
+
+					// Get patient data
+					const patient = patients.find(p => p.patientId === appt.patientId);
+					if (!patient) {
+						console.warn(`Patient not found for appointment ${appt.appointmentId}`);
+						continue;
+					}
+
+					// Fetch patient document to get patientType and paymentType
+					const patientQuery = query(collection(db, 'patients'), where('patientId', '==', appt.patientId));
+					const patientSnapshot = await getDocs(patientQuery);
+					
+					if (patientSnapshot.empty) {
+						console.warn(`Patient document not found for appointment ${appt.appointmentId}`);
+						continue;
+					}
+
+					const patientData = patientSnapshot.docs[0].data();
+					const patientType = (patientData.patientType as string) || '';
+					const paymentType = (patientData.paymentType as string) || 'without';
+					const standardAmount = appt.amount || 1200;
+
+					// Apply billing rules based on patient type
+					let shouldCreateBill = false;
+					let billAmount = standardAmount;
+
+					if (patientType === 'VIP') {
+						// VIP: Create bill for every completed session as normal
+						shouldCreateBill = true;
+						billAmount = standardAmount;
+					} else if (patientType === 'Paid') {
+						// Paid: Check paymentType
+						shouldCreateBill = true;
+						if (paymentType === 'with') {
+							// Apply concession discount (assuming 20% discount, adjust as needed)
+							billAmount = standardAmount * 0.8;
+						} else {
+							// Without concession: standard amount
+							billAmount = standardAmount;
+						}
+					} else if (patientType === 'Dyes') {
+						// Dyes: Only create bill if count >= 500
+						// Count existing billing records for this patient (appointments with billing info)
+						const existingBillCount = appointments.filter(
+							a => a.patientId === appt.patientId && a.billing
+						).length;
+						
+						if (existingBillCount >= 500) {
+							shouldCreateBill = true;
+							billAmount = standardAmount;
+						} else {
+							// Skip creating bill if count < 500
+							console.log(`Skipping bill for Dyes patient ${appt.patientId}: count is ${existingBillCount} (< 500)`);
+							continue;
+						}
+					} else if (patientType === 'Gethhma') {
+						// Gethhma: Treat as "Paid" without concession
+						shouldCreateBill = true;
+						billAmount = standardAmount;
+					} else {
+						// Unknown patient type: default behavior (create bill)
+						shouldCreateBill = true;
+						billAmount = standardAmount;
+					}
+
+					// Update appointment with billing info if rules allow
+					if (shouldCreateBill) {
+						await updateDoc(doc(db, 'appointments', appt.id), {
+							billing: {
+								amount: billAmount.toFixed(2),
+								date: defaultBillingDate,
+							},
+						});
+					}
+				}
+			} catch (error) {
+				console.error('Failed to sync appointments to billing', error);
+			} finally {
+				setSyncing(false);
+			}
+		};
+
+		syncAppointmentsToBilling();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [appointments.length, patients.length, loading]);
 
 	const patientLookup = useMemo(() => {
 		const map = new Map<string, AdminPatientRecord>();
@@ -380,7 +526,7 @@ export default function Billing() {
 		win.print();
 	};
 
-	const handleExportHistory = () => {
+	const handleExportHistory = (format: 'csv' | 'excel' = 'csv') => {
 		if (!billingHistoryRows.length) {
 			alert('No billing history to export.');
 			return;
@@ -397,20 +543,117 @@ export default function Billing() {
 			]),
 		];
 
-		const csv = rows
-			.map(line => line.map(value => `"${String(value).replace(/"/g, '""')}"`).join(','))
-			.join('\n');
+		if (format === 'csv') {
+			const csv = rows
+				.map(line => line.map(value => `"${String(value).replace(/"/g, '""')}"`).join(','))
+				.join('\n');
 
-		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-		const url = URL.createObjectURL(blob);
+			const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+			const url = URL.createObjectURL(blob);
 
-		const link = document.createElement('a');
-		link.href = url;
-		link.setAttribute('download', `billing-history-${new Date().toISOString().slice(0, 10)}.csv`);
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		URL.revokeObjectURL(url);
+			const link = document.createElement('a');
+			link.href = url;
+			link.setAttribute('download', `billing-history-${new Date().toISOString().slice(0, 10)}.csv`);
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+		} else {
+			// Excel export
+			const ws = XLSX.utils.aoa_to_sheet(rows);
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, ws, 'Billing History');
+			
+			// Set column widths
+			ws['!cols'] = [
+				{ wch: 15 }, // Patient ID
+				{ wch: 25 }, // Patient Name
+				{ wch: 20 }, // Clinician
+				{ wch: 18 }, // Appointment Date
+				{ wch: 15 }, // Billing Amount
+				{ wch: 15 }, // Billing Date
+			];
+
+			XLSX.writeFile(wb, `billing-history-${new Date().toISOString().slice(0, 10)}.xlsx`);
+		}
+	};
+
+	const handleMonthlyReset = async () => {
+		if (!confirm('Are you sure you want to close the current billing cycle and start a new one? This action cannot be undone.')) {
+			return;
+		}
+
+		setResettingCycle(true);
+		try {
+			// Close current cycle
+			const currentCycleId = getBillingCycleId(currentCycle.month, currentCycle.year);
+			const existingCycle = billingCycles.find(c => 
+				c.month === currentCycle.month && c.year === currentCycle.year
+			);
+
+			if (existingCycle && existingCycle.status === 'active') {
+				await updateDoc(doc(db, 'billingCycles', existingCycle.id), {
+					status: 'closed',
+					closedAt: serverTimestamp(),
+				});
+			}
+
+			// Create new cycle (next month)
+			const nextCycle = getNextBillingCycle();
+			const newCycleId = getBillingCycleId(nextCycle.month, nextCycle.year);
+			
+			// Check if next cycle already exists
+			const nextCycleExists = billingCycles.find(c => 
+				c.month === nextCycle.month && c.year === nextCycle.year
+			);
+
+			if (!nextCycleExists) {
+				await addDoc(collection(db, 'billingCycles'), {
+					id: newCycleId,
+					startDate: nextCycle.startDate,
+					endDate: nextCycle.endDate,
+					month: nextCycle.month,
+					year: nextCycle.year,
+					status: 'active',
+					createdAt: serverTimestamp(),
+				});
+			} else {
+				await updateDoc(doc(db, 'billingCycles', nextCycleExists.id), {
+					status: 'active',
+				});
+			}
+
+			setCurrentCycle(nextCycle);
+			alert('Billing cycle reset successfully!');
+		} catch (error) {
+			console.error('Failed to reset billing cycle', error);
+			alert('Failed to reset billing cycle. Please try again.');
+		} finally {
+			setResettingCycle(false);
+		}
+	};
+
+	const handleSendBillingNotifications = async () => {
+		if (!confirm('Send billing notifications to all patients with pending bills older than 3 days?')) {
+			return;
+		}
+
+		setSendingNotifications(true);
+		try {
+			const response = await fetch('/api/billing/notifications?days=3');
+			const result = await response.json();
+
+			if (result.success) {
+				alert(`Notifications sent successfully!\n\nEmails: ${result.emailsSent}\nSMS: ${result.smsSent}\nBills notified: ${result.billsNotified}`);
+			} else {
+				alert(`Failed to send notifications: ${result.message || 'Unknown error'}`);
+			}
+		} catch (error) {
+			console.error('Failed to send billing notifications', error);
+			alert('Failed to send billing notifications. Please try again.');
+		} finally {
+			setSendingNotifications(false);
+		}
 	};
 
 	return (
@@ -421,18 +664,82 @@ export default function Billing() {
 					title="Billing & Payments"
 					description="Track outstanding invoices, post collections, and generate payment receipts."
 					actions={
-						<button
-							type="button"
-							onClick={handleExportHistory}
-							className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-sky-500 focus-visible:bg-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
-						>
-							<i className="fas fa-file-csv mr-2 text-sm" aria-hidden="true" />
-							Export CSV
-						</button>
+						<div className="flex gap-2">
+							<button
+								type="button"
+								onClick={() => handleExportHistory('csv')}
+								className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-sky-500 focus-visible:bg-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+							>
+								<i className="fas fa-file-csv mr-2 text-sm" aria-hidden="true" />
+								Export CSV
+							</button>
+							<button
+								type="button"
+								onClick={() => handleExportHistory('excel')}
+								className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-500 focus-visible:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+							>
+								<i className="fas fa-file-excel mr-2 text-sm" aria-hidden="true" />
+								Export Excel
+							</button>
+						</div>
 					}
 				/>
 
 				<div className="border-t border-slate-200" />
+
+				{/* Billing Cycle Management */}
+				<section className="rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
+					<div className="mb-4 flex items-center justify-between">
+						<div>
+							<h3 className="text-lg font-semibold text-slate-900">Billing Cycle Management</h3>
+							<p className="text-sm text-slate-600">
+								Current Cycle: <span className="font-medium">{getMonthName(currentCycle.month)} {currentCycle.year}</span>
+								{' '}({currentCycle.startDate} to {currentCycle.endDate})
+							</p>
+						</div>
+						<div className="flex gap-2">
+							<button
+								type="button"
+								onClick={handleSendBillingNotifications}
+								disabled={sendingNotifications}
+								className="inline-flex items-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-amber-500 focus-visible:bg-amber-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								<i className={`fas ${sendingNotifications ? 'fa-spinner fa-spin' : 'fa-bell'} mr-2 text-sm`} aria-hidden="true" />
+								{sendingNotifications ? 'Sending...' : 'Send Notifications'}
+							</button>
+							<button
+								type="button"
+								onClick={handleMonthlyReset}
+								disabled={resettingCycle}
+								className="inline-flex items-center rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:bg-purple-500 focus-visible:bg-purple-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								<i className={`fas ${resettingCycle ? 'fa-spinner fa-spin' : 'fa-sync-alt'} mr-2 text-sm`} aria-hidden="true" />
+								{resettingCycle ? 'Resetting...' : 'Reset Monthly Cycle'}
+							</button>
+						</div>
+					</div>
+					{billingCycles.length > 0 && (
+						<div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+							<p className="mb-2 text-sm font-medium text-slate-700">Recent Billing Cycles:</p>
+							<div className="flex flex-wrap gap-2">
+								{billingCycles.slice(-6).reverse().map(cycle => (
+									<span
+										key={cycle.id}
+										className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
+											cycle.status === 'active'
+												? 'bg-green-100 text-green-800'
+												: cycle.status === 'closed'
+												? 'bg-slate-100 text-slate-800'
+												: 'bg-amber-100 text-amber-800'
+										}`}
+									>
+										{getMonthName(cycle.month)} {cycle.year} ({cycle.status})
+									</span>
+								))}
+							</div>
+						</div>
+					)}
+				</section>
 
 				<section className="flex flex-wrap gap-4 rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
 				<div className="min-w-[220px] flex-1">

@@ -10,6 +10,7 @@ import {
 } from '@/lib/adminMockData';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import { generatePhysiotherapyReportPDF } from '@/lib/pdfGenerator';
 
 interface StaffMember {
 	id: string;
@@ -302,6 +303,155 @@ export default function Reports() {
 		}
 	};
 
+	const handlePrint = async () => {
+		if (!modalContext) return;
+
+		const patient = modalContext.patient;
+		const age = calculateAge(patient.dob);
+		await generatePhysiotherapyReportPDF({
+			patientName: patient.name || '',
+			patientId: patient.patientId || '',
+			referredBy: modalContext.doctors.join(', ') || '',
+			age: age || '',
+			gender: patient.gender || '',
+			dateOfConsultation: new Date().toISOString().split('T')[0],
+			contact: patient.phone || '',
+			email: patient.email || '',
+			complaints: patient.complaint || '',
+			presentHistory: '',
+			pastHistory: '',
+			surgicalHistory: '',
+			medicalHistory: '',
+			sleepCycle: '',
+			hydration: '4',
+			nutrition: '',
+			chiefComplaint: patient.complaint || '',
+			onsetType: '',
+			duration: '',
+			mechanismOfInjury: '',
+			painType: '',
+			painIntensity: '',
+			aggravatingFactor: '',
+			relievingFactor: '',
+			siteSide: '',
+			onset: '',
+			natureOfInjury: '',
+			typeOfPain: '',
+			vasScale: '5',
+			rom: {},
+			mmt: {},
+			built: '',
+			posture: '',
+			postureManualNotes: '',
+			postureFileName: '',
+			gaitAnalysis: '',
+			gaitManualNotes: '',
+			gaitFileName: '',
+			mobilityAids: '',
+			localObservation: '',
+			swelling: '',
+			muscleWasting: '',
+			tenderness: '',
+			warmth: '',
+			scar: '',
+			crepitus: '',
+			odema: '',
+			specialTest: '',
+			differentialDiagnosis: '',
+			finalDiagnosis: '',
+			shortTermGoals: '',
+			longTermGoals: '',
+			rehabProtocol: '',
+			advice: '',
+			managementRemarks: '',
+			nextFollowUpDate: '',
+			nextFollowUpTime: '',
+			followUpVisits: [],
+			currentPainStatus: '',
+			currentRom: '',
+			currentStrength: '',
+			currentFunctionalAbility: '',
+			complianceWithHEP: '',
+			physioName: '',
+			physioRegNo: '',
+		});
+		// Note: The PDF will be downloaded. Users can open it and print from their PDF viewer.
+	};
+
+	const handleDownloadPDF = async () => {
+		if (!modalContext) return;
+
+		const patient = modalContext.patient;
+		const age = calculateAge(patient.dob);
+		await generatePhysiotherapyReportPDF({
+			patientName: patient.name || '',
+			patientId: patient.patientId || '',
+			referredBy: modalContext.doctors.join(', ') || '',
+			age: age || '',
+			gender: patient.gender || '',
+			dateOfConsultation: new Date().toISOString().split('T')[0],
+			contact: patient.phone || '',
+			email: patient.email || '',
+			complaints: patient.complaint || '',
+			presentHistory: '',
+			pastHistory: '',
+			surgicalHistory: '',
+			medicalHistory: '',
+			sleepCycle: '',
+			hydration: '4',
+			nutrition: '',
+			chiefComplaint: patient.complaint || '',
+			onsetType: '',
+			duration: '',
+			mechanismOfInjury: '',
+			painType: '',
+			painIntensity: '',
+			aggravatingFactor: '',
+			relievingFactor: '',
+			siteSide: '',
+			onset: '',
+			natureOfInjury: '',
+			typeOfPain: '',
+			vasScale: '5',
+			rom: {},
+			mmt: {},
+			built: '',
+			posture: '',
+			postureManualNotes: '',
+			postureFileName: '',
+			gaitAnalysis: '',
+			gaitManualNotes: '',
+			gaitFileName: '',
+			mobilityAids: '',
+			localObservation: '',
+			swelling: '',
+			muscleWasting: '',
+			tenderness: '',
+			warmth: '',
+			scar: '',
+			crepitus: '',
+			odema: '',
+			specialTest: '',
+			differentialDiagnosis: '',
+			finalDiagnosis: '',
+			shortTermGoals: '',
+			longTermGoals: '',
+			rehabProtocol: '',
+			advice: '',
+			managementRemarks: '',
+			nextFollowUpDate: '',
+			nextFollowUpTime: '',
+			followUpVisits: [],
+			currentPainStatus: '',
+			currentRom: '',
+			currentStrength: '',
+			currentFunctionalAbility: '',
+			complianceWithHEP: '',
+			physioName: '',
+			physioRegNo: '',
+		});
+	};
+
 	const handleExport = () => {
 		if (!filteredRows.length) {
 			alert('No data to export for the current filters.');
@@ -562,7 +712,23 @@ export default function Reports() {
 								{modalContext.doctors.length ? modalContext.doctors.join(', ') : 'N/A'}
 							</p>
 						</div>
-						<footer className="flex items-center justify-end border-t border-slate-200 px-6 py-4">
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={handleDownloadPDF}
+								className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
+							>
+								<i className="fas fa-download mr-2" aria-hidden="true" />
+								Download PDF
+							</button>
+							<button
+								type="button"
+								onClick={handlePrint}
+								className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
+							>
+								<i className="fas fa-print mr-2" aria-hidden="true" />
+								Print Report
+							</button>
 							<button
 								type="button"
 								onClick={closeModal}

@@ -6,6 +6,8 @@ import { collection, onSnapshot, type QuerySnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/PageHeader';
+import DashboardWidget from '@/components/dashboard/DashboardWidget';
+import StatsChart from '@/components/dashboard/StatsChart';
 import type { PatientRecordBasic } from '@/lib/types';
 
 interface AppointmentRecord {
@@ -335,6 +337,80 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
 	const hasAssignments = clinicianName ? caseload.length > 0 || todaysAppointments.length > 0 : true;
 
+	// Chart data for appointment trends
+	const appointmentTrendData = useMemo(() => {
+		const today = new Date();
+		const dayBuckets = Array.from({ length: 7 }, (_, index) => {
+			const date = new Date(today);
+			date.setDate(today.getDate() - (6 - index));
+			const isoKey = date.toISOString().split('T')[0];
+			const label = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date);
+			const count = assignedAppointments.filter(
+				apt => apt.date === isoKey && apt.status !== 'cancelled'
+			).length;
+			return { label, count };
+		});
+
+		return {
+			labels: dayBuckets.map(bucket => bucket.label),
+			datasets: [
+				{
+					label: 'Appointments',
+					data: dayBuckets.map(bucket => bucket.count),
+					borderColor: '#0ea5e9',
+					backgroundColor: 'rgba(14, 165, 233, 0.2)',
+					fill: true,
+					tension: 0.3,
+				},
+			],
+		};
+	}, [assignedAppointments]);
+
+	// Chart data for patient status distribution
+	const statusDistributionData = useMemo(() => {
+		const pendingCount = pending.length;
+		const ongoingCount = caseload.filter(p => p.status === 'ongoing').length;
+		const completedCount = assignedPatients.filter(p => p.status === 'completed').length;
+
+		return {
+			labels: ['Pending', 'Ongoing', 'Completed'],
+			datasets: [
+				{
+					label: 'Patients',
+					data: [pendingCount, ongoingCount, completedCount],
+					backgroundColor: ['#fbbf24', '#38bdf8', '#34d399'],
+					borderColor: '#ffffff',
+					borderWidth: 1,
+				},
+			],
+		};
+	}, [pending.length, caseload, assignedPatients]);
+
+	// Chart data for weekly completion
+	const weeklyCompletionData = useMemo(() => {
+		const weekDays = Array.from({ length: 7 }, (_, index) => {
+			const date = new Date(today);
+			date.setDate(today.getDate() - (6 - index));
+			const isoKey = date.toISOString().split('T')[0];
+			const label = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date);
+			const count = completedThisWeek.filter(apt => apt.date === isoKey).length;
+			return { label, count };
+		});
+
+		return {
+			labels: weekDays.map(day => day.label),
+			datasets: [
+				{
+					label: 'Completed',
+					data: weekDays.map(day => day.count),
+					backgroundColor: 'rgba(34, 197, 94, 0.4)',
+					borderColor: '#22c55e',
+					borderWidth: 1,
+				},
+			],
+		};
+	}, [completedThisWeek, today]);
+
 	const dashboardCards: Array<{
 		key: Exclude<ModalView, null>;
 		title: string;
@@ -485,6 +561,43 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 							</button>
 						))}
 					</div>
+				</section>
+
+				{/* Divider */}
+				<div className="border-t border-slate-200" />
+
+				{/* Analytics Section */}
+				<section>
+					<DashboardWidget title="Analytics Overview" icon="fas fa-chart-line" collapsible className="space-y-6">
+						<p className="text-sm text-slate-500">
+							Visualize your appointment trends, patient distribution, and workload in real time.
+						</p>
+						<div className="grid gap-6 lg:grid-cols-2">
+							<div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+								<p className="text-sm font-semibold text-slate-800">Weekly Appointment Trend</p>
+								<p className="text-xs text-slate-500">Your appointments over the last 7 days.</p>
+								<div className="mt-4">
+									<StatsChart type="line" data={appointmentTrendData} height={260} />
+								</div>
+							</div>
+							<div className="grid gap-6 sm:grid-cols-2">
+								<div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+									<p className="text-sm font-semibold text-slate-800">Patient Status Mix</p>
+									<p className="text-xs text-slate-500">Your caseload breakdown.</p>
+									<div className="mt-4">
+										<StatsChart type="doughnut" data={statusDistributionData} height={220} />
+									</div>
+								</div>
+								<div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+									<p className="text-sm font-semibold text-slate-800">Weekly Completion</p>
+									<p className="text-xs text-slate-500">Completed sessions this week.</p>
+									<div className="mt-4">
+										<StatsChart type="bar" data={weeklyCompletionData} height={220} />
+									</div>
+								</div>
+							</div>
+						</div>
+					</DashboardWidget>
 				</section>
 
 				{/* Divider */}

@@ -1,10 +1,53 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { collection, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+
 import PageHeader from '@/components/PageHeader';
+import DashboardWidget from '@/components/dashboard/DashboardWidget';
+import StatsChart from '@/components/dashboard/StatsChart';
+import { db } from '@/lib/firebase';
+import type { AdminAppointmentStatus, AdminPatientStatus } from '@/lib/adminMockData';
 
 interface DashboardProps {
 	onNavigate?: (page: string) => void;
 }
 
+interface PatientRecord {
+	id: string;
+	patientId: string;
+	name: string;
+	status: AdminPatientStatus;
+}
+
+interface AppointmentRecord {
+	id: string;
+	patientId: string;
+	patient: string;
+	doctor: string;
+	date: string;
+	status: AdminAppointmentStatus;
+}
+
+interface StaffMember {
+	id: string;
+	userName: string;
+	role: string;
+	status: string;
+}
+
+interface UserRecord {
+	id: string;
+	email: string;
+	role: string;
+	status: string;
+}
+
 export default function Dashboard({ onNavigate }: DashboardProps) {
+	const [patients, setPatients] = useState<PatientRecord[]>([]);
+	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
+	const [staff, setStaff] = useState<StaffMember[]>([]);
+	const [users, setUsers] = useState<UserRecord[]>([]);
 	const quickLinks = [
 		{
 			href: '#users',
@@ -38,12 +81,213 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 		},
 	];
 
+	// Load patients from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'patients'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					return {
+						id: docSnap.id,
+						patientId: data.patientId ? String(data.patientId) : '',
+						name: data.name ? String(data.name) : '',
+						status: (data.status as AdminPatientStatus) ?? 'pending',
+					} as PatientRecord;
+				});
+				setPatients(mapped);
+			},
+			error => {
+				console.error('Failed to load patients', error);
+				setPatients([]);
+			}
+		);
+		return () => unsubscribe();
+	}, []);
+
+	// Load appointments from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'appointments'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					return {
+						id: docSnap.id,
+						patientId: data.patientId ? String(data.patientId) : '',
+						patient: data.patient ? String(data.patient) : '',
+						doctor: data.doctor ? String(data.doctor) : '',
+						date: data.date ? String(data.date) : '',
+						status: (data.status as AdminAppointmentStatus) ?? 'pending',
+					} as AppointmentRecord;
+				});
+				setAppointments(mapped);
+			},
+			error => {
+				console.error('Failed to load appointments', error);
+				setAppointments([]);
+			}
+		);
+		return () => unsubscribe();
+	}, []);
+
+	// Load staff from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'staff'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					return {
+						id: docSnap.id,
+						userName: data.userName ? String(data.userName) : '',
+						role: data.role ? String(data.role) : '',
+						status: data.status ? String(data.status) : '',
+					} as StaffMember;
+				});
+				setStaff(mapped.filter(s => s.status === 'Active'));
+			},
+			error => {
+				console.error('Failed to load staff', error);
+				setStaff([]);
+			}
+		);
+		return () => unsubscribe();
+	}, []);
+
+	// Load users from Firestore
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'users'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					return {
+						id: docSnap.id,
+						email: data.email ? String(data.email) : '',
+						role: data.role ? String(data.role) : '',
+						status: data.status ? String(data.status) : '',
+					} as UserRecord;
+				});
+				setUsers(mapped.filter(u => u.status === 'Active'));
+			},
+			error => {
+				console.error('Failed to load users', error);
+				setUsers([]);
+			}
+		);
+		return () => unsubscribe();
+	}, []);
+
+	// Calculate statistics
+	const stats = useMemo(() => {
+		const pending = patients.filter(p => p.status === 'pending');
+		const ongoing = patients.filter(p => p.status === 'ongoing');
+		const completed = patients.filter(p => p.status === 'completed');
+
+		const today = new Date().toISOString().split('T')[0];
+		const todayAppointments = appointments.filter(apt => apt.date === today && apt.status !== 'cancelled');
+		const thisWeekAppointments = appointments.filter(apt => {
+			const aptDate = new Date(apt.date);
+			const weekAgo = new Date();
+			weekAgo.setDate(weekAgo.getDate() - 7);
+			return aptDate >= weekAgo && apt.status !== 'cancelled';
+		});
+
+		const appointmentsByStaff = staff.map(member => ({
+			staffName: member.userName,
+			count: appointments.filter(apt => apt.doctor === member.userName && apt.status !== 'cancelled').length,
+		}));
+
+		return {
+			totalPatients: patients.length,
+			pending,
+			ongoing,
+			completed,
+			totalAppointments: appointments.filter(apt => apt.status !== 'cancelled').length,
+			todayAppointments: todayAppointments.length,
+			thisWeekAppointments: thisWeekAppointments.length,
+			appointmentsByStaff,
+			activeStaff: staff.length,
+			activeUsers: users.length,
+		};
+	}, [patients, appointments, staff, users]);
+
+	// Chart data for appointment trends
+	const appointmentTrendData = useMemo(() => {
+		const today = new Date();
+		const dayBuckets = Array.from({ length: 7 }, (_, index) => {
+			const date = new Date(today);
+			date.setDate(today.getDate() - (6 - index));
+			const isoKey = date.toISOString().split('T')[0];
+			const label = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date);
+			const count = appointments.filter(
+				apt => apt.date === isoKey && apt.status !== 'cancelled'
+			).length;
+			return { label, count };
+		});
+
+		return {
+			labels: dayBuckets.map(bucket => bucket.label),
+			datasets: [
+				{
+					label: 'Appointments',
+					data: dayBuckets.map(bucket => bucket.count),
+					borderColor: '#0ea5e9',
+					backgroundColor: 'rgba(14, 165, 233, 0.2)',
+					fill: true,
+					tension: 0.3,
+				},
+			],
+		};
+	}, [appointments]);
+
+	// Chart data for patient status distribution
+	const statusDistributionData = useMemo(() => {
+		const pendingCount = stats.pending.length;
+		const ongoingCount = stats.ongoing.length;
+		const completedCount = stats.completed.length;
+
+		return {
+			labels: ['Pending', 'Ongoing', 'Completed'],
+			datasets: [
+				{
+					label: 'Patients',
+					data: [pendingCount, ongoingCount, completedCount],
+					backgroundColor: ['#fbbf24', '#38bdf8', '#34d399'],
+					borderColor: '#ffffff',
+					borderWidth: 1,
+				},
+			],
+		};
+	}, [stats.pending.length, stats.ongoing.length, stats.completed.length]);
+
+	// Chart data for staff workload
+	const staffLoadData = useMemo(() => {
+		const activeStaff = stats.appointmentsByStaff.filter(member => member.count > 0);
+		const hasData = activeStaff.length > 0;
+		const labels = hasData ? activeStaff.map(member => member.staffName || 'Unassigned') : ['No data'];
+		const data = hasData ? activeStaff.map(member => member.count) : [0];
+
+		return {
+			labels,
+			datasets: [
+				{
+					label: 'Active appointments',
+					data,
+					backgroundColor: hasData ? 'rgba(14, 165, 233, 0.4)' : 'rgba(148, 163, 184, 0.4)',
+					borderColor: hasData ? '#0ea5e9' : '#94a3b8',
+					borderWidth: 1,
+				},
+			],
+		};
+	}, [stats.appointmentsByStaff]);
+
 	const handleQuickLinkClick = (href: string) => {
 		if (onNavigate) {
 			onNavigate(href);
 		}
 	};
-
 
 	const ICON_WRAPPER =
 		'flex h-12 w-12 items-center justify-center rounded-xl bg-sky-100 text-sky-600 transition group-hover:bg-sky-600 group-hover:text-white group-focus-visible:bg-sky-600 group-focus-visible:text-white';
@@ -56,11 +300,11 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 					title="Admin Dashboard"
 					description="Manage staff, monitor operations, and jump into core tooling without leaving this workspace."
 					statusCard={{
-						label: 'Status',
-						value: 'All systems operational.',
+						label: 'Today\'s Overview',
+						value: `${stats.todayAppointments} appointment${stats.todayAppointments === 1 ? '' : 's'} today`,
 						subtitle: (
 							<>
-								Last sync: <span className="font-semibold">~2 mins ago</span>
+								{stats.activeStaff} active staff · {stats.totalPatients} total patients
 							</>
 						),
 					}}
@@ -101,6 +345,43 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 							</button>
 						))}
 					</div>
+				</section>
+
+				{/* Divider */}
+				<div className="border-t border-slate-200" />
+
+				{/* Analytics Section */}
+				<section>
+					<DashboardWidget title="Analytics Overview" icon="fas fa-chart-line" collapsible className="space-y-6">
+						<p className="text-sm text-slate-500">
+							Visualize system-wide metrics, patient distribution, and team workload in real time.
+						</p>
+						<div className="grid gap-6 lg:grid-cols-2">
+							<div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+								<p className="text-sm font-semibold text-slate-800">Weekly Appointment Trend</p>
+								<p className="text-xs text-slate-500">Includes the last 7 days of confirmed sessions.</p>
+								<div className="mt-4">
+									<StatsChart type="line" data={appointmentTrendData} height={260} />
+								</div>
+							</div>
+							<div className="grid gap-6 sm:grid-cols-2">
+								<div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+									<p className="text-sm font-semibold text-slate-800">Patient Status Mix</p>
+									<p className="text-xs text-slate-500">Pending vs. ongoing vs. completed.</p>
+									<div className="mt-4">
+										<StatsChart type="doughnut" data={statusDistributionData} height={220} />
+									</div>
+								</div>
+								<div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+									<p className="text-sm font-semibold text-slate-800">Team Workload</p>
+									<p className="text-xs text-slate-500">Active appointments by clinician.</p>
+									<div className="mt-4">
+										<StatsChart type="bar" data={staffLoadData} height={220} />
+									</div>
+								</div>
+							</div>
+						</div>
+					</DashboardWidget>
 				</section>
 
 				{/* Divider */}

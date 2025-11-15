@@ -4,7 +4,8 @@ export type EmailTemplate =
 	| 'appointment-cancelled'
 	| 'appointment-updated'
 	| 'patient-registered'
-	| 'appointment-status-changed';
+	| 'appointment-status-changed'
+	| 'billing-pending';
 
 export interface EmailData {
 	to: string;
@@ -47,6 +48,8 @@ export function getEmailSubject(template: EmailTemplate, data: Record<string, un
 			return `Appointment Status Update - ${data.status as string}`;
 		case 'patient-registered':
 			return `Welcome to Centre For Sports Science - Patient ID: ${data.patientId as string}`;
+		case 'billing-pending':
+			return `Pending Payment Reminder - ${data.amount as string}`;
 		default:
 			return 'Notification from Centre For Sports Science';
 	}
@@ -346,6 +349,77 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 							<p>Our team is here to support your health and wellness journey. If you have any questions or would like to schedule an appointment, please don't hesitate to contact us.</p>
 							
 							<p>Best regards,<br>The ${clinicName} Team</p>
+						</div>
+						<div class="footer">
+							<p><strong>${clinicName}</strong></p>
+							${clinicEmail ? `<p>Email: ${clinicEmail}</p>` : ''}
+							${clinicPhone ? `<p>Phone: ${clinicPhone}</p>` : ''}
+						</div>
+					</div>
+				</body>
+				</html>
+			`;
+		}
+
+		case 'billing-pending': {
+			const billingData = data as {
+				patientName: string;
+				patientEmail: string;
+				patientId?: string;
+				billingId?: string;
+				amount: string | number;
+				date: string;
+				appointmentId?: string;
+			};
+			const amount = typeof billingData.amount === 'number' 
+				? `₹${billingData.amount.toFixed(2)}` 
+				: billingData.amount;
+			return `
+				<!DOCTYPE html>
+				<html>
+				<head>
+					<meta charset="utf-8">
+					<meta name="viewport" content="width=device-width, initial-scale=1.0">
+					${baseStyles}
+				</head>
+				<body>
+					<div class="container">
+						<div class="header">
+							<h1 style="margin: 0; font-size: 24px;">Payment Reminder</h1>
+						</div>
+						<div class="content">
+							<p>Dear ${billingData.patientName},</p>
+							<p>This is a friendly reminder that you have a pending payment for services received at ${clinicName}.</p>
+							
+							<div class="info-box">
+								<div class="detail-row">
+									<span class="detail-label">Billing ID:</span> ${billingData.billingId || 'N/A'}
+								</div>
+								${billingData.appointmentId ? `
+								<div class="detail-row">
+									<span class="detail-label">Appointment ID:</span> ${billingData.appointmentId}
+								</div>
+								` : ''}
+								<div class="detail-row">
+									<span class="detail-label">Service Date:</span> ${billingData.date}
+								</div>
+								<div class="detail-row">
+									<span class="detail-label">Amount Due:</span> <strong style="color: #dc2626; font-size: 18px;">${amount}</strong>
+								</div>
+							</div>
+							
+							<p>Please settle this payment at your earliest convenience. You can make the payment:</p>
+							<ul style="margin: 15px 0; padding-left: 20px;">
+								<li>In person at our clinic</li>
+								<li>Via UPI/Card payment</li>
+								<li>By contacting our billing department</li>
+							</ul>
+							
+							${clinicPhone ? `<p>If you have any questions about this invoice, please contact us at ${clinicPhone}.</p>` : ''}
+							
+							<p>Thank you for your prompt attention to this matter.</p>
+							
+							<p>Best regards,<br>The ${clinicName} Billing Team</p>
 						</div>
 						<div class="footer">
 							<p><strong>${clinicName}</strong></p>

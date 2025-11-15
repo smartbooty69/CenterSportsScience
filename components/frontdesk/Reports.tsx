@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { generatePhysiotherapyReportPDF } from '@/lib/pdfGenerator';
@@ -81,6 +81,16 @@ export default function Reports() {
 	const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 	const [showModal, setShowModal] = useState(false);
 	const [savedMessage, setSavedMessage] = useState(false);
+	const [showVersionHistory, setShowVersionHistory] = useState(false);
+	const [versionHistory, setVersionHistory] = useState<Array<{
+		id: string;
+		version: number;
+		createdAt: string;
+		createdBy: string;
+		data: Partial<PatientRecordFull>;
+	}>>([]);
+	const [loadingVersions, setLoadingVersions] = useState(false);
+	const [viewingVersionData, setViewingVersionData] = useState<Partial<PatientRecordFull> | null>(null);
 
 	// Load patients from Firestore
 	useEffect(() => {
@@ -188,13 +198,27 @@ export default function Reports() {
 
 	const selectedPatient = useMemo(() => {
 		if (!selectedPatientId) return null;
-		return patients.find(p => p.patientId === selectedPatientId) || null;
-	}, [patients, selectedPatientId]);
+		const patient = patients.find(p => p.patientId === selectedPatientId || p.id === selectedPatientId);
+		if (!patient) return null;
+		
+		// If viewing a specific version, merge the version data with the patient data
+		if (viewingVersionData) {
+			return { ...patient, ...viewingVersionData } as PatientRecord;
+		}
+		
+		return patient;
+	}, [patients, selectedPatientId, viewingVersionData]);
 
 	const handleView = (patientId: string) => {
+		if (!patientId) {
+			console.error('Cannot open report: patientId is empty');
+			return;
+		}
 		setSelectedPatientId(patientId);
 		setShowModal(true);
 		setSavedMessage(false);
+		setShowVersionHistory(false);
+		setViewingVersionData(null); // Reset version data when viewing current report
 	};
 
 	const handleDelete = (patientId: string) => {
@@ -203,6 +227,54 @@ export default function Reports() {
 			// For now, we'll just remove it from the view by filtering
 			// In production, you'd use updateDoc to set a deleted flag or actually delete the document
 			console.warn('Delete functionality should be implemented with proper Firestore delete or soft delete');
+		}
+	};
+
+	const loadVersionHistory = async () => {
+		if (!selectedPatient?.patientId) return;
+
+		setLoadingVersions(true);
+		try {
+			const versionsQuery = query(
+				collection(db, 'reportVersions'),
+				where('patientId', '==', selectedPatient.patientId),
+				orderBy('version', 'desc')
+			);
+			const versionsSnapshot = await getDocs(versionsQuery);
+			const versions = versionsSnapshot.docs.map(doc => {
+				const data = doc.data();
+				const createdAt = (data.createdAt as Timestamp | undefined)?.toDate?.();
+				return {
+					id: doc.id,
+					version: data.version as number,
+					createdAt: createdAt ? createdAt.toISOString() : new Date().toISOString(),
+					createdBy: (data.createdBy as string) || 'Unknown',
+					data: (data.reportData as Partial<PatientRecordFull>) || {},
+				};
+			});
+			setVersionHistory(versions);
+		} catch (error) {
+			console.error('Failed to load report history', error);
+			alert('Failed to load report history. Please try again.');
+		} finally {
+			setLoadingVersions(false);
+		}
+	};
+
+	const handleViewVersionHistory = async () => {
+		setShowVersionHistory(true);
+		setViewingVersionData(null);
+		await loadVersionHistory();
+	};
+
+	const handleViewVersion = (version: typeof versionHistory[0]) => {
+		// Set the version data to view
+		setViewingVersionData(version.data);
+		// Close version history modal
+		setShowVersionHistory(false);
+		// Ensure main modal is open
+		if (!showModal) {
+			setShowModal(true);
 		}
 	};
 
@@ -511,14 +583,14 @@ export default function Reports() {
 											<div className="inline-flex items-center gap-2">
 												<button
 													type="button"
-													onClick={() => handleView(patient.patientId)}
+													onClick={() => handleView(patient.patientId || patient.id || '')}
 													className="inline-flex items-center rounded-lg border border-sky-200 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:border-sky-300 hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
 												>
 													View
 												</button>
 												<button
 													type="button"
-													onClick={() => handleDelete(patient.patientId)}
+													onClick={() => handleDelete(patient.patientId || patient.id || '')}
 													className="inline-flex items-center rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
 												>
 													Delete
@@ -534,14 +606,18 @@ export default function Reports() {
 			</section>
 
 			{/* Report Modal */}
-			{showModal && selectedPatient && (
+			{showModal && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
 					<div className="flex w-full max-w-5xl max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
 						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
 							<h2 className="text-lg font-semibold text-slate-900">Physiotherapy Clinic Patient Report</h2>
 							<button
 								type="button"
-								onClick={() => setShowModal(false)}
+								onClick={() => {
+									setShowModal(false);
+									setShowVersionHistory(false);
+									setViewingVersionData(null);
+								}}
 								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
 								aria-label="Close"
 							>
@@ -549,9 +625,22 @@ export default function Reports() {
 							</button>
 						</header>
 						<div className="flex-1 overflow-y-auto px-6 py-6">
+							{!selectedPatient ? (
+								<div className="text-center py-12">
+									<div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-slate-900 border-r-transparent"></div>
+									<p className="mt-4 text-sm text-slate-600">Loading patient data...</p>
+								</div>
+							) : (
 							<div className="section-card">
 								<div className="mb-6 flex items-start justify-between border-b border-slate-200 pb-4">
-									<h3 className="text-xl font-bold text-sky-600">Physiotherapy Report</h3>
+									<div>
+										<h3 className="text-xl font-bold text-sky-600">Physiotherapy Report</h3>
+										{viewingVersionData && (
+											<p className="text-sm text-slate-500 mt-1">
+												Viewing historical version - This is a read-only view
+											</p>
+										)}
+									</div>
 									<div className="text-right text-sm text-slate-600">
 										<div>
 											<b>Clinic:</b> Centre For Sports Science, Kanteerava Stadium
@@ -1023,27 +1112,126 @@ export default function Reports() {
 									</div>
 								</div>
 							</div>
+							)}
+						</div>
+						<footer className="flex items-center justify-between border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={handleViewVersionHistory}
+								disabled={!selectedPatient}
+								className="inline-flex items-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+							>
+								<i className="fas fa-history mr-2" aria-hidden="true" />
+								View Versions
+							</button>
+							<div className="flex items-center gap-3">
+								<button
+									type="button"
+									onClick={() => selectedPatient && handleDownloadPDF(selectedPatient)}
+									disabled={!selectedPatient}
+									className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									<i className="fas fa-download mr-2" aria-hidden="true" />
+									Download PDF
+								</button>
+								<button
+									type="button"
+									onClick={handlePrint}
+									disabled={!selectedPatient}
+									className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									<i className="fas fa-print mr-2" aria-hidden="true" />
+									Print Report
+								</button>
+								<button
+									type="button"
+									onClick={() => {
+										setShowModal(false);
+										setShowVersionHistory(false);
+									}}
+									className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
+								>
+									Close
+								</button>
+							</div>
+						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Version History Modal */}
+			{showVersionHistory && selectedPatient && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="flex w-full max-w-4xl max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<h2 className="text-lg font-semibold text-slate-900">
+								Report Versions - {selectedPatient.name} ({selectedPatient.patientId})
+							</h2>
+							<button
+								type="button"
+								onClick={() => setShowVersionHistory(false)}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
+								aria-label="Close"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="flex-1 overflow-y-auto p-6">
+							{loadingVersions ? (
+								<div className="text-center py-12">
+									<div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-slate-900 border-r-transparent"></div>
+									<p className="mt-4 text-sm text-slate-600">Loading report history...</p>
+								</div>
+							) : versionHistory.length === 0 ? (
+								<div className="text-center py-12">
+									<p className="text-slate-600">No report history available for this patient.</p>
+									<p className="text-sm text-slate-500 mt-2">Previous reports will appear here when you save changes to the report.</p>
+								</div>
+							) : (
+								<div className="space-y-4">
+									{versionHistory.map((version) => (
+										<div
+											key={version.id}
+											className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition"
+										>
+											<div className="flex items-center justify-between mb-3">
+												<div className="flex-1">
+													<div className="flex items-center gap-2">
+														<span className="font-semibold text-slate-900">Report #{version.version}</span>
+														{version.version === versionHistory[0]?.version && (
+															<span className="px-2 py-1 text-xs font-medium bg-sky-100 text-sky-700 rounded">
+																Latest
+															</span>
+														)}
+													</div>
+													<p className="text-sm text-slate-600 mt-1">
+														Saved by {version.createdBy} on{' '}
+														{new Date(version.createdAt).toLocaleString()}
+													</p>
+													<div className="text-xs text-slate-500 mt-1">
+														<p>Version ID: {version.id}</p>
+													</div>
+												</div>
+												<div className="ml-4">
+													<button
+														type="button"
+														onClick={() => handleViewVersion(version)}
+														className="inline-flex items-center rounded-lg border border-sky-600 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
+													>
+														<i className="fas fa-eye mr-1.5" aria-hidden="true" />
+														View Report
+													</button>
+												</div>
+											</div>
+										</div>
+									))}
+								</div>
+							)}
 						</div>
 						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
 							<button
 								type="button"
-								onClick={() => selectedPatient && handleDownloadPDF(selectedPatient)}
-								className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
-							>
-								<i className="fas fa-download mr-2" aria-hidden="true" />
-								Download PDF
-							</button>
-							<button
-								type="button"
-								onClick={handlePrint}
-								className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
-							>
-								<i className="fas fa-print mr-2" aria-hidden="true" />
-								Print Report
-							</button>
-							<button
-								type="button"
-								onClick={() => setShowModal(false)}
+								onClick={() => setShowVersionHistory(false)}
 								className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
 							>
 								Close
