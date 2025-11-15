@@ -1082,7 +1082,38 @@ export default function EditReport() {
 		const payload = buildReportPayload();
 		if (!payload) return;
 
-		await generatePhysiotherapyReportPDF(payload);
+		const pdfDataUrl = await generatePhysiotherapyReportPDF(payload, { forPrint: true });
+		if (!pdfDataUrl) return;
+
+		// Open PDF in new window for printing
+		const printWindow = window.open();
+		if (!printWindow) {
+			alert('Please allow pop-ups to print the report');
+			return;
+		}
+
+		printWindow.document.write(`
+			<html>
+				<head>
+					<title>Print Report</title>
+					<style>
+						body { margin: 0; padding: 0; }
+						iframe { width: 100%; height: 100vh; border: none; }
+					</style>
+				</head>
+				<body>
+					<iframe src="${pdfDataUrl}"></iframe>
+					<script>
+						window.onload = function() {
+							setTimeout(function() {
+								window.print();
+							}, 500);
+						};
+					</script>
+				</body>
+			</html>
+		`);
+		printWindow.document.close();
 	};
 
 	return (
@@ -1515,13 +1546,38 @@ export default function EditReport() {
 											className="block w-full text-xs text-slate-600 file:mr-4 file:rounded-full file:border-0 file:bg-sky-50 file:px-3 file:py-1 file:text-sm file:font-semibold file:text-sky-700 hover:file:bg-sky-100"
 										/>
 										{formData.postureFileName && (
-											<a
-												className="text-xs text-sky-600 underline"
-												href={formData.postureFileData}
-												download={formData.postureFileName}
-											>
-												Download {formData.postureFileName}
-											</a>
+											<div className="flex items-center gap-2">
+												<span className="text-xs text-slate-600">{formData.postureFileName}</span>
+												<button
+													type="button"
+													onClick={() => {
+														if (formData.postureFileData) {
+															const viewWindow = window.open();
+															if (viewWindow) {
+																viewWindow.document.write(`
+																	<html>
+																		<head>
+																			<title>${formData.postureFileName}</title>
+																			<style>
+																				body { margin: 0; padding: 0; }
+																				iframe { width: 100%; height: 100vh; border: none; }
+																			</style>
+																		</head>
+																		<body>
+																			<iframe src="${formData.postureFileData}"></iframe>
+																		</body>
+																	</html>
+																`);
+																viewWindow.document.close();
+															}
+														}
+													}}
+													className="inline-flex items-center gap-1 rounded-md bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-200"
+												>
+													<i className="fas fa-eye" />
+													View PDF
+												</button>
+											</div>
 										)}
 									</div>
 								)}
@@ -1570,13 +1626,38 @@ export default function EditReport() {
 											className="block w-full text-xs text-slate-600 file:mr-4 file:rounded-full file:border-0 file:bg-sky-50 file:px-3 file:py-1 file:text-sm file:font-semibold file:text-sky-700 hover:file:bg-sky-100"
 										/>
 										{formData.gaitFileName && (
-											<a
-												className="text-xs text-sky-600 underline"
-												href={formData.gaitFileData}
-												download={formData.gaitFileName}
-											>
-												Download {formData.gaitFileName}
-											</a>
+											<div className="flex items-center gap-2">
+												<span className="text-xs text-slate-600">{formData.gaitFileName}</span>
+												<button
+													type="button"
+													onClick={() => {
+														if (formData.gaitFileData) {
+															const viewWindow = window.open();
+															if (viewWindow) {
+																viewWindow.document.write(`
+																	<html>
+																		<head>
+																			<title>${formData.gaitFileName}</title>
+																			<style>
+																				body { margin: 0; padding: 0; }
+																				iframe { width: 100%; height: 100vh; border: none; }
+																			</style>
+																		</head>
+																		<body>
+																			<iframe src="${formData.gaitFileData}"></iframe>
+																		</body>
+																	</html>
+																`);
+																viewWindow.document.close();
+															}
+														}
+													}}
+													className="inline-flex items-center gap-1 rounded-md bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-200"
+												>
+													<i className="fas fa-eye" />
+													View PDF
+												</button>
+											</div>
 										)}
 									</div>
 								)}

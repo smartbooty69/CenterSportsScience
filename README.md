@@ -1,36 +1,173 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Center Sports Science - Clinical Management System
+
+A comprehensive healthcare management system for physiotherapy and sports science clinics, built with Next.js, React, and Firebase.
+
+## Features
+
+### Clinical Team Dashboard
+
+The Clinical Team dashboard provides a complete suite of tools for healthcare professionals to manage their patients, appointments, and schedules.
+
+#### 1. Dashboard Overview
+- **Statistics Cards**: Quick view of Active Caseload, Awaiting Start patients, Today's Sessions, and Completed appointments
+- **Quick Actions**: Direct access to Calendar, Reports, Availability, and Patient Transfer
+- **Daily Operations**: Today's timeline view and action items
+- **Real-time Updates**: All data syncs automatically with Firestore
+
+#### 2. Calendar & Appointments
+- **Full Calendar View**: Month, Week, and Day views using FullCalendar
+- **Patient Information**: Displays patient names and appointment times directly on calendar events
+- **Availability Display**: Shows staff availability schedules on the calendar
+- **Drag & Drop Rescheduling**: Easily reschedule appointments by dragging events
+- **Appointment Details**: Click any appointment to view full details
+- **Notification Center**: Upcoming appointment reminders
+
+#### 3. View & Edit Reports
+- **Patient Filtering**: Only shows patients assigned to the current staff member
+- **Complete Physiotherapy Reports**: Comprehensive report forms including:
+  - Patient history (present, past, surgical)
+  - Medical investigations (X-ray, MRI, CT, Reports)
+  - Personal history (smoking, drinking, sleep, hydration, nutrition)
+  - Pain assessment (VAS scale, type, aggravating/relieving factors)
+  - **Range of Motion (ROM) Assessment**: Full ROM evaluation for all joints
+  - Manual Muscle Testing (MMT)
+  - Treatment plans and follow-up visits
+  - Clinical diagnosis and recommendations
+- **PDF Generation**: Generate professional physiotherapy report PDFs
+- **Auto-save**: Changes are saved automatically
+
+#### 4. My Availability
+- **Full Month Calendar View**: See and manage availability for entire months
+- **Date-Specific Scheduling**: Set different availability for specific dates
+- **Auto-save**: All changes save automatically to Firestore
+- **Copy to Month**: Quickly copy a day's schedule to all days in the month
+- **Remove Schedule**: Easily remove availability for specific dates
+
+#### 5. Transfer Patients
+- **Assigned Patients Only**: Shows only patients assigned to current staff member
+- **Transfer to Other Therapists**: Transfer patient care to another clinician
+- **Transfer History**: Track all patient transfers with timestamps and reasons
+- **Status Filtering**: Filter by patient status (pending, ongoing, completed, cancelled)
+
+### Front Desk Dashboard
+
+Comprehensive front desk management system for patient registration, appointment scheduling, and administrative tasks.
+
+### Admin Dashboard
+
+Full administrative control panel for managing staff, patients, appointments, billing, and system configuration.
+
+## Technology Stack
+
+- **Framework**: Next.js 16.0.1 (with Turbopack)
+- **UI Library**: React 18
+- **Database**: Firebase Firestore
+- **Authentication**: Firebase Auth
+- **Calendar**: FullCalendar
+- **Styling**: Tailwind CSS
+- **PDF Generation**: jsPDF
+
+## Key Features
+
+### Real-time Data Synchronization
+- All components use Firestore `onSnapshot` listeners for real-time updates
+- Changes made by one user are immediately visible to others
+
+### Role-Based Access Control
+- **Clinical Team**: Access to patient care tools, reports, and schedules
+- **Front Desk**: Patient registration and appointment management
+- **Admin**: Full system access and configuration
+
+### Patient Assignment System
+- Patients are assigned to specific clinicians
+- Clinical team members only see their assigned patients
+- Easy patient transfer between clinicians
+
+### Notification System
+- Email notifications for appointment status changes
+- SMS notifications for cancellations
+- Notifications sent to both patients and staff members
+- Automated appointment reminders (via API endpoint)
+
+### Availability Management
+- Date-specific availability scheduling
+- Visual calendar display of availability
+- Integration with appointment booking system
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+- Node.js 18+ 
+- npm or yarn
+- Firebase project with Firestore enabled
 
+### Installation
+
+1. Clone the repository
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <repository-url>
+cd CenterSportsScience
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Set up environment variables
+Create a `.env.local` file with your Firebase configuration:
+```
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Run the development server
+```bash
+npm run dev
+```
 
-## Learn More
+5. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-To learn more about Next.js, take a look at the following resources:
+## Project Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+├── app/                    # Next.js app directory
+│   ├── clinical-team/     # Clinical team routes
+│   ├── frontdesk/         # Front desk routes
+│   └── admin/             # Admin routes
+├── components/            # React components
+│   ├── clinical-team/    # Clinical team components
+│   ├── frontdesk/        # Front desk components
+│   └── admin/            # Admin components
+├── lib/                   # Utility functions
+│   ├── firebase.ts       # Firebase configuration
+│   ├── email.ts          # Email notification functions
+│   ├── sms.ts            # SMS notification functions
+│   └── pdfGenerator.ts   # PDF generation
+└── contexts/             # React contexts
+    └── AuthContext.tsx   # Authentication context
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Recent Updates
 
-## Deploy on Vercel
+### Clinical Team Dashboard Enhancements
+- ✅ Added full month view for availability scheduling
+- ✅ Integrated availability display on calendar
+- ✅ Added patient name and time display on calendar events
+- ✅ Implemented notifications for completed/cancelled appointments
+- ✅ Filtered reports and transfers to show only assigned patients
+- ✅ Removed separate ROM Assessment section (now integrated in reports)
+- ✅ Fixed remove schedule functionality
+- ✅ Auto-save for all availability changes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Contributing
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This is a private project. For questions or issues, please contact the development team.
+
+## License
+
+Proprietary - All rights reserved
