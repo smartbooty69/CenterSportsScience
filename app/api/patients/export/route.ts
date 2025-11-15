@@ -11,8 +11,23 @@ async function requireAdmin(request: NextRequest) {
 	const token = auth.slice('Bearer '.length).trim();
 	try {
 		const decoded = await authAdmin.verifyIdToken(token);
-		const role = (decoded as any).role || (decoded as any).claims?.role;
-		if (role !== 'admin') {
+		let role = (decoded as any).role || (decoded as any).claims?.role;
+		
+		// If role not in token claims, check Firestore profile
+		if (!role || (role !== 'Admin' && role !== 'admin')) {
+			try {
+				const userDoc = await dbAdmin.collection('users').doc(decoded.uid).get();
+				if (userDoc.exists) {
+					const userData = userDoc.data();
+					role = userData?.role;
+				}
+			} catch (firestoreError) {
+				console.error('Failed to check Firestore for role', firestoreError);
+			}
+		}
+		
+		// Check for 'Admin' (capitalized) to match the app's role naming convention
+		if (role !== 'Admin' && role !== 'admin') {
 			return { ok: false, status: 403, message: 'Forbidden: admin role required' as const };
 		}
 		return { ok: true as const, uid: decoded.uid };

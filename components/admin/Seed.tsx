@@ -328,7 +328,10 @@ export default function Seed() {
 							'Content-Type': 'application/json',
 							Authorization: `Bearer ${token}`,
 						},
-						body: JSON.stringify(testUser),
+						body: JSON.stringify({
+							...testUser,
+							requestingUserRole: user?.role || 'Admin', // Pass the current user's role
+						}),
 					});
 
 					const result = await response.json();
@@ -538,6 +541,10 @@ export default function Seed() {
 							<p className="mb-3 text-xs text-blue-700">
 								Create 3 test user accounts for accessing different dashboards. These users will be created in Firebase Authentication.
 							</p>
+							<div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+								<i className="fas fa-info-circle mr-2" aria-hidden="true" />
+								<strong>Note:</strong> Firebase Admin SDK credentials are required. If you see credential errors, please set up Firebase Admin SDK or create users manually in Firebase Console (see TEST_USERS.md for instructions).
+							</div>
 							<button
 								type="button"
 								onClick={handleCreateTestUsers}
@@ -564,6 +571,15 @@ export default function Seed() {
 							{testUsersError && (
 								<div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
 									<strong>Error:</strong> {testUsersError}
+									{testUsersError.includes('Credential') && (
+										<div className="mt-2 rounded border border-red-300 bg-red-100 p-2">
+											<p className="font-semibold">Firebase Admin SDK not configured.</p>
+											<p className="mt-1">To use automated user creation, set up Firebase Admin SDK credentials. Otherwise, create users manually in Firebase Console.</p>
+											<p className="mt-2">
+												<strong>Quick manual setup:</strong> See <code className="bg-red-200 px-1 rounded">TEST_USERS.md</code> for step-by-step instructions.
+											</p>
+										</div>
+									)}
 								</div>
 							)}
 						</div>
@@ -622,6 +638,7 @@ export default function Seed() {
 								</div>
 							</div>
 						</div>
+					</div>
 					</div>
 				</section>
 

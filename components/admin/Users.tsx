@@ -11,8 +11,9 @@ import {
 	updateDoc,
 } from 'firebase/firestore';
 
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import { useAuth } from '@/contexts/AuthContext';
 
 type EmployeeRole = 'FrontDesk' | 'ClinicalTeam' | 'Admin';
 type EmployeeStatus = 'Active' | 'Inactive';
@@ -65,6 +66,7 @@ function formatDate(iso?: string | null) {
 }
 
 export default function Users() {
+	const { user } = useAuth();
 	const [employees, setEmployees] = useState<Employee[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
@@ -213,19 +215,81 @@ export default function Users() {
 		setSaving(true);
 		try {
 			if (editingEmployee) {
+				// Update existing employee
 				await updateDoc(doc(db, 'staff', editingEmployee.id), {
 					userName: trimmedName,
 					role: formState.userRole,
 					status: formState.userStatus,
 				});
 			} else {
-				await addDoc(collection(db, 'staff'), {
-					userName: trimmedName,
-					userEmail: trimmedEmail,
-					role: formState.userRole,
-					status: formState.userStatus,
-					createdAt: serverTimestamp(),
-				});
+				// Create new employee - need to create auth user and user profile first
+				try {
+					// Get admin token for API call
+					const token = await auth.currentUser?.getIdToken();
+					if (!token) {
+						throw new Error('Unable to get authentication token. Please log in again.');
+					}
+
+					// Create Firebase Authentication user and user profile via API
+					const response = await fetch('/api/admin/users', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							Authorization: `Bearer ${token}`,
+						},
+						body: JSON.stringify({
+							email: trimmedEmail,
+							password: trimmedPassword,
+							displayName: trimmedName,
+							role: formState.userRole,
+							requestingUserRole: user?.role || 'Admin',
+						}),
+					});
+
+					const result = await response.json();
+
+					if (!response.ok) {
+						// Check if user already exists
+						if (result.message?.includes('already exists') || result.message?.includes('email')) {
+							// User exists, continue to create staff record
+							console.warn('User already exists in Firebase Auth, creating staff record only');
+						} else {
+							throw new Error(result.message || 'Failed to create user account');
+						}
+					}
+
+					// Create staff record in Firestore
+					await addDoc(collection(db, 'staff'), {
+						userName: trimmedName,
+						userEmail: trimmedEmail,
+						role: formState.userRole,
+						status: formState.userStatus,
+						createdAt: serverTimestamp(),
+					});
+				} catch (apiError: any) {
+					// If API fails (e.g., Admin SDK not configured), fall back to creating staff record only
+					// and show a warning that user needs to be created manually
+					console.warn('Failed to create auth user via API, creating staff record only:', apiError);
+					
+					// Still create the staff record
+					await addDoc(collection(db, 'staff'), {
+						userName: trimmedName,
+						userEmail: trimmedEmail,
+						role: formState.userRole,
+						status: formState.userStatus,
+						createdAt: serverTimestamp(),
+					});
+
+					// Show warning about manual user creation
+					setError(
+						`Staff record created, but user account could not be created automatically. ` +
+						`Please create the Firebase Authentication user manually in Firebase Console ` +
+						`(email: ${trimmedEmail}, password: ${trimmedPassword}) and add a user profile in the 'users' collection. ` +
+						`Error: ${apiError?.message || 'Unknown error'}`
+					);
+					// Don't close dialog so user can see the error
+					return;
+				}
 			}
 			closeDialog();
 		} catch (err) {
