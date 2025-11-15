@@ -748,7 +748,7 @@ export default function Calendar() {
 			<div className="min-h-svh bg-slate-50 px-6 py-10">
 				<div className="mx-auto max-w-6xl">
 					<div className="py-12 text-center text-sm text-slate-500">
-						<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+						<div className="loading-spinner" aria-hidden="true" />
 						<span className="ml-3 align-middle">Loading calendar...</span>
 					</div>
 				</div>

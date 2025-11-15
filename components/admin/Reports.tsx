@@ -53,10 +53,10 @@ const dateRangeOptions: Array<{ value: DateFilter; label: string }> = [
 ];
 
 const statusBadgeClasses: Record<AdminPatientStatus, string> = {
-	pending: 'bg-amber-100 text-amber-700',
-	ongoing: 'bg-sky-100 text-sky-700',
-	completed: 'bg-emerald-100 text-emerald-700',
-	cancelled: 'bg-rose-100 text-rose-600',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
 const capitalize = (value?: string | null) => {

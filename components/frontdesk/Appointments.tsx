@@ -29,10 +29,10 @@ interface FrontdeskAppointment {
 
 
 const STATUS_BADGES: Record<AdminAppointmentStatus, string> = {
-	pending: 'bg-amber-100 text-amber-700',
-	ongoing: 'bg-sky-100 text-sky-700',
-	completed: 'bg-emerald-100 text-emerald-700',
-	cancelled: 'bg-rose-100 text-rose-600',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
 const STATUS_OPTIONS: Array<{ value: AppointmentStatusFilter; label: string }> = [
@@ -56,6 +56,7 @@ interface StaffMember {
 	userName: string;
 	role: string;
 	status: string;
+	userEmail?: string;
 	availability?: {
 		[day: string]: {
 			enabled: boolean;
@@ -175,6 +176,7 @@ export default function Appointments() {
 						userName: data.userName ? String(data.userName) : '',
 						role: data.role ? String(data.role) : '',
 						status: data.status ? String(data.status) : '',
+						userEmail: data.userEmail ? String(data.userEmail) : undefined,
 						availability: data.availability as StaffMember['availability'],
 					} as StaffMember;
 				});
@@ -273,6 +275,7 @@ export default function Appointments() {
 
 		const oldStatus = appointment.status;
 		const patientDetails = patients.find(p => p.patientId === appointment.patientId);
+		const staffMember = staff.find(s => s.userName === appointment.doctor);
 
 		setUpdating(prev => ({ ...prev, [appointment.id]: true }));
 		try {
@@ -281,38 +284,39 @@ export default function Appointments() {
 				status,
 			});
 
-			// Send email notification if status changed and patient has email
-			if (oldStatus !== status && patientDetails?.email) {
-				try {
-					const template = status === 'cancelled' ? 'appointment-cancelled' : 'appointment-status-changed';
-					await sendEmailNotification({
-						to: patientDetails.email,
-						subject: status === 'cancelled' 
-							? `Appointment Cancelled - ${appointment.date}`
-							: `Appointment Status Update - ${status}`,
-						template,
-						data: {
-							patientName: appointment.patient,
-							patientEmail: patientDetails.email,
-							patientId: appointment.patientId,
-							doctor: appointment.doctor,
-							date: appointment.date,
-							time: appointment.time,
-							appointmentId: appointment.appointmentId,
-							status: status.charAt(0).toUpperCase() + status.slice(1),
-						},
-					});
-				} catch (emailError) {
-					// Log error but don't fail status update
-					console.error('Failed to send status change email:', emailError);
+			// Only send notifications for completed or cancelled status changes
+			if (oldStatus !== status && (status === 'completed' || status === 'cancelled')) {
+				const statusCapitalized = status.charAt(0).toUpperCase() + status.slice(1);
+				const template = status === 'cancelled' ? 'appointment-cancelled' : 'appointment-status-changed';
+				
+				// Send notification to patient
+				if (patientDetails?.email) {
+					try {
+						await sendEmailNotification({
+							to: patientDetails.email,
+							subject: status === 'cancelled' 
+								? `Appointment Cancelled - ${appointment.date}`
+								: `Appointment ${statusCapitalized} - ${appointment.date}`,
+							template,
+							data: {
+								patientName: appointment.patient,
+								patientEmail: patientDetails.email,
+								patientId: appointment.patientId,
+								doctor: appointment.doctor,
+								date: appointment.date,
+								time: appointment.time,
+								appointmentId: appointment.appointmentId,
+								status: statusCapitalized,
+							},
+						});
+					} catch (emailError) {
+						console.error('Failed to send status change email to patient:', emailError);
+					}
 				}
-			}
 
-			// Send SMS notification if status changed and patient has valid phone
-			if (oldStatus !== status && patientDetails?.phone && isValidPhoneNumber(patientDetails.phone)) {
-				try {
-					if (status === 'cancelled') {
-						// Send cancellation SMS
+				// Send SMS to patient if cancelled
+				if (status === 'cancelled' && patientDetails?.phone && isValidPhoneNumber(patientDetails.phone)) {
+					try {
 						await sendSMSNotification({
 							to: patientDetails.phone,
 							template: 'appointment-cancelled',
@@ -326,12 +330,32 @@ export default function Appointments() {
 								appointmentId: appointment.appointmentId,
 							},
 						});
+					} catch (smsError) {
+						console.error('Failed to send cancellation SMS to patient:', smsError);
 					}
-					// Note: We don't have an SMS template for other status changes (ongoing, completed)
-					// Only sending SMS for cancellations as per available templates
-				} catch (smsError) {
-					// Log error but don't fail status update
-					console.error('Failed to send status change SMS:', smsError);
+				}
+
+				// Send notification to staff member
+				if (staffMember?.userEmail) {
+					try {
+						await sendEmailNotification({
+							to: staffMember.userEmail,
+							subject: `Appointment ${statusCapitalized} - ${appointment.patient} on ${appointment.date}`,
+							template: 'appointment-status-changed',
+							data: {
+								patientName: appointment.patient,
+								patientEmail: staffMember.userEmail, // Using staff email for staff notification
+								patientId: appointment.patientId,
+								doctor: appointment.doctor,
+								date: appointment.date,
+								time: appointment.time,
+								appointmentId: appointment.appointmentId,
+								status: statusCapitalized,
+							},
+						});
+					} catch (emailError) {
+						console.error('Failed to send status change email to staff:', emailError);
+					}
 				}
 			}
 		} catch (error) {
@@ -565,7 +589,7 @@ export default function Appointments() {
 				</div>
 			</section>
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 					<header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 						<div>
 							<h2 className="text-lg font-semibold text-slate-900">Appointment queue</h2>
@@ -576,12 +600,12 @@ export default function Appointments() {
 					</header>
 
 					{loading ? (
-						<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-							<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+						<div className="empty-state-container">
+							<div className="loading-spinner" aria-hidden="true" />
 							<span className="ml-3 align-middle">Loading appointments…</span>
 						</div>
 					) : filtered.length === 0 ? (
-						<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+						<div className="empty-state-container">
 							No appointments match your filters. Try another search or create a booking from the register page.
 						</div>
 					) : (
@@ -687,7 +711,7 @@ export default function Appointments() {
 												<td className="px-4 py-4 text-right">
 													<div className="inline-flex items-center gap-2">
 														<span
-															className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${STATUS_BADGES[appointment.status]}`}
+															className={`badge-base px-3 py-1 ${STATUS_BADGES[appointment.status]}`}
 														>
 															{appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
 														</span>

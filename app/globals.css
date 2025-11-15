@@ -81,4 +81,72 @@ body {
   .icon-wrapper-sky {
     @apply flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 ring-1 ring-sky-200 shadow-sm transition group-hover:-translate-y-0.5;
   }
+
+  .status-badge-pending {
+    @apply bg-amber-100 text-amber-700 ring-1 ring-amber-200;
+  }
+
+  .status-badge-ongoing {
+    @apply bg-sky-100 text-sky-700 ring-1 ring-sky-200;
+  }
+
+  .status-badge-completed {
+    @apply bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200;
+  }
+
+  .status-badge-cancelled {
+    @apply bg-rose-100 text-rose-600 ring-1 ring-rose-200;
+  }
+
+  .badge-base {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold;
+  }
+
+  .empty-state-container {
+    @apply rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500;
+  }
+
+  .section-card {
+    @apply rounded-2xl border border-slate-200 bg-white p-6 shadow-sm;
+  }
+
+  .loading-spinner {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin;
+  }
+
+  .alert-success {
+    @apply rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700;
+  }
+
+  .label-base {
+    @apply block text-sm font-medium text-slate-700;
+  }
+
+  .heading-section {
+    @apply text-lg font-semibold text-slate-900;
+  }
+
+  .page-container {
+    @apply min-h-svh bg-slate-50 px-6 py-10;
+  }
+
+  .divider {
+    @apply border-t border-slate-200;
+  }
+
+  .loading-container {
+    @apply py-12 text-center text-sm text-slate-500;
+  }
+
+  .section-header {
+    @apply mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .alert-info {
+    @apply rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700;
+  }
+
+  .alert-warning {
+    @apply rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700;
+  }
 }

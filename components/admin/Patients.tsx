@@ -872,10 +872,10 @@ export default function Patients() {
 				</section>
 
 				<section className="mx-auto mt-8 max-w-6xl">
-					<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+					<div className="section-card">
 						{loading ? (
 							<div className="py-12 text-center text-sm text-slate-500">
-								<div className="inline-flex h-10 w-10 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+								<div className="loading-spinner h-10 w-10" aria-hidden="true" />
 								<span className="ml-3 align-middle">Loading patients…</span>
 							</div>
 						) : filteredPatients.length === 0 ? (
@@ -929,7 +929,7 @@ export default function Patients() {
 												<td className="px-4 py-4">
 													<span
 														className={[
-															'inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold',
+															'badge-base px-3 py-1',
 															patient.status === 'completed'
 															? 'bg-emerald-100 text-emerald-700'
 															: patient.status === 'ongoing'

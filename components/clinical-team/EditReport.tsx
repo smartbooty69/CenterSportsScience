@@ -5,6 +5,7 @@ import { collection, doc, onSnapshot, updateDoc, serverTimestamp, type QuerySnap
 import { useRouter } from 'next/navigation';
 
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import type { AdminGenderOption, AdminPatientStatus } from '@/lib/adminMockData';
 import { generatePhysiotherapyReportPDF, type PatientReportData } from '@/lib/pdfGenerator';
 
@@ -235,8 +236,13 @@ function getPersonalHistoryText(p: PatientRecord): string {
 	return items.join(', ') || 'N/A';
 }
 
+function normalize(value?: string | null) {
+	return value?.trim().toLowerCase() ?? '';
+}
+
 export default function EditReport() {
 	const router = useRouter();
+	const { user } = useAuth();
 	const [patientIdParam, setPatientIdParam] = useState<string | null>(null);
 
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
@@ -253,6 +259,8 @@ export default function EditReport() {
 	const hydrationValue = Number(formData.hydration || '4');
 	const hydrationEmoji =
 		HYDRATION_EMOJIS[Math.min(HYDRATION_EMOJIS.length - 1, Math.max(1, hydrationValue) - 1)];
+
+	const clinicianName = useMemo(() => normalize(user?.displayName ?? ''), [user?.displayName]);
 
 	// Get patientId from URL on client side
 	useEffect(() => {
@@ -385,16 +393,23 @@ export default function EditReport() {
 	}, [patientIdParam, patients, selectedPatient]);
 
 	const filteredPatients = useMemo(() => {
+		// First filter by assigned doctor (only show patients assigned to current staff member)
+		const assignedPatients = clinicianName
+			? patients.filter(patient => normalize(patient.assignedDoctor) === clinicianName)
+			: patients;
+
+		// Then filter by search term
 		const query = searchTerm.trim().toLowerCase();
-		return patients.filter(patient => {
-			if (!query) return true;
+		if (!query) return assignedPatients;
+		
+		return assignedPatients.filter(patient => {
 			return (
 				(patient.name || '').toLowerCase().includes(query) ||
 				(patient.patientId || '').toLowerCase().includes(query) ||
 				(patient.phone || '').toLowerCase().includes(query)
 			);
 		});
-	}, [patients, searchTerm]);
+	}, [patients, searchTerm, clinicianName]);
 
 	const handleSelectPatient = (patient: PatientRecord) => {
 		setSelectedPatient(patient);
@@ -909,7 +924,7 @@ export default function EditReport() {
 						</p>
 					</header>
 
-					<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+					<section className="section-card">
 						<div className="mb-4">
 							<label className="block text-sm font-medium text-slate-700">Search patients</label>
 							<input
@@ -923,7 +938,7 @@ export default function EditReport() {
 
 						{loading ? (
 							<div className="py-12 text-center text-sm text-slate-500">
-								<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+								<div className="loading-spinner" aria-hidden="true" />
 								<span className="ml-3 align-middle">Loading patients…</span>
 							</div>
 						) : filteredPatients.length === 0 ? (
@@ -1096,13 +1111,13 @@ export default function EditReport() {
 				</header>
 
 				{savedMessage && (
-					<div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+					<div className="mb-6 alert-success">
 						<i className="fas fa-check mr-2" aria-hidden="true" />
 						Report saved successfully!
 					</div>
 				)}
 
-				<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<div className="section-card">
 					{/* Patient Information */}
 					<div className="mb-8 border-b border-slate-200 pb-6">
 						<h2 className="mb-4 text-xl font-bold text-sky-600">Physiotherapy Report</h2>

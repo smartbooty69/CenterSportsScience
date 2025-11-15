@@ -66,10 +66,10 @@ interface AssignmentState {
 
 
 const STATUS_STYLES: Record<AdminPatientStatus, string> = {
-	pending: 'bg-amber-100 text-amber-700',
-	ongoing: 'bg-sky-100 text-sky-700',
-	completed: 'bg-emerald-100 text-emerald-700',
-	cancelled: 'bg-rose-100 text-rose-600',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
 const BANNER_STYLES: Record<NonNullable<BannerState['accent']>, string> = {
@@ -594,7 +594,7 @@ export default function Register() {
 					</div>
 				)}
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 					<form onSubmit={handleRegister} className="space-y-4">
 						{/* Row 1: Full Name (6 cols), DOB (3 cols), Gender (3 cols) */}
 						<div className="grid gap-4 md:grid-cols-12">

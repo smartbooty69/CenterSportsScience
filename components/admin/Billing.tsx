@@ -9,12 +9,15 @@ import {
 } from '@/lib/adminMockData';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import { sendEmailNotification } from '@/lib/email';
+import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 
 interface StaffMember {
 	id: string;
 	userName: string;
 	role: string;
 	status: string;
+	userEmail?: string;
 }
 
 type DateFilter = 'all' | '15' | '30' | '180' | '365';
@@ -151,6 +154,7 @@ export default function Billing() {
 						userName: data.userName ? String(data.userName) : '',
 						role: data.role ? String(data.role) : '',
 						status: data.status ? String(data.status) : '',
+						userEmail: data.userEmail ? String(data.userEmail) : undefined,
 					} as StaffMember;
 				});
 				setStaff(mapped);
@@ -264,6 +268,16 @@ export default function Billing() {
 			return;
 		}
 
+		const appointment = appointments.find(a => a.id === appointmentId);
+		if (!appointment) {
+			alert('Appointment not found.');
+			return;
+		}
+
+		const wasAlreadyCompleted = appointment.status === 'completed';
+		const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
+		const staffMember = staff.find(s => s.userName === appointment.doctor);
+
 		try {
 			await updateDoc(doc(db, 'appointments', appointmentId), {
 				status: 'completed',
@@ -272,6 +286,55 @@ export default function Billing() {
 					date: draft.date,
 				},
 			});
+
+			// Send notifications only if status changed from non-completed to completed
+			if (!wasAlreadyCompleted) {
+				// Send notification to patient
+				if (patient?.email) {
+					try {
+						await sendEmailNotification({
+							to: patient.email,
+							subject: `Appointment Completed - ${appointment.date}`,
+							template: 'appointment-status-changed',
+							data: {
+								patientName: appointment.patient || patient.name,
+								patientEmail: patient.email,
+								patientId: appointment.patientId,
+								doctor: appointment.doctor,
+								date: appointment.date,
+								time: appointment.time,
+								appointmentId: appointment.appointmentId,
+								status: 'Completed',
+							},
+						});
+					} catch (emailError) {
+						console.error('Failed to send completion email to patient:', emailError);
+					}
+				}
+
+				// Send notification to staff member
+				if (staffMember?.userEmail) {
+					try {
+						await sendEmailNotification({
+							to: staffMember.userEmail,
+							subject: `Appointment Completed - ${appointment.patient} on ${appointment.date}`,
+							template: 'appointment-status-changed',
+							data: {
+								patientName: appointment.patient || patient?.name,
+								patientEmail: staffMember.userEmail,
+								patientId: appointment.patientId,
+								doctor: appointment.doctor,
+								date: appointment.date,
+								time: appointment.time,
+								appointmentId: appointment.appointmentId,
+								status: 'Completed',
+							},
+						});
+					} catch (emailError) {
+						console.error('Failed to send completion email to staff:', emailError);
+					}
+				}
+			}
 
 			setPendingDrafts(prev => {
 				const next = { ...prev };

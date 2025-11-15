@@ -27,10 +27,10 @@ interface PatientRecord {
 }
 
 const STATUS_BADGES: Record<'pending' | 'ongoing' | 'completed' | 'cancelled', string> = {
-	pending: 'bg-amber-100 text-amber-700 ring-1 ring-amber-200',
-	ongoing: 'bg-sky-100 text-sky-700 ring-1 ring-sky-200',
-	completed: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200',
-	cancelled: 'bg-rose-100 text-rose-600 ring-1 ring-rose-200',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
 type ModalType = 'patients' | 'pending' | 'ongoing' | 'completed' | null;
@@ -570,7 +570,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 							Monitor today&apos;s activity and access helpful resources.
 						</p>
 						<div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-							<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div className="section-card">
 								<h3 className="text-lg font-semibold text-slate-900">Today&apos;s Snapshot</h3>
 								<p className="mt-1 text-sm text-slate-500">
 									Breakdown of active cases by status to help balance your day.
@@ -614,7 +614,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 								</div>
 							</div>
 
-							<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div className="section-card">
 								<h3 className="text-lg font-semibold text-slate-900">Quick Tips</h3>
 								<ul className="mt-4 space-y-3 text-sm text-slate-600">
 									<li>Confirm pending appointments by noon to keep the clinical team&apos;s schedule accurate.</li>
@@ -682,7 +682,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 														<td className="px-3 py-3 text-sm text-slate-700">{patient.name || '—'}</td>
 														<td className="px-3 py-3">
 															<span
-																className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${badgeClass}`}
+																className={`badge-base px-3 py-1 ${badgeClass}`}
 															>
 																{status.toString().charAt(0).toUpperCase() + status.toString().slice(1)}
 															</span>

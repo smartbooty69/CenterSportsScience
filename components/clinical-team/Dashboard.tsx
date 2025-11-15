@@ -38,10 +38,10 @@ interface AppointmentRecord {
 type ModalView = 'caseload' | 'pending' | 'today' | 'completed' | null;
 
 const STATUS_BADGES: Record<'pending' | 'ongoing' | 'completed' | 'cancelled', string> = {
-	pending: 'bg-amber-100 text-amber-700 ring-1 ring-amber-200',
-	ongoing: 'bg-sky-100 text-sky-700 ring-1 ring-sky-200',
-	completed: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200',
-	cancelled: 'bg-rose-100 text-rose-600 ring-1 ring-rose-200',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
 
@@ -554,7 +554,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 						</p>
 					</div>
 					<div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+						<div className="section-card">
 							<h3 className="text-lg font-semibold text-slate-900">Today's Timeline</h3>
 							<p className="mt-1 text-sm text-slate-500">
 								Review when to expect each session. Click any entry to open details.
@@ -595,7 +595,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 							)}
 						</div>
 
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+						<div className="section-card">
 							<h3 className="text-lg font-semibold text-slate-900">Action Items</h3>
 							<ul className="mt-4 space-y-3 text-sm text-slate-600">
 								<li>Update notes after each completed session so reports stay current.</li>
@@ -661,7 +661,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 														<td className="px-3 py-3 text-sm text-slate-700">{patient.name || '—'}</td>
 														<td className="px-3 py-3">
 															<span
-																className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${STATUS_BADGES[status]}`}
+																className={`badge-base px-3 py-1 ${STATUS_BADGES[status]}`}
 															>
 																{status.charAt(0).toUpperCase() + status.slice(1)}
 															</span>
@@ -703,7 +703,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 														{formatTimeLabel(appointment.date, appointment.time)}
 													</td>
 													<td className="px-3 py-3">
-														<span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
+														<span className="badge-base px-3 py-1 bg-slate-100 text-slate-600 ring-1 ring-slate-200">
 															{(appointment.status ?? 'pending').toString().toUpperCase()}
 														</span>
 													</td>

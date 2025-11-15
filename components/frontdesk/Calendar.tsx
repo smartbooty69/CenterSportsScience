@@ -539,7 +539,7 @@ export default function Calendar() {
 			<div className="min-h-svh bg-slate-50 px-6 py-10">
 				<div className="mx-auto max-w-6xl">
 					<div className="py-12 text-center text-sm text-slate-500">
-						<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+						<div className="loading-spinner" aria-hidden="true" />
 						<span className="ml-3 align-middle">Loading calendar...</span>
 					</div>
 				</div>
@@ -867,7 +867,7 @@ export default function Calendar() {
 												</div>
 												<div className="flex flex-col items-end gap-2">
 													<span
-														className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending}`}
+														className={`badge-base px-2.5 py-0.5 text-white ${statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending}`}
 													>
 														{(event.appointment.status ?? 'pending').toUpperCase()}
 													</span>

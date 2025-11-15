@@ -472,10 +472,10 @@ export default function Reports() {
 
 				<div className="border-t border-slate-200" />
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 				{loading ? (
 					<div className="py-12 text-center text-sm text-slate-500">
-						<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+						<div className="loading-spinner" aria-hidden="true" />
 						<span className="ml-3 align-middle">Loading reports…</span>
 					</div>
 				) : patients.length === 0 ? (
@@ -556,7 +556,7 @@ export default function Reports() {
 							</button>
 						</header>
 						<div className="max-h-[600px] overflow-y-auto px-6 py-6">
-							<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div className="section-card">
 								<div className="mb-6 flex items-start justify-between border-b border-slate-200 pb-4">
 									<h3 className="text-xl font-bold text-sky-600">Physiotherapy Report</h3>
 									<div className="text-right text-sm text-slate-600">

@@ -403,7 +403,7 @@ export default function Billing() {
 
 				<div className="border-t border-slate-200" />
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 				<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 					<div>
 						<label htmlFor="billingFilter" className="block text-sm font-medium text-slate-700">
@@ -426,9 +426,9 @@ export default function Billing() {
 			</section>
 
 			{loading ? (
-				<section className="mx-auto mt-8 max-w-6xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="mx-auto mt-8 max-w-6xl section-card">
 					<div className="py-12 text-center text-sm text-slate-500">
-						<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+						<div className="loading-spinner" aria-hidden="true" />
 						<span className="ml-3 align-middle">Loading billing records…</span>
 					</div>
 				</section>
@@ -639,7 +639,7 @@ export default function Billing() {
 							</button>
 						</header>
 						<div className="max-h-[600px] overflow-y-auto px-6 py-6">
-							<div id="reportCard" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+							<div id="reportCard" className="section-card">
 								<div className="mb-6 flex items-start justify-between border-b border-slate-200 pb-4">
 									<h3 className="text-xl font-bold text-sky-600">Physiotherapy Report</h3>
 									<div className="text-right text-sm text-slate-600">

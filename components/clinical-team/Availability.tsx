@@ -434,7 +434,7 @@ export default function Availability() {
 			<div className="min-h-svh bg-slate-50 px-6 py-10">
 				<div className="mx-auto max-w-4xl">
 					<div className="py-12 text-center text-sm text-slate-500">
-						<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+						<div className="loading-spinner" aria-hidden="true" />
 						<span className="ml-3 align-middle">Loading availability…</span>
 					</div>
 				</div>
@@ -454,14 +454,14 @@ export default function Availability() {
 				</header>
 
 				{savedMessage && (
-					<div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+					<div className="mb-6 alert-success">
 						<i className="fas fa-check mr-2" aria-hidden="true" />
 						Changes saved successfully!
 					</div>
 				)}
 
 				{/* Month Selector */}
-				<div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<div className="mb-6 section-card">
 					<div className="mb-4 flex items-center justify-between">
 						<h3 className="text-lg font-semibold text-slate-900">{getMonthName(selectedMonth)}</h3>
 						<div className="flex items-center gap-3">

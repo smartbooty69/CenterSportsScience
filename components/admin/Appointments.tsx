@@ -24,10 +24,10 @@ const statusLabels: Record<AdminAppointmentStatus, string> = {
 };
 
 const statusChipClasses: Record<AdminAppointmentStatus, string> = {
-	pending: 'bg-amber-100 text-amber-700',
-	ongoing: 'bg-sky-100 text-sky-700',
-	completed: 'bg-emerald-100 text-emerald-700',
-	cancelled: 'bg-rose-100 text-rose-600',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
 interface StaffMember {
@@ -35,6 +35,7 @@ interface StaffMember {
 	userName: string;
 	role: string;
 	status: string;
+	userEmail?: string;
 }
 
 type FirestoreAppointmentRecord = AdminAppointmentRecord & {
@@ -145,6 +146,7 @@ export default function Appointments() {
 						userName: data.userName ? String(data.userName) : '',
 						role: data.role ? String(data.role) : '',
 						status: data.status ? String(data.status) : '',
+						userEmail: data.userEmail ? String(data.userEmail) : undefined,
 					} as StaffMember;
 				});
 				setStaff(mapped);
@@ -224,6 +226,7 @@ export default function Appointments() {
 
 			const oldAppointment = { ...appointment };
 			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
+			const staffMember = staff.find(s => s.userName === (formData.doctor || appointment.doctor));
 
 			const updateData: Record<string, unknown> = {
 				doctor: formData.doctor || null,
@@ -235,13 +238,14 @@ export default function Appointments() {
 
 			await updateDoc(doc(db, 'appointments', editingId), updateData);
 
+			const dateChanged = oldAppointment.date !== formData.date;
+			const timeChanged = oldAppointment.time !== formData.time;
+			const statusChanged = oldAppointment.status !== formData.status;
+			const doctorChanged = oldAppointment.doctor !== formData.doctor;
+			const statusCapitalized = formData.status.charAt(0).toUpperCase() + formData.status.slice(1);
+
 			// Send email notification if patient has email and details changed
 			if (patient?.email && oldAppointment) {
-				const dateChanged = oldAppointment.date !== formData.date;
-				const timeChanged = oldAppointment.time !== formData.time;
-				const statusChanged = oldAppointment.status !== formData.status;
-				const doctorChanged = oldAppointment.doctor !== formData.doctor;
-
 				if (dateChanged || timeChanged || doctorChanged) {
 					// Appointment details updated
 					try {
@@ -261,17 +265,17 @@ export default function Appointments() {
 							},
 						});
 					} catch (emailError) {
-						console.error('Failed to send appointment update email:', emailError);
+						console.error('Failed to send appointment update email to patient:', emailError);
 					}
-				} else if (statusChanged) {
-					// Only status changed
+				} else if (statusChanged && (formData.status === 'completed' || formData.status === 'cancelled')) {
+					// Only status changed to completed or cancelled
 					const template = formData.status === 'cancelled' ? 'appointment-cancelled' : 'appointment-status-changed';
 					try {
 						await sendEmailNotification({
 							to: patient.email,
 							subject: formData.status === 'cancelled'
 								? `Appointment Cancelled - ${formData.date}`
-								: `Appointment Status Update - ${formData.status}`,
+								: `Appointment ${statusCapitalized} - ${formData.date}`,
 							template,
 							data: {
 								patientName: appointment.patient || patient.name,
@@ -281,12 +285,35 @@ export default function Appointments() {
 								date: formData.date,
 								time: formData.time,
 								appointmentId: appointment.appointmentId,
-								status: formData.status.charAt(0).toUpperCase() + formData.status.slice(1),
+								status: statusCapitalized,
 							},
 						});
 					} catch (emailError) {
-						console.error('Failed to send status change email:', emailError);
+						console.error('Failed to send status change email to patient:', emailError);
 					}
+				}
+			}
+
+			// Send notification to staff member if status changed to completed or cancelled
+			if (statusChanged && (formData.status === 'completed' || formData.status === 'cancelled') && staffMember?.userEmail) {
+				try {
+					await sendEmailNotification({
+						to: staffMember.userEmail,
+						subject: `Appointment ${statusCapitalized} - ${appointment.patient || patient?.name} on ${formData.date}`,
+						template: 'appointment-status-changed',
+						data: {
+							patientName: appointment.patient || patient?.name,
+							patientEmail: staffMember.userEmail,
+							patientId: appointment.patientId,
+							doctor: formData.doctor || appointment.doctor,
+							date: formData.date,
+							time: formData.time,
+							appointmentId: appointment.appointmentId,
+							status: statusCapitalized,
+						},
+					});
+				} catch (emailError) {
+					console.error('Failed to send status change email to staff:', emailError);
 				}
 			}
 
@@ -407,6 +434,7 @@ export default function Appointments() {
 		try {
 			const appointment = cancelDialog.appointment;
 			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
+			const staffMember = staff.find(s => s.userName === appointment.doctor);
 
 			await updateDoc(doc(db, 'appointments', appointment.id), {
 				status: 'cancelled',
@@ -414,7 +442,7 @@ export default function Appointments() {
 				cancelledAt: new Date().toISOString(),
 			});
 
-			// Send notifications
+			// Send notifications to patient
 			if (patient?.email) {
 				try {
 					await sendEmailNotification({
@@ -433,7 +461,7 @@ export default function Appointments() {
 						},
 					});
 				} catch (emailError) {
-					console.error('Failed to send cancellation email:', emailError);
+					console.error('Failed to send cancellation email to patient:', emailError);
 				}
 			}
 
@@ -453,7 +481,31 @@ export default function Appointments() {
 						},
 					});
 				} catch (smsError) {
-					console.error('Failed to send cancellation SMS:', smsError);
+					console.error('Failed to send cancellation SMS to patient:', smsError);
+				}
+			}
+
+			// Send notification to staff member
+			if (staffMember?.userEmail) {
+				try {
+					await sendEmailNotification({
+						to: staffMember.userEmail,
+						subject: `Appointment Cancelled - ${appointment.patient} on ${appointment.date}`,
+						template: 'appointment-status-changed',
+						data: {
+							patientName: appointment.patient || patient?.name,
+							patientEmail: staffMember.userEmail,
+							patientId: appointment.patientId,
+							doctor: appointment.doctor,
+							date: appointment.date,
+							time: appointment.time,
+							appointmentId: appointment.appointmentId,
+							status: 'Cancelled',
+							reason: reason || undefined,
+						},
+					});
+				} catch (emailError) {
+					console.error('Failed to send cancellation email to staff:', emailError);
 				}
 			}
 		} catch (error) {

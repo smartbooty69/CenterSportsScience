@@ -531,7 +531,7 @@ export default function Seed() {
 					overwritten, but duplicate entries may be created.
 				</div>
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 					<h2 className="mb-4 text-lg font-semibold text-slate-900">Seed Options</h2>
 
 					<div className="space-y-4">
@@ -673,7 +673,7 @@ export default function Seed() {
 					</div>
 				)}
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 					<h2 className="mb-4 text-lg font-semibold text-slate-900">Data Preview</h2>
 					<div className="space-y-4">
 						<div>

@@ -314,7 +314,7 @@ export default function NotificationCenter({
 									<span className="font-medium text-slate-600">{formatAbsolute(reminder.scheduledAt)}</span>
 									<div className="flex items-center gap-2">
 										{reminder.status && (
-											<span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+											<span className="badge-base px-2 py-0.5 bg-slate-100 text-slate-600">
 												{reminder.status.toUpperCase()}
 											</span>
 										)}
@@ -394,7 +394,7 @@ export default function NotificationCenter({
 													<div className="flex-1">
 														<div className="flex flex-wrap items-center gap-2">
 															<span
-																className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_STYLES[record.status]}`}
+																className={`badge-base px-2.5 py-0.5 ${STATUS_STYLES[record.status]}`}
 															>
 																{record.status === 'read' ? 'READ' : 'UNREAD'}
 															</span>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, updateDoc, addDoc, serverTimestamp, Timestamp, type QuerySnapshot } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/PageHeader';
 import type { AdminPatientStatus } from '@/lib/adminMockData';
 import TransferConfirmationDialog from '@/components/transfers/TransferConfirmationDialog';
@@ -41,15 +42,19 @@ interface ConfirmationState {
 	newTherapist: string;
 }
 
-
 const STATUS_BADGES: Record<AdminPatientStatus, string> = {
-	pending: 'bg-amber-100 text-amber-700 ring-1 ring-amber-200',
-	ongoing: 'bg-sky-100 text-sky-700 ring-1 ring-sky-200',
-	completed: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200',
-	cancelled: 'bg-rose-100 text-rose-600 ring-1 ring-rose-200',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
+function normalize(value?: string | null) {
+	return value?.trim().toLowerCase() ?? '';
+}
+
 export default function Transfer() {
+	const { user } = useAuth();
 	const [patients, setPatients] = useState<PatientRecord[]>([]);
 	const [therapists, setTherapists] = useState<Therapist[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -65,6 +70,8 @@ export default function Transfer() {
 		newTherapist: '',
 	});
 	const [transferHistory, setTransferHistory] = useState<TransferHistory[]>([]);
+
+	const clinicianName = useMemo(() => normalize(user?.displayName ?? ''), [user?.displayName]);
 
 	// Load patients from Firestore
 	useEffect(() => {
@@ -147,8 +154,14 @@ export default function Transfer() {
 	}, []);
 
 	const filteredPatients = useMemo(() => {
+		// First filter by assigned doctor (only show patients assigned to current staff member)
+		const assignedPatients = clinicianName
+			? patients.filter(patient => normalize(patient.assignedDoctor) === clinicianName)
+			: patients;
+
+		// Then apply other filters
 		const query = searchTerm.trim().toLowerCase();
-		return patients.filter(patient => {
+		return assignedPatients.filter(patient => {
 			const matchesSearch =
 				!query ||
 				patient.name.toLowerCase().includes(query) ||
@@ -161,7 +174,7 @@ export default function Transfer() {
 
 			return matchesSearch && matchesStatus && matchesTherapist;
 		});
-	}, [patients, searchTerm, statusFilter, therapistFilter]);
+	}, [patients, searchTerm, statusFilter, therapistFilter, clinicianName]);
 
 	// Load transfer history
 	useEffect(() => {
@@ -308,13 +321,13 @@ export default function Transfer() {
 				<div className="border-t border-slate-200" />
 
 				{successMessage && (
-					<div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+					<div className="alert-success">
 						<i className="fas fa-check-circle mr-2" aria-hidden="true" />
 						{successMessage}
 					</div>
 				)}
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 					<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-3">
 						<div>
 							<label htmlFor="search-patients" className="block text-sm font-medium text-slate-700">
@@ -371,7 +384,7 @@ export default function Transfer() {
 				{/* Two Column Layout: Patient Transfers and History */}
 				<div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
 					{/* Left Column: Patient Transfers */}
-					<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+					<section className="section-card">
 						<header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 							<div>
 								<h2 className="text-lg font-semibold text-slate-900">Patient Transfers</h2>
@@ -394,12 +407,12 @@ export default function Transfer() {
 						</header>
 
 						{loading ? (
-							<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-								<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+							<div className="empty-state-container">
+								<div className="loading-spinner" aria-hidden="true" />
 								<span className="ml-3 align-middle">Loading patients…</span>
 							</div>
 						) : filteredPatients.length === 0 ? (
-							<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+							<div className="empty-state-container">
 								No patients match your filters. Try adjusting your search criteria.
 							</div>
 						) : (
@@ -417,7 +430,7 @@ export default function Transfer() {
 												<div className="flex items-center gap-3">
 													<h3 className="text-base font-semibold text-slate-900">{patient.name}</h3>
 													<span
-														className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_BADGES[patient.status]}`}
+														className={`badge-base ${STATUS_BADGES[patient.status]}`}
 													>
 														{patient.status.charAt(0).toUpperCase() + patient.status.slice(1)}
 													</span>
@@ -490,7 +503,7 @@ export default function Transfer() {
 
 					{/* Right Column: Transfer History */}
 					{transferHistory.length > 0 && (
-						<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:sticky lg:top-6 lg:h-fit">
+						<section className="section-card lg:sticky lg:top-6 lg:h-fit">
 							<header className="mb-4">
 								<h2 className="text-lg font-semibold text-slate-900">Recent Transfer History</h2>
 								<p className="text-sm text-slate-500">View recent patient transfers</p>
@@ -519,7 +532,9 @@ export default function Transfer() {
 											</div>
 										</div>
 										<div className="text-xs text-slate-500 whitespace-nowrap shrink-0">
-											{new Date(transfer.transferredAt).toLocaleDateString()}
+											{transfer.transferredAt instanceof Timestamp
+												? transfer.transferredAt.toDate().toLocaleDateString()
+												: new Date(transfer.transferredAt).toLocaleDateString()}
 										</div>
 									</div>
 								))}

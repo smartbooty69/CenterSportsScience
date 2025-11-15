@@ -32,10 +32,10 @@ interface FrontdeskPatient {
 }
 
 const STATUS_BADGES: Record<AdminPatientStatus, string> = {
-	pending: 'bg-amber-100 text-amber-700',
-	ongoing: 'bg-sky-100 text-sky-700',
-	completed: 'bg-emerald-100 text-emerald-700',
-	cancelled: 'bg-rose-100 text-rose-600',
+	pending: 'status-badge-pending',
+	ongoing: 'status-badge-ongoing',
+	completed: 'status-badge-completed',
+	cancelled: 'status-badge-cancelled',
 };
 
 const STATUS_OPTIONS: Array<{ value: AdminPatientStatus; label: string }> = [
@@ -349,7 +349,7 @@ export default function Patients() {
 					</div>
 				</section>
 
-				<section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+				<section className="section-card">
 					<header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 						<div>
 							<h2 className="text-lg font-semibold text-slate-900">Patient List</h2>
@@ -360,12 +360,12 @@ export default function Patients() {
 					</header>
 
 					{loading ? (
-						<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-							<div className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 border-t-sky-500 animate-spin" aria-hidden="true" />
+						<div className="empty-state-container">
+							<div className="loading-spinner" aria-hidden="true" />
 							<span className="ml-3 align-middle">Loading patients…</span>
 						</div>
 					) : filteredPatients.length === 0 ? (
-						<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+						<div className="empty-state-container">
 							No patients match your filters. Try adjusting your search or status filter.
 						</div>
 					) : (
@@ -392,7 +392,7 @@ export default function Patients() {
 											<td className="px-4 py-4 text-sm text-slate-600">{patient.email || '—'}</td>
 											<td className="px-4 py-4">
 												<span
-													className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${STATUS_BADGES[patient.status]}`}
+													className={`badge-base px-3 py-1 ${STATUS_BADGES[patient.status]}`}
 												>
 													{patient.status.charAt(0).toUpperCase() + patient.status.slice(1)}
 												</span>

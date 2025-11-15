@@ -8,16 +8,14 @@ import Calendar from '@/components/clinical-team/Calendar';
 import EditReport from '@/components/clinical-team/EditReport';
 import Availability from '@/components/clinical-team/Availability';
 import Transfer from '@/components/clinical-team/Transfer';
-import ROM from '@/components/clinical-team/ROM';
 import { useAuth } from '@/contexts/AuthContext';
 
-type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer' | 'rom';
+type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer';
 
 const clinicalTeamLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-dumbbell' },
 	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-week' },
 	{ href: '#edit-report', label: 'View/Edit Reports', icon: 'fas fa-notes-medical' },
-	{ href: '#rom', label: 'ROM Assessment', icon: 'fas fa-clipboard-check' },
 	{ href: '#availability', label: 'My Availability', icon: 'fas fa-calendar-check' },
 	{ href: '#transfer', label: 'Transfer Patients', icon: 'fas fa-exchange-alt' },
 ];
@@ -72,8 +70,6 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 			setActivePage('availability');
 		} else if (pathname?.includes('/transfer')) {
 			setActivePage('transfer');
-		} else if (pathname?.includes('/rom')) {
-			setActivePage('rom');
 		}
 		// Don't set to dashboard when on base route - let hash navigation handle it
 	}, [pathname]);
@@ -105,8 +101,6 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 				return <Calendar />;
 			case 'edit-report':
 				return <EditReport />;
-			case 'rom':
-				return <ROM />;
 			case 'availability':
 				return <Availability />;
 			case 'transfer':

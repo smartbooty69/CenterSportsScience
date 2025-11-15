@@ -115,7 +115,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 						</p>
 					</div>
 					<div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+						<div className="section-card">
 							<h3 className="text-lg font-semibold text-slate-900">Operational Snapshot</h3>
 							<p className="mt-1 text-sm text-slate-500">
 								Keep tabs on the day-to-day so handoffs stay smooth across teams.
@@ -135,7 +135,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 								</li>
 							</ul>
 						</div>
-						<div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+						<div className="section-card">
 							<h3 className="text-lg font-semibold text-slate-900">Need A Quick Link?</h3>
 							<ul className="mt-4 space-y-3 text-sm text-slate-600">
 								<li>
