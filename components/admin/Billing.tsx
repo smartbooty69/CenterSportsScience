@@ -706,7 +706,7 @@ export default function Billing() {
 		}
 	};
 
-	const isWithinCycle = (dateIso: string | undefined, cycle?: BillingCycle) => {
+	const isWithinCycle = (dateIso: string | undefined, cycle?: { startDate?: string; endDate?: string }) => {
 		if (!dateIso || !cycle?.startDate || !cycle?.endDate) return false;
 		const d = new Date(dateIso);
 		if (Number.isNaN(d.getTime())) return false;
@@ -715,7 +715,7 @@ export default function Billing() {
 		return d >= start && d <= end;
 	};
 
-	const selectedCycle: BillingCycle | undefined = useMemo(() => {
+	const selectedCycle = useMemo(() => {
 		if (selectedCycleId === 'current') return currentCycle;
 		return billingCycles.find(c => c.id === selectedCycleId) || currentCycle;
 	}, [selectedCycleId, billingCycles, currentCycle]);
@@ -978,9 +978,9 @@ export default function Billing() {
 								<i className="fas fa-file-excel mr-1 text-[11px]" aria-hidden="true" />
 								Export Excel
 							</button>
-							<span className="inline-flex h-7 min-w-8 items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-semibold text-white">
-								{pendingRows.length}
-							</span>
+						<span className="inline-flex h-7 min-w-8 items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-semibold text-white">
+							{pendingRows.length}
+						</span>
 						</div>
 					</header>
 					<div className="overflow-x-auto px-5 pb-5 pt-3">

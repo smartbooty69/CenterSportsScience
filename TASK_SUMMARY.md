@@ -17,13 +17,15 @@
 
 ## Person 4: Billing & Payments
 - Billing System Enhancement — auto-sync/reset/notifications/export implemented
-- Billing Automation — cycle-level reports pending
-- (Optional) Pending table export
+- Cycle-level reports — implemented
+- Pending table export — implemented
 
 ## Person 5: Patients & Users
 - Patient Management Enhancement
 - User Management System
 - Data Import/Export
+- Advanced patient filters (status, doctor, date range, text) — implemented
+- Audit logs + Admin viewer (`/admin/audit`) — implemented
 
 ## Person 6: Appointments & Dashboards
 - Appointments Management
