@@ -10,7 +10,7 @@ import { collection, doc, onSnapshot, updateDoc, type QuerySnapshot } from 'fire
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import type { PatientRecordBasic } from '@/lib/types';
+import type { PatientRecordBasic, PatientStatus } from '@/lib/types';
 
 interface AppointmentRecord {
 	id: string;

@@ -8,7 +8,7 @@ import DashboardWidget from '@/components/dashboard/DashboardWidget';
 import StatsChart from '@/components/dashboard/StatsChart';
 import { db } from '@/lib/firebase';
 import type { AdminAppointmentStatus } from '@/lib/adminMockData';
-import type { PatientRecordBasic } from '@/lib/types';
+import type { PatientRecordBasic, PatientStatus } from '@/lib/types';
 
 const STATUS_BADGES: Record<'pending' | 'ongoing' | 'completed' | 'cancelled', string> = {
 	pending: 'status-badge-pending',

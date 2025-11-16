@@ -362,6 +362,16 @@ export default function Users() {
 			{ title: 'Availability management', description: 'Update consultation slots and coverage', allowed: true },
 			{ title: 'Billing dashboards', description: 'Cannot edit billing entries', allowed: false },
 		],
+		Physiotherapist: [
+			{ title: 'Clinical data', description: 'Create and edit physio treatment notes and reports', allowed: true },
+			{ title: 'Availability management', description: 'Update consultation slots and coverage', allowed: true },
+			{ title: 'Billing dashboards', description: 'Cannot edit billing entries', allowed: false },
+		],
+		StrengthAndConditioning: [
+			{ title: 'Training plans', description: 'Create and edit S&C programs and notes', allowed: true },
+			{ title: 'Availability management', description: 'Update session availability', allowed: true },
+			{ title: 'Clinical data', description: 'Read-only access to assigned patients', allowed: false },
+		],
 	};
 
 	return (

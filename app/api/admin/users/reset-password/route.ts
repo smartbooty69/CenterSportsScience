@@ -1,7 +1,7 @@
 'use server';
 
 import { NextRequest } from 'next/server';
-import { authAdmin } from '@/lib/firebaseAdmin';
+import { authAdmin, dbAdmin } from '@/lib/firebaseAdmin';
 
 function randomPassword(length = 10) {
 	const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';

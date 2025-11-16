@@ -65,7 +65,7 @@ const isWithinDays = (value: string | undefined, window: DateFilter) => {
 };
 
 export default function Billing() {
-	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string })[]>([]);
+	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string; amount?: number })[]>([]);
 	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 

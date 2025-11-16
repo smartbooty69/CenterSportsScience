@@ -12,7 +12,7 @@ import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import NotificationCenter, { type UpcomingReminder } from '@/components/notifications/NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
-import type { PatientRecordBasic } from '@/lib/types';
+import type { PatientRecordBasic, PatientStatus } from '@/lib/types';
 
 interface AppointmentRecord {
 	id: string;

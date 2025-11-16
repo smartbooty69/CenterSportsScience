@@ -377,8 +377,8 @@ export default function Patients() {
 		setImportFile(file);
 		Papa.parse(file, {
 			header: true,
-			complete: (results: Papa.ParseResult<any>) => {
-				setImportPreview(results.data.slice(0, 50)); // Preview first 50 rows
+			complete: (results: { data: any[] }) => {
+				setImportPreview((results.data || []).slice(0, 50)); // Preview first 50 rows
 			},
 			error: (error: Error) => {
 				alert(`Failed to parse CSV: ${error.message}`);
@@ -392,11 +392,11 @@ export default function Patients() {
 		try {
 			Papa.parse(importFile, {
 				header: true,
-				complete: async (results: Papa.ParseResult<any>) => {
+				complete: async (results: { data: any[] }) => {
 					let batch = writeBatch(db);
 					let count = 0;
 					
-					for (const rawRow of results.data as any[]) {
+					for (const rawRow of (results.data as any[]) || []) {
 						// build case-insensitive map of row keys
 						const row: Record<string, string> = {};
 						for (const k of Object.keys(rawRow || {})) {

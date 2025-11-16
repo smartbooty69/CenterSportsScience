@@ -784,7 +784,7 @@ export default function Appointments() {
 					await sendEmailNotification({
 						to: selectedPatient.email,
 						subject: `${totalAppointments} Appointment(s) Scheduled`,
-						template: 'appointment-scheduled',
+						template: 'appointment-created',
 						data: {
 							patientName: selectedPatient.name,
 							patientEmail: selectedPatient.email,

@@ -49,11 +49,11 @@ export default function ImportPatients({ onClose }: ImportPatientsProps) {
 		setParsing(true);
 		try {
 			const parsed = await new Promise<Row[]>((resolve, reject) => {
-				Papa.parse<Row>(file, {
+				Papa.parse(file, {
 					header: true,
 					skipEmptyLines: true,
-					complete: result => resolve((result.data || []) as Row[]),
-					error: err => reject(err),
+					complete: (result: { data?: unknown[] }) => resolve((result.data || []) as Row[]),
+					error: (err: unknown) => reject(err),
 				});
 			});
 			const mapped = parsed.map(r => {

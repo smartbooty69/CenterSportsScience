@@ -135,7 +135,7 @@ function removeUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
 		const value = obj[key];
 		if (value !== undefined) {
 			// Handle nested objects
-			if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+			if (value !== null && typeof value === 'object' && !Array.isArray(value) && !((value as any) instanceof Date)) {
 				const cleanedNested = removeUndefined(value);
 				// Only include if nested object has at least one property
 				if (Object.keys(cleanedNested).length > 0) {
@@ -1383,38 +1383,8 @@ export default function EditReport() {
 		const payload = buildReportPayload();
 		if (!payload) return;
 
-		const pdfDataUrl = await generatePhysiotherapyReportPDF(payload, { forPrint: true });
-		if (!pdfDataUrl) return;
-
-		// Open PDF in new window for printing
-		const printWindow = window.open();
-		if (!printWindow) {
-			alert('Please allow pop-ups to print the report');
-			return;
-		}
-
-		printWindow.document.write(`
-			<html>
-				<head>
-					<title>Print Report</title>
-					<style>
-						body { margin: 0; padding: 0; }
-						iframe { width: 100%; height: 100vh; border: none; }
-					</style>
-				</head>
-				<body>
-					<iframe src="${pdfDataUrl}"></iframe>
-					<script>
-						window.onload = function() {
-							setTimeout(function() {
-								window.print();
-							}, 500);
-						};
-					</script>
-				</body>
-			</html>
-		`);
-		printWindow.document.close();
+		// Generate and download the PDF (print from viewer if needed)
+		await generatePhysiotherapyReportPDF(payload);
 	};
 
 	return (
