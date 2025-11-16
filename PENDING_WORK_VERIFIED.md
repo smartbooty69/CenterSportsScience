@@ -42,61 +42,41 @@
 
 ### 🔴 **HIGH PRIORITY - Critical Features**
 
-#### 1. **Admin Reports PDF Export & Print** (Person 2)
-**Status**: Frontdesk has it, Admin missing
-- ✅ Frontdesk Reports: PDF export and print implemented
-- ❌ Admin Reports: Missing PDF export button
-- ❌ Admin Reports: Missing print functionality
-- **Files to Update**: `components/admin/Reports.tsx`
-- **Estimated Time**: 30-60 minutes
-- **Reference**: Copy from `components/frontdesk/Reports.tsx` (lines 386-1043)
-
-#### 2. **Admin Billing Auto-sync** (Person 4)
-**Status**: Frontdesk has it, Admin missing
-- ✅ Frontdesk Billing: Auto-sync from completed appointments implemented (lines 154-256)
-- ❌ Admin Billing: Missing auto-sync feature (manual only)
-- **Files to Update**: `components/admin/Billing.tsx`
-- **Estimated Time**: 1-2 hours
-- **Reference**: Copy from `components/frontdesk/Billing.tsx` (lines 154-256)
-
-#### 3. **Billing Automation Enhancements** (Person 4)
-**Status**: Basic sync exists, needs enhancement
-- ✅ Basic auto-sync from completed appointments (Frontdesk only)
-- ✅ Payment recording - Already implemented (manual entry)
-- ❌ Monthly billing reset - Not implemented
-- ❌ Billing cycle management - Not implemented
-- ❌ Billing notifications (for pending bills) - Not implemented
-- ❌ Billing export (CSV/Excel) - Not implemented
-- **Files to Update**: 
-  - `components/admin/Billing.tsx`
-  - `components/frontdesk/Billing.tsx`
-- **Estimated Time**: 3-4 hours
-
-#### 4. **Report Templates** (Person 2)
-**Status**: Version history exists, templates missing
+#### 1. **Report Templates & Approval** (Person 2)
+**Status**: PDF/Print done; templates/approval pending
 - ✅ Report version history - Implemented
-- ❌ Report templates (save/load report configurations) - Not implemented
-- ❌ Report approval workflow (draft → review → approved) - Not implemented
-- **Files to Update**: 
-  - `components/clinical-team/EditReport.tsx`
+- ❌ Report templates (save/load configurations)
+- ❌ Report approval workflow (draft → review → approved)
+- **Files to Update**: `components/clinical-team/EditReport.tsx`
+- **Estimated Time**: 2-3 hours
+
+#### 2. **Billing Enhancements** (Person 4)
+**Status**: Core flows implemented; enhancements pending
+- ✅ Auto-sync from completed appointments (Admin & Frontdesk)
+- ✅ Monthly cycle reset UI/logic; `billingCycles` collection
+- ✅ Notifications API (`/api/billing/notifications`)
+- ✅ Billing history export (CSV/Excel)
+- ❌ Cycle-level reporting views
+- ❌ Optional: Pending table export
+- **Files to Update**: `components/admin/Billing.tsx`, `components/frontdesk/Billing.tsx`
 - **Estimated Time**: 2-3 hours
 
 ---
 
 ### 🟡 **MEDIUM PRIORITY - Important Features**
 
-#### 5. **User Management Enhancements** (Person 5)
+#### 3. **User Management Enhancements** (Person 5)
 **Status**: Basic CRUD only
 - ✅ Basic user CRUD - Implemented
 - ✅ Role management - Implemented
-- ✅ Password reset API - Partially implemented (needs email integration)
-- ❌ Advanced user permissions system (granular permissions beyond roles) - Not implemented
+- (Removed) Password reset email integration (user flow is sufficient)
+- (Removed) Advanced granular permissions (not required per scope)
 - ❌ User activity logs (system-wide audit trail) - Not implemented (only local activity notes exist)
 - ❌ Data import/export (bulk user operations) - Not implemented
 - **Files to Update**: `components/admin/Users.tsx`
 - **Estimated Time**: 3-4 hours
 
-#### 6. **Advanced Patient Search** (Person 5)
+#### 4. **Advanced Patient Search** (Person 5)
 **Status**: Basic search only
 - ✅ Basic search by name/ID/phone - Implemented
 - ❌ Multi-field search with filters - Not implemented
@@ -105,30 +85,23 @@
 - **Files to Update**: `components/admin/Patients.tsx`
 - **Estimated Time**: 2-3 hours
 
-#### 7. **Dashboard Analytics Integration** (Person 6)
-**Status**: Frontdesk has it, others may need verification
-- ✅ Frontdesk Dashboard: Charts integrated (StatsChart)
-- ❌ Need to verify Admin Dashboard integration
-- ❌ Need to verify Clinical Team Dashboard integration
-- **Files to Check/Update**:
-  - `components/admin/Dashboard.tsx` (or `app/admin/components/Dashboard.tsx`)
-  - `components/clinical-team/Dashboard.tsx` (or `app/clinical-team/components/Dashboard.tsx`)
-- **Estimated Time**: 1-2 hours (if not integrated)
+#### 5. **Dashboard Analytics Integration** (Person 6)
+**Status**: Integrated across dashboards (verified)
+- ✅ Frontdesk/Admin/Clinical Team dashboards import and render `StatsChart`
 
 ---
 
 ### 🟢 **LOW PRIORITY - Nice to Have**
 
-#### 8. **Billing Export** (Person 4)
-- ❌ Export billing records to CSV/Excel
-- **Estimated Time**: 1 hour
+#### 6. **Billing Export (Pending table)**
+- ✅ Pending table export implemented (CSV/Excel)
 
-#### 9. **Payment Gateway Integration** (Person 4) - NOT NEEDED
+#### 7. **Payment Gateway Integration** (Person 4) - NOT NEEDED
 - ✅ Payment recording only - Already implemented (manual payment entry)
 - ❌ Online payment processing - Not needed (only recording payments, not processing)
 - **Status**: Feature not required - system only records payments manually
 
-#### 10. **Password Reset Email Integration** (Person 5)
+#### 8. **Password Reset Email Integration** (Person 5)
 - ✅ Password reset API exists
 - ❌ Email sending integration (currently just shows alert)
 - **Files to Update**: `app/api/admin/users/reset-password/route.ts`
@@ -185,20 +158,19 @@
 - ✅ Patient history tracking - **FULLY IMPLEMENTED**
 - ✅ Patient notes and attachments - **FULLY IMPLEMENTED**
 - ✅ Report version history - **FULLY IMPLEMENTED**
-- ✅ Dashboard analytics (Frontdesk) - **FULLY IMPLEMENTED**
+- ✅ Reports PDF/Print - **IMPLEMENTED in Admin & Frontdesk**
+- ✅ Dashboard analytics charts - **IMPLEMENTED in Frontdesk, Admin, Clinical Team**
 
 ### What Needs Work
-- **Admin Reports** missing PDF/print (Frontdesk has it)
-- **Admin Billing** missing auto-sync (Frontdesk has it)
-- **Billing automation** needs enhancement (monthly reset, cycles, notifications)
-- **Report system** needs templates and approval workflow
+- **Reports** needs templates and approval workflow
+- **Billing** needs cycle-level reports (and optional Pending export)
 - **User management** needs system-wide activity logs
 - **Patient search** needs advanced filters
 
 ### Quick Wins
-1. Add PDF export to Admin Reports (copy from Frontdesk) - 30-60 min
-2. Add print to Admin Reports (copy from Frontdesk) - 30-60 min
-3. Add auto-sync to Admin Billing (copy from Frontdesk) - 1-2 hours
+1. Add Billing Cycle Reports view - 1-2 hours
+2. Add Report templates + approval - 2-3 hours
+3. Add admin reset email (optional) - 1 hour
 4. Verify dashboard analytics in Admin/Clinical Team - 1-2 hours
 5. Add email integration to password reset - 1 hour
 

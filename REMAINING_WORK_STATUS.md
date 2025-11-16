@@ -113,45 +113,19 @@
 
 ## ❌ **MISSING / NOT IMPLEMENTED**
 
-### High Priority Missing Features:
+### High Priority (accurate pending list)
 
-1. ~~**ROM Assessment Component** (Person 1)~~ ✅ **COMPLETED**
-   - ✅ Standalone `app/clinical-team/components/ROM.tsx` created
-   - ✅ Integrated into clinical-team layout
+1. **Reports (Person 2)**
+   - Report templates (save/load configurations)
+   - Approval workflow (draft → review → approved)
 
-2. **Report Export PDF** (Person 2)
-   - Add PDF export button to Reports components
-   - Print functionality
+2. **Billing (Person 4)**
+   - Cycle-level reporting views (summaries per billing cycle)
+   - (Optional) Export for Pending table (history export exists)
 
-3. **Billing Automation** (Person 4)
-   - Auto-generate bills from completed appointments
-   - Billing cycle management
-   - Billing notifications
-
-4. **Appointment Features** (Person 6)
-   - Conflict detection
-   - Recurring appointments
-   - Appointment templates
-
-5. **Dashboard Analytics** (Person 6)
-   - Chart.js integration
-   - Real-time statistics
-   - Dashboard widgets
-
-6. **Patient Management Enhancements** (Person 5)
-   - Patient export/import
-   - Patient profile view
-   - Patient history tracking
-
-7. ~~**Transfer Enhancements** (Person 1)~~ ✅ **COMPLETED**
-   - ✅ Transfer history tracking (stored in Firestore)
-   - ✅ Transfer confirmation workflow (confirmation dialog)
-   - ✅ Notifications for transfers (old and new therapists notified)
-
-8. **Report Features** (Person 2)
-   - Report templates
-   - Version history
-   - Approval workflow
+3. **Patients & Users (Person 5)**
+   - Advanced patient search (multi-field/date-range/saved presets)
+   - User activity/audit logs
 
 ---
 
@@ -160,13 +134,13 @@
 | Module | Status | Completion % | Notes |
 |--------|--------|-------------|-------|
 | **Person 1: ROM & Transfer** | 🟢 Complete | ~95% | ROM component created, Transfer fully enhanced |
-| **Person 2: Reports** | 🟢 Mostly Done | ~75% | Core working, missing PDF/print/templates |
+| **Person 2: Reports** | 🟢 Mostly Done | ~85% | PDF/Print implemented; templates/approval pending |
 | **Person 3: Calendar & Notifications** | 🟢 Complete | ~95% | Almost fully implemented |
-| **Person 4: Billing** | 🟡 Partial | ~30% | Basic UI, missing automation |
-| **Person 5: Patients & Users** | 🟡 Partial | ~50% | Basic CRUD, missing advanced features |
-| **Person 6: Appointments & Dashboards** | 🟡 Partial | ~60% | Core working, missing analytics/advanced features |
+| **Person 4: Billing** | 🟡 Partial | ~70% | Auto-sync/reset/notifications/export; cycle reports pending |
+| **Person 5: Patients & Users** | 🟡 Partial | ~75% | Export/import/profile/history done; advanced search/logs pending |
+| **Person 6: Appointments & Dashboards** | 🟢 Mostly Done | ~90% | Conflicts/recurring/templates/charts implemented |
 
-**Overall Project Completion**: ~70%
+**Overall Project Completion**: ~84%
 
 ---
 

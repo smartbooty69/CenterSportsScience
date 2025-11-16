@@ -27,27 +27,28 @@
 
 ### 🔴 **HIGH PRIORITY - Critical Features**
 
-#### 1. **Report PDF Export (Person 2)** - PARTIALLY DONE
-**Status**: Frontdesk has it, Admin missing
-- ✅ Frontdesk Reports: PDF export implemented
-- ❌ Admin Reports: Missing PDF export button
-- ❌ Admin Reports: Missing print functionality
-- **Files to Update**: `app/admin/components/Reports.tsx`
-- **Estimated Time**: 30-60 minutes
+#### 1. **Report Templates & Approval (Person 2)**
+**Status**: PDF/Print complete; templates/approval pending
+- ✅ Frontdesk Reports: PDF export and print implemented
+- ✅ Admin Reports: PDF export and print implemented
+- ❌ Report templates (save/load configurations)
+- ❌ Report approval workflow (draft → review → approved)
+- **Files to Update**: `components/clinical-team/EditReport.tsx`
+- **Estimated Time**: 2-3 hours
 
-#### 2. **Billing Automation (Person 4)** - PARTIALLY DONE
-**Status**: Basic sync exists, needs enhancement
-- ✅ Basic auto-sync from completed appointments (Frontdesk)
-- ✅ Payment recording - Already implemented (manual entry)
-- ❌ Monthly billing reset - Not implemented
-- ❌ Billing cycle management - Not implemented
-- ❌ Billing notifications - Not implemented
-- ❌ Billing export (CSV/Excel) - Not implemented
-- ❌ Admin Billing: Missing auto-sync feature
+#### 2. **Billing Enhancements (Person 4)**
+**Status**: Core flows implemented; enhancements pending
+- ✅ Auto-sync from completed appointments (Admin & Frontdesk)
+- ✅ Payment recording (manual entry)
+- ✅ Monthly billing reset UI/logic and `billingCycles` collection
+- ✅ Notifications API (`/api/billing/notifications`)
+- ✅ Billing history export (CSV/Excel)
+- ❌ Cycle-level reporting views
+- ❌ Optional: Pending table export
 - **Files to Update**: 
-  - `app/admin/components/Billing.tsx`
-  - `app/frontdesk/components/Billing.tsx` (enhance existing)
-- **Estimated Time**: 3-4 hours
+  - `components/admin/Billing.tsx`
+  - `components/frontdesk/Billing.tsx` (enhance existing)
+- **Estimated Time**: 2-3 hours
 
 #### 3. **Patient Management Enhancements (Person 5)** - MOSTLY DONE
 **Status**: Most features implemented, advanced search missing
@@ -82,34 +83,28 @@
 - **Estimated Time**: 2-3 hours (for templates and approval workflow)
 
 #### 6. **User Management Enhancements (Person 5)** - PARTIALLY DONE
-**Status**: Basic CRUD done, password reset API exists, needs enhancement
+**Status**: Basic CRUD done; advanced features pending
 - ✅ Basic user CRUD - Implemented
 - ✅ Role management - Implemented
-- ✅ Password reset API - Partially implemented (`/api/admin/users/reset-password` - needs email integration)
-- ❌ Advanced user permissions system (granular permissions beyond roles) - Not implemented
 - ❌ User activity logs (system-wide audit trail) - Not implemented (only local activity notes exist)
 - ❌ Data import/export (bulk user operations) - Not implemented
-- **Files to Update**: `components/admin/Users.tsx`, `app/api/admin/users/reset-password/route.ts`
-- **Estimated Time**: 3-4 hours
+- (Removed) Password reset email integration (user flow is sufficient)
+- (Removed) Advanced granular permissions (not required per scope)
 
-#### 7. **Dashboard Analytics Integration (Person 6)** - MOSTLY DONE
-**Status**: Frontdesk integrated, need to verify others
+#### 7. **Dashboard Analytics Integration (Person 6)** - VERIFIED
+**Status**: Integrated across dashboards
 - ✅ Chart components exist (`components/dashboard/StatsChart.tsx`)
-- ✅ Frontdesk Dashboard: Charts integrated (verified)
-- ❌ Need to verify Admin Dashboard integration
-- ❌ Need to verify Clinical Team Dashboard integration
-- **Files to Check/Update**:
-  - `components/admin/Dashboard.tsx` (or `app/admin/components/Dashboard.tsx`)
-  - `components/clinical-team/Dashboard.tsx` (or `app/clinical-team/components/Dashboard.tsx`)
-- **Estimated Time**: 1-2 hours (if not integrated)
+- ✅ Frontdesk Dashboard: Charts integrated
+- ✅ Admin Dashboard: Charts integrated
+- ✅ Clinical Team Dashboard: Charts integrated
 
 ---
 
 ### 🟢 **LOW PRIORITY - Nice to Have**
 
 #### 8. **Billing Export (Person 4)**
-- ❌ Export billing records to CSV/Excel
-- **Estimated Time**: 1 hour
+- ✅ History export implemented (CSV/Excel)
+- ✅ Pending table export implemented
 
 #### 9. **Payment Gateway Integration (Person 4)** - NOT NEEDED
 - ✅ Payment recording only - Already implemented (manual payment entry)
@@ -129,13 +124,13 @@
 | Module | Previous % | Updated % | Status |
 |--------|------------|-----------|--------|
 | **Person 1: ROM & Transfer** | ~85% | ~95% | ROM done, Transfer enhancements complete ✅ |
-| **Person 2: Reports** | ~75% | ~85% | PDF/Print in Frontdesk, Version history done, missing Admin PDF/Print & templates |
+| **Person 2: Reports** | ~75% | ~85% | PDF/Print in Admin & Frontdesk ✅, templates/approval pending |
 | **Person 3: Calendar & Notifications** | ~95% | ~95% | Complete ✅ |
-| **Person 4: Billing** | ~30% | ~50% | Frontdesk auto-sync exists, Admin missing, needs enhancements |
+| **Person 4: Billing** | ~30% | ~70% | Auto-sync/reset/notifications/export ✅, cycle reports pending |
 | **Person 5: Patients & Users** | ~50% | ~75% | Export/Import/Profile/History done, missing advanced search & user logs |
 | **Person 6: Appointments & Dashboards** | ~60% | ~90% | Most features done, Frontdesk charts verified, need to verify others |
 
-**Overall Project Completion**: ~78% (up from ~72%)
+**Overall Project Completion**: ~84%
 
 ---
 

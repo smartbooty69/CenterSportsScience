@@ -3,6 +3,8 @@ import { collection, query, where, getDocs, type QuerySnapshot, type Timestamp }
 import { db } from '@/lib/firebase';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
+import { requireRole } from '@/lib/authz';
+import { logAudit } from '@/lib/audit';
 
 interface BillingRecord {
 	id: string;
@@ -33,6 +35,11 @@ interface PatientRecord {
  * - Optional query param: ?days=X to only notify bills older than X days (default: 3)
  */
 export async function GET(request: NextRequest) {
+	// Allow Admin and FrontDesk to trigger notifications
+	const gate = await requireRole(request, ['Admin', 'FrontDesk']);
+	if (!gate.ok) {
+		return NextResponse.json({ error: gate.message }, { status: gate.status });
+	}
 	try {
 		const searchParams = request.nextUrl.searchParams;
 		const daysParam = searchParams.get('days');
@@ -82,12 +89,19 @@ export async function GET(request: NextRequest) {
 		});
 
 		if (billsToNotify.length === 0) {
-			return NextResponse.json({
+			const result = {
 				success: true,
 				message: `No pending bills found older than ${daysThreshold} days`,
 				notificationsSent: 0,
 				billsChecked: pendingBills.length,
+			};
+			await logAudit({
+				action: 'billing-send-notifications',
+				userId: (gate as any).uid,
+				resourceType: 'billing',
+				metadata: { billsChecked: pendingBills.length, notified: 0, daysThreshold },
 			});
+			return NextResponse.json(result);
 		}
 
 		// Get unique patient IDs
@@ -180,7 +194,7 @@ export async function GET(request: NextRequest) {
 			}
 		}
 
-		return NextResponse.json({
+		const response = {
 			success: true,
 			message: `Billing notifications sent`,
 			billsChecked: pendingBills.length,
@@ -188,7 +202,21 @@ export async function GET(request: NextRequest) {
 			emailsSent,
 			smsSent,
 			errors: errors.length > 0 ? errors : undefined,
+		};
+		await logAudit({
+			action: 'billing-send-notifications',
+			userId: (gate as any).uid,
+			resourceType: 'billing',
+			metadata: {
+				billsChecked: pendingBills.length,
+				billsNotified: billsToNotify.length,
+				emailsSent,
+				smsSent,
+				daysThreshold,
+				errorCount: errors.length,
+			},
 		});
+		return NextResponse.json(response);
 	} catch (error) {
 		console.error('Failed to send billing notifications:', error);
 		return NextResponse.json(

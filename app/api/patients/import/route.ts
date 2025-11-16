@@ -1,7 +1,9 @@
 'use server';
 
 import { NextRequest } from 'next/server';
-import { authAdmin, dbAdmin } from '@/lib/firebaseAdmin';
+import { dbAdmin } from '@/lib/firebaseAdmin';
+import { requireRole } from '@/lib/authz';
+import { logAudit } from '@/lib/audit';
 
 type IncomingRow = {
 	fullName?: string;
@@ -48,42 +50,8 @@ function normalizeDob(dob?: string): string | undefined {
 	return undefined;
 }
 
-async function requireAdmin(request: NextRequest) {
-	const auth = request.headers.get('authorization') || request.headers.get('Authorization');
-	if (!auth || !auth.startsWith('Bearer ')) {
-		return { ok: false, status: 401, message: 'Missing Authorization header' as const };
-	}
-	const token = auth.slice('Bearer '.length).trim();
-	try {
-		const decoded = await authAdmin.verifyIdToken(token);
-		let role = (decoded as any).role || (decoded as any).claims?.role;
-		
-		// If role not in token claims, check Firestore profile
-		if (!role || (role !== 'Admin' && role !== 'admin')) {
-			try {
-				const userDoc = await dbAdmin.collection('users').doc(decoded.uid).get();
-				if (userDoc.exists) {
-					const userData = userDoc.data();
-					role = userData?.role;
-				}
-			} catch (firestoreError) {
-				console.error('Failed to check Firestore for role', firestoreError);
-			}
-		}
-		
-		// Check for 'Admin' (capitalized) to match the app's role naming convention
-		if (role !== 'Admin' && role !== 'admin') {
-			return { ok: false, status: 403, message: 'Forbidden: admin role required' as const };
-		}
-		return { ok: true as const, uid: decoded.uid };
-	} catch (err) {
-		console.error('verifyIdToken failed', err);
-	 return { ok: false, status: 401, message: 'Invalid token' as const };
-	}
-}
-
 export async function POST(request: NextRequest) {
-	const gate = await requireAdmin(request);
+	const gate = await requireRole(request, ['Admin']);
 	if (!gate.ok) {
 		return new Response(JSON.stringify({ status: 'error', message: gate.message }), { status: gate.status });
 	}
@@ -173,6 +141,7 @@ export async function POST(request: NextRequest) {
 			group.forEach(row => {
 				const ref = dbAdmin.collection('patients').doc();
 				batch.set(ref, {
+					// store minimal patient fields
 					name: row.fullName,
 					email: row.email || '',
 					phone: row.phone || '',
@@ -187,6 +156,14 @@ export async function POST(request: NextRequest) {
 			await batch.commit();
 			imported += group.length;
 		}
+
+		// audit log
+		await logAudit({
+			action: 'patients-import',
+			userId: (gate as any).uid,
+			resourceType: 'patients',
+			metadata: { imported, skipped, errors: errors.length },
+		});
 
 		return new Response(
 			JSON.stringify({

@@ -145,6 +145,7 @@ export default function Patients() {
 	const [searchTerm, setSearchTerm] = useState('');
 	const [statusFilter, setStatusFilter] = useState<'all' | AdminPatientStatus>('all');
 	const [dateFrom, setDateFrom] = useState('');
+	const [dateTo,   setDateTo]   = useState('');
 	const [doctorFilter, setDoctorFilter] = useState<'all' | string>('all');
 	const [selectedPatientIds, setSelectedPatientIds] = useState<Set<string>>(new Set());
 	const [isImportOpen, setIsImportOpen] = useState(false);
@@ -230,11 +231,16 @@ export default function Patients() {
 				const matchesDateFrom = dateFrom
 					? (registeredAt ? registeredAt >= new Date(`${dateFrom}T00:00:00`) : false)
 					: true;
+				const matchesDateTo = dateTo
+					? (registeredAt ? registeredAt <= new Date(`${dateTo}T23:59:59`) : false)
+					: true;
 				const assignedDoctor = (patient as AdminPatientRecord & { assignedDoctor?: string }).assignedDoctor || '';
 				const matchesDoctor = doctorFilter === 'all' || assignedDoctor === doctorFilter;
-				return matchesSearch && matchesStatus && matchesDateFrom && matchesDoctor;
+				return matchesSearch && matchesStatus && matchesDateFrom && matchesDateTo && matchesDoctor;
 			});
-	}, [patients, searchTerm, statusFilter, dateFrom, doctorFilter]);
+	}, [patients, searchTerm, statusFilter, dateFrom, dateTo, doctorFilter]);
+
+	// Presets removed per request
 
 	const selectedPatient = useMemo(() => {
 		if (!selectedPatientId) return null;
@@ -781,7 +787,7 @@ export default function Patients() {
 				<section>
 					<div className="card-container">
 						<div className="flex w-full flex-col gap-3 md:flex-row md:items-end md:gap-4">
-							<div className="flex-1">
+							<div className="w-full md:w-[360px]">
 								<label className="block text-sm font-medium text-slate-700">Search patients</label>
 								<div className="relative mt-2">
 									<i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400" aria-hidden="true" />
@@ -794,7 +800,7 @@ export default function Patients() {
 									/>
 								</div>
 							</div>
-							<div className="w-full md:w-48">
+							<div className="w-full md:w-40">
 								<label className="block text-sm font-medium text-slate-700">Status filter</label>
 								<select
 									value={statusFilter}
@@ -810,23 +816,33 @@ export default function Patients() {
 							</div>
 						</div>
 
-						{/* Registered date filter + doctor */}
-						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2 mt-4">
-							<div>
-								<label className="block text-sm font-medium text-slate-700">Registered from</label>
+						{/* Registered date filter */}
+						<div className="mt-4">
+							<label className="block text-sm font-medium text-slate-700">Registered</label>
+							<div className="mt-2 flex items-center gap-2">
 								<input
 									type="date"
 									value={dateFrom}
-									onChange={event => setDateFrom(event.target.value)}
-									className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+									onChange={e => setDateFrom(e.target.value)}
+									className="w-full max-w-[180px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+								/>
+								<span className="text-xs text-slate-500">to</span>
+								<input
+									type="date"
+									value={dateTo}
+									onChange={e => setDateTo(e.target.value)}
+									className="w-full max-w-[180px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 								/>
 							</div>
-							<div>
+						</div>
+
+						{/* Doctor filter */}
+						<div className="mt-4">
 								<label className="block text-sm font-medium text-slate-700">Assigned doctor</label>
 								<select
 									value={doctorFilter}
 									onChange={event => setDoctorFilter(event.target.value as 'all' | string)}
-									className="select-base mt-2"
+									className="select-base mt-2 w-full md:w-40 lg:w-48"
 								>
 									<option value="all">All doctors</option>
 									{doctorOptions.map(option => (
@@ -838,7 +854,7 @@ export default function Patients() {
 							</div>
 						</div>
 
-						<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start sm:gap-4 mt-4">
+						<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4 mt-4">
 							<button type="button" onClick={handleExportCsv} className="btn-tertiary">
 								<i className="fas fa-file-export text-xs" aria-hidden="true" />
 								Export CSV
@@ -868,7 +884,6 @@ export default function Patients() {
 								Add patient
 							</button>
 						</div>
-					</div>
 				</section>
 
 				<section className="mx-auto mt-8 max-w-6xl">
