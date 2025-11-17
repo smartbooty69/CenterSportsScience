@@ -3,10 +3,16 @@ import { withSentryConfig } from "@sentry/nextjs";
 import path from "path";
 
 const nextConfig: NextConfig = {
+<<<<<<< HEAD
 	turbopack: {
 		root: path.join(__dirname),
 	},
 	transpilePackages: ['jspdf-autotable', 'jspdf'],
+=======
+				turbopack: {
+								root: path.join(__dirname),
+				},
+>>>>>>> f02feb34b0d749fa3ce25de19ec3d2f14b0ab897
 };
 
 // Make sure adding Sentry options is the last code to run before exporting
