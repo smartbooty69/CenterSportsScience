@@ -174,6 +174,7 @@ export default function EditReport() {
 	}>>([]);
 	const [loadingVersions, setLoadingVersions] = useState(false);
 	const [viewingVersion, setViewingVersion] = useState<typeof versionHistory[0] | null>(null);
+	const [patientScope, setPatientScope] = useState<'mine' | 'all'>('mine');
 	const vasValue = Number(formData.vasScale || '5');
 	const vasEmoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, vasValue) - 1)];
 	const hydrationValue = Number(formData.hydration || '4');
@@ -340,46 +341,37 @@ export default function EditReport() {
 			});
 		}
 
-		// First filter by assigned doctor (only show patients assigned to current staff member)
-		let assignedPatients: PatientRecordFull[];
-		
-		if (!clinicianName) {
-			// If no clinician name, show all patients
-			assignedPatients = patients;
-		} else {
-			// Filter by assigned doctor
-			assignedPatients = patients.filter(patient => {
-				const normalizedAssigned = normalize(patient.assignedDoctor);
-				return normalizedAssigned === clinicianName;
-			});
-			
-			// If no patients match the assigned doctor filter, show all patients
-			// This handles cases where patients might not have assignedDoctor set
-			// or where the name matching isn't working correctly
-			if (assignedPatients.length === 0 && patients.length > 0) {
-				if (process.env.NODE_ENV === 'development') {
+		// Determine which patients to show based on the selected scope
+		let scopedPatients: PatientRecordFull[] = patients;
+		if (patientScope === 'mine') {
+			if (!clinicianName) {
+				scopedPatients = patients;
+			} else {
+				const assigned = patients.filter(patient => normalize(patient.assignedDoctor) === clinicianName);
+				if (assigned.length > 0) {
+					scopedPatients = assigned;
+				} else if (patients.length > 0 && process.env.NODE_ENV === 'development') {
 					console.warn('EditReport - No patients matched assignedDoctor filter. Showing all patients.', {
 						clinicianName,
 						totalPatients: patients.length,
 						uniqueAssignedDoctors: [...new Set(patients.map(p => p.assignedDoctor).filter(Boolean))]
 					});
 				}
-				assignedPatients = patients;
 			}
 		}
 
 		// Then filter by search term
 		const query = searchTerm.trim().toLowerCase();
-		if (!query) return assignedPatients;
+		if (!query) return scopedPatients;
 		
-		return assignedPatients.filter(patient => {
+		return scopedPatients.filter(patient => {
 			return (
 				(patient.name || '').toLowerCase().includes(query) ||
 				(patient.patientId || '').toLowerCase().includes(query) ||
 				(patient.phone || '').toLowerCase().includes(query)
 			);
 		});
-	}, [patients, searchTerm, clinicianName, user?.displayName]);
+	}, [patients, searchTerm, clinicianName, user?.displayName, patientScope]);
 
 	const handleSelectPatient = (patient: PatientRecordFull) => {
 		setSelectedPatient(patient);
@@ -1248,15 +1240,28 @@ export default function EditReport() {
 					</header>
 
 					<section className="section-card">
-						<div className="mb-4">
-							<label className="block text-sm font-medium text-slate-700">Search patients</label>
-							<input
-								type="search"
-								value={searchTerm}
-								onChange={e => setSearchTerm(e.target.value)}
-								className="input-base"
-								placeholder="Search by name, ID, or phone"
-							/>
+						<div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+							<div className="flex-1">
+								<label className="block text-sm font-medium text-slate-700">Search patients</label>
+								<input
+									type="search"
+									value={searchTerm}
+									onChange={e => setSearchTerm(e.target.value)}
+									className="input-base"
+									placeholder="Search by name, ID, or phone"
+								/>
+							</div>
+							<div className="w-full md:w-60">
+								<label className="block text-sm font-medium text-slate-700">Show patients</label>
+								<select
+									value={patientScope}
+									onChange={e => setPatientScope(e.target.value as 'mine' | 'all')}
+									className="select-base"
+								>
+									<option value="mine">Assigned to me</option>
+									<option value="all">All patients</option>
+								</select>
+							</div>
 						</div>
 
 						{loading ? (
@@ -1508,17 +1513,17 @@ export default function EditReport() {
 									min={0}
 									value={formData.totalSessionsRequired ?? ''}
 									onChange={e => {
-										const value = e.target.value === '' ? undefined : Number(e.target.value);
+										const parsed = e.target.value === '' ? undefined : Math.max(Number(e.target.value), 0);
 										setFormData(prev => {
-											const total = value;
+											const total = parsed;
 											const nextRemaining =
-												prev.remainingSessions === undefined || prev.remainingSessions === null
-													? total
-													: prev.remainingSessions;
+												total === undefined
+													? prev.remainingSessions
+													: Math.max(total - 1, 0);
 											return {
 												...prev,
 												totalSessionsRequired: total,
-												remainingSessions: nextRemaining,
+												remainingSessions: nextRemaining ?? undefined,
 											};
 										});
 									}}
@@ -1526,7 +1531,7 @@ export default function EditReport() {
 								/>
 							</div>
 							<div>
-								<label className="block text-xs font-medium text-slate-500">Remaining Sessions</label>
+								<label className="block text-xs font-medium text-slate-500">Remaining Sessions (Total - 1)</label>
 								<input
 									type="number"
 									min={0}
