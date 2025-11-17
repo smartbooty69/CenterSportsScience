@@ -10,6 +10,15 @@ import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { getCurrentBillingCycle, getNextBillingCycle, getBillingCycleId, getMonthName, type BillingCycle } from '@/lib/billingUtils';
 import { type AdminPatientRecord } from '@/lib/adminMockData';
 
+type BillingPatientRecord = AdminPatientRecord & {
+	id?: string;
+	assignedDoctor?: string;
+	diagnosis?: string;
+	treatmentProvided?: string;
+	progressNotes?: string;
+	referredBy?: string;
+};
+
 interface BillingRecord {
 	id?: string;
 	billingId: string;
@@ -128,7 +137,7 @@ function numberToWords(num: number): string {
 export default function Billing() {
 	const [billing, setBilling] = useState<BillingRecord[]>([]);
 	const [appointments, setAppointments] = useState<any[]>([]);
-	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
+	const [patients, setPatients] = useState<BillingPatientRecord[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [filterRange, setFilterRange] = useState<string>('30');
@@ -531,8 +540,25 @@ export default function Billing() {
 						phone: data.phone ? String(data.phone) : '',
 						email: data.email ? String(data.email) : '',
 						address: data.address ? String(data.address) : '',
+						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
+						diagnosis: data.diagnosis ? String(data.diagnosis) : undefined,
+						treatmentProvided: data.treatmentProvided ? String(data.treatmentProvided) : undefined,
+						progressNotes: data.progressNotes ? String(data.progressNotes) : undefined,
+						referredBy: data.referredBy ? String(data.referredBy) : undefined,
+						totalSessionsRequired:
+							typeof data.totalSessionsRequired === 'number'
+								? data.totalSessionsRequired
+								: data.totalSessionsRequired
+									? Number(data.totalSessionsRequired)
+									: undefined,
+						remainingSessions:
+							typeof data.remainingSessions === 'number'
+								? data.remainingSessions
+								: data.remainingSessions
+									? Number(data.remainingSessions)
+									: undefined,
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
-					} as AdminPatientRecord & { id?: string };
+					} as BillingPatientRecord;
 				});
 				setPatients(mapped);
 			},
@@ -1821,6 +1847,32 @@ export default function Billing() {
 										<input
 											type="text"
 											value={selectedPatient.assignedDoctor || ''}
+											readOnly
+											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+										/>
+									</div>
+									<div>
+										<label className="block text-xs font-medium text-slate-500">Total Sessions Required</label>
+										<input
+											type="text"
+											value={
+												typeof selectedPatient.totalSessionsRequired === 'number'
+													? String(selectedPatient.totalSessionsRequired)
+													: ''
+											}
+											readOnly
+											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+										/>
+									</div>
+									<div>
+										<label className="block text-xs font-medium text-slate-500">Remaining Sessions</label>
+										<input
+											type="text"
+											value={
+												typeof selectedPatient.remainingSessions === 'number'
+													? String(selectedPatient.remainingSessions)
+													: ''
+											}
 											readOnly
 											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 										/>

@@ -4,8 +4,16 @@
 
 import * as Sentry from "@sentry/nextjs";
 
+const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+const isDev = process.env.NODE_ENV === "development";
+const enableInDev =
+  process.env.NEXT_PUBLIC_ENABLE_SENTRY === "true" ||
+  process.env.ENABLE_SENTRY_IN_DEV === "true";
+const isEnabled = Boolean(dsn) && (!isDev || enableInDev);
+
 Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  dsn: dsn || undefined,
+  enabled: isEnabled,
 
   // Adjust this value in production, or use tracesSampler for greater control
   tracesSampleRate: 1,

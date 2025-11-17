@@ -122,6 +122,18 @@ export default function Reports() {
 						address: data.address ? String(data.address) : '',
 						complaint: data.complaint ? String(data.complaint) : '',
 						status: (data.status as AdminPatientStatus) ?? 'pending',
+						totalSessionsRequired:
+							typeof data.totalSessionsRequired === 'number'
+								? data.totalSessionsRequired
+								: data.totalSessionsRequired
+									? Number(data.totalSessionsRequired)
+									: undefined,
+						remainingSessions:
+							typeof data.remainingSessions === 'number'
+								? data.remainingSessions
+								: data.remainingSessions
+									? Number(data.remainingSessions)
+									: undefined,
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
 					} as AdminPatientRecord & { id: string };
 				});
@@ -317,6 +329,8 @@ export default function Reports() {
 			dateOfConsultation: new Date().toISOString().split('T')[0],
 			contact: patient.phone || '',
 			email: patient.email || '',
+			totalSessionsRequired: patient.totalSessionsRequired,
+			remainingSessions: patient.remainingSessions,
 			complaints: patient.complaint || '',
 			presentHistory: '',
 			pastHistory: '',
