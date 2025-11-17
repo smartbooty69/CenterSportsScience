@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, addDoc, deleteDoc, query, where, orderBy, getDocs, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, addDoc, deleteDoc, query, where, orderBy, getDocs, serverTimestamp, limit, type QuerySnapshot, type Timestamp, type QueryConstraint } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 
 import { db } from '@/lib/firebase';
@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { AdminGenderOption, AdminPatientStatus } from '@/lib/adminMockData';
 import { generatePhysiotherapyReportPDF, type PatientReportData } from '@/lib/pdfGenerator';
 import type { PatientRecordFull } from '@/lib/types';
+import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
 
 const VAS_EMOJIS = ['😀','😁','🙂','😊','😌','😟','😣','😢','😭','😱'];
 const HYDRATION_EMOJIS = ['😄','😃','🙂','😐','😕','😟','😢','😭'];
@@ -147,6 +148,115 @@ function removeUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
 		}
 	}
 	return cleaned;
+}
+
+function deriveCurrentSessionRemaining(
+	totalSessionsRequired?: number,
+	storedRemaining?: number
+) {
+	if (typeof totalSessionsRequired !== 'number') return storedRemaining;
+	const base =
+		typeof storedRemaining === 'number' ? storedRemaining : totalSessionsRequired;
+	return Math.max(0, base - 1);
+}
+
+function applyCurrentSessionAdjustments(patient: PatientRecordFull) {
+	const adjustedRemaining = deriveCurrentSessionRemaining(
+		patient.totalSessionsRequired,
+		patient.remainingSessions
+	);
+	if (adjustedRemaining === undefined) {
+		return patient;
+	}
+	return { ...patient, remainingSessions: adjustedRemaining };
+}
+
+async function markAppointmentCompletedForReport(
+	patient: PatientRecordFull,
+	reportDate?: string
+) {
+	if (!patient?.patientId) return;
+
+	try {
+		const constraints: QueryConstraint[] = [
+			where('patientId', '==', patient.patientId),
+			where('status', 'in', ['pending', 'ongoing']),
+		];
+
+		if (reportDate) {
+			constraints.push(where('date', '==', reportDate));
+		} else {
+			constraints.push(orderBy('date', 'desc'), orderBy('time', 'desc'));
+		}
+
+		constraints.push(limit(1));
+
+		const appointmentQuery = query(collection(db, 'appointments'), ...constraints);
+		const snapshot = await getDocs(appointmentQuery);
+		if (snapshot.empty) {
+			return;
+		}
+
+		const appointmentDoc = snapshot.docs[0];
+		await updateDoc(appointmentDoc.ref, { status: 'completed' });
+
+		if (patient.id) {
+			try {
+				await recordSessionUsageForAppointment({
+					patientDocId: patient.id,
+					patientType: patient.patientType,
+					appointmentId: appointmentDoc.id,
+				});
+			} catch (sessionError) {
+				console.error('Failed to record session usage after report save', sessionError);
+			}
+		}
+	} catch (error) {
+		console.error('Failed to auto-complete appointment after report save', error);
+	}
+}
+
+async function refreshPatientSessionProgress(
+	patient: PatientRecordFull,
+	totalOverride?: number | null
+) {
+	if (!patient?.id || !patient.patientId) return null;
+
+	const totalRequired =
+		typeof totalOverride === 'number'
+			? totalOverride
+			: typeof patient.totalSessionsRequired === 'number'
+				? patient.totalSessionsRequired
+				: null;
+
+	if (totalRequired === null) return null;
+
+	try {
+		const completedQuery = query(
+			collection(db, 'appointments'),
+			where('patientId', '==', patient.patientId),
+			where('status', '==', 'completed')
+		);
+		const completedSnapshot = await getDocs(completedQuery);
+		const completedCount = completedSnapshot.size;
+		const remainingSessions = Math.max(0, totalRequired - completedCount);
+
+		const updates: Partial<PatientRecordFull> = {
+			remainingSessions,
+		};
+
+		if (remainingSessions === 0) {
+			updates.status = 'completed';
+		}
+
+		const patientRef = doc(db, 'patients', patient.id);
+		await updateDoc(patientRef, updates);
+
+		return updates;
+	} catch (error) {
+		console.error('Failed to refresh patient session progress', error);
+		return null;
+	}
 }
 
 export default function EditReport() {
@@ -320,7 +430,7 @@ export default function EditReport() {
 			const patient = patients.find(p => p.patientId === patientIdParam);
 			if (patient) {
 				setSelectedPatient(patient);
-				setFormData(patient);
+				setFormData(applyCurrentSessionAdjustments(patient));
 			}
 		}
 	}, [patientIdParam, patients, selectedPatient]);
@@ -383,7 +493,7 @@ export default function EditReport() {
 
 	const handleSelectPatient = (patient: PatientRecordFull) => {
 		setSelectedPatient(patient);
-		setFormData(patient);
+		setFormData(applyCurrentSessionAdjustments(patient));
 		router.push(`/clinical-team/edit-report?patientId=${patient.patientId}`);
 	};
 
@@ -524,6 +634,13 @@ export default function EditReport() {
 		setSaving(true);
 		try {
 			const patientRef = doc(db, 'patients', selectedPatient.id);
+			const consultationDate = formData.dateOfConsultation || selectedPatient.dateOfConsultation;
+			const totalSessionsValue =
+				typeof formData.totalSessionsRequired === 'number'
+					? formData.totalSessionsRequired
+					: typeof selectedPatient.totalSessionsRequired === 'number'
+						? selectedPatient.totalSessionsRequired
+						: undefined;
 			
 			// Only save report-related fields, not patient demographics
 			const reportData: Record<string, any> = {
@@ -737,6 +854,33 @@ export default function EditReport() {
 
 			// Update selectedPatient state to reflect the new data
 			setSelectedPatient(prev => prev ? { ...prev, ...reportData } : null);
+			setPatients(prev =>
+				prev.map(p => (p.id === selectedPatient.id ? { ...p, ...reportData } : p))
+			);
+
+			await markAppointmentCompletedForReport(selectedPatient, consultationDate);
+			const patientForProgress: PatientRecordFull = {
+				...selectedPatient,
+				totalSessionsRequired: totalSessionsValue ?? selectedPatient.totalSessionsRequired,
+			};
+			const sessionProgress = await refreshPatientSessionProgress(
+				patientForProgress,
+				totalSessionsValue ?? null
+			);
+
+			if (sessionProgress) {
+				setSelectedPatient(prev => (prev ? { ...prev, ...sessionProgress } : null));
+				setPatients(prev =>
+					prev.map(p => (p.id === selectedPatient.id ? { ...p, ...sessionProgress } : p))
+				);
+				setFormData(prev => ({
+					...prev,
+					...(sessionProgress.remainingSessions !== undefined
+						? { remainingSessions: sessionProgress.remainingSessions }
+						: {}),
+					...(sessionProgress.status ? { status: sessionProgress.status } : {}),
+				}));
+			}
 
 			setSavedMessage(true);
 			setTimeout(() => setSavedMessage(false), 3000);
@@ -1513,7 +1657,7 @@ export default function EditReport() {
 											const total = value;
 											const nextRemaining =
 												prev.remainingSessions === undefined || prev.remainingSessions === null
-													? total
+													? deriveCurrentSessionRemaining(total)
 													: prev.remainingSessions;
 											return {
 												...prev,

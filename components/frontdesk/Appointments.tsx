@@ -521,15 +521,15 @@ export default function Appointments() {
 			// Recalculate and update remaining sessions when status changes, if totalSessionsRequired is set
 			if (patientDetails && typeof patientDetails.totalSessionsRequired === 'number') {
 				const patientId = appointment.patientId;
-				const nonCancelledAfter = appointments
+				const completedAfter = appointments
 					.map(a =>
 						a.appointmentId === appointmentId
 							? { ...a, status }
 							: a
 					)
-					.filter(a => a.patientId === patientId && a.status !== 'cancelled').length;
+					.filter(a => a.patientId === patientId && a.status === 'completed').length;
 
-				const newRemaining = Math.max(0, patientDetails.totalSessionsRequired - nonCancelledAfter);
+				const newRemaining = Math.max(0, patientDetails.totalSessionsRequired - completedAfter);
 				const patientRef = doc(db, 'patients', patientDetails.id);
 				await updateDoc(patientRef, {
 					remainingSessions: newRemaining,
@@ -888,11 +888,10 @@ export default function Appointments() {
 
 			// Update remaining sessions for the patient, if totalSessionsRequired is set
 			if (typeof selectedPatient.totalSessionsRequired === 'number') {
-				const nonCancelledBefore = appointments.filter(
-					a => a.patientId === bookingForm.patientId && a.status !== 'cancelled'
+				const completedCount = appointments.filter(
+					a => a.patientId === bookingForm.patientId && a.status === 'completed'
 				).length;
-				const totalNonCancelled = nonCancelledBefore + totalAppointments;
-				const newRemaining = Math.max(0, selectedPatient.totalSessionsRequired - totalNonCancelled);
+				const newRemaining = Math.max(0, selectedPatient.totalSessionsRequired - completedCount);
 
 				const patientRef = doc(db, 'patients', selectedPatient.id);
 				await updateDoc(patientRef, {
