@@ -52,6 +52,8 @@ export interface AdminPatientRecord {
 	complaint: string;
 	status: AdminPatientStatus;
 	registeredAt: string;
+	totalSessionsRequired?: number;
+	remainingSessions?: number;
 }
 
 export const DEFAULT_ADMIN_PATIENTS: AdminPatientRecord[] = [
