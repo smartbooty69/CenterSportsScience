@@ -4,13 +4,19 @@
 
 import * as Sentry from "@sentry/nextjs";
 
+const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+const isDev = process.env.NODE_ENV === "development";
+const enableInDev =
+  process.env.NEXT_PUBLIC_ENABLE_SENTRY === "true" ||
+  process.env.ENABLE_SENTRY_IN_DEV === "true";
+const isEnabled = Boolean(dsn) && (!isDev || enableInDev);
+
 Sentry.init({
-  dsn: "https://e340b56fa9c4cea456af203395f391e5@o4507560740388864.ingest.us.sentry.io/4510378827317248",
+  dsn: dsn || undefined,
+  enabled: isEnabled,
 
   // Add optional integrations for additional features
-  integrations: [
-    Sentry.replayIntegration(),
-  ],
+  integrations: [Sentry.replayIntegration()],
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,

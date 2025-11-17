@@ -35,15 +35,27 @@ Add the following to your `.env.local` file:
 
 ```env
 # Sentry Error Tracking
+# Server-side DSN (kept private)
+SENTRY_DSN=https://your-dsn@sentry.io/your-project-id
+# Client-side DSN (only needed if you want browser reporting)
 NEXT_PUBLIC_SENTRY_DSN=https://your-dsn@sentry.io/your-project-id
+
+# Optional: only needed when uploading source maps
 SENTRY_ORG=your-org-slug
 SENTRY_PROJECT=your-project-slug
 SENTRY_AUTH_TOKEN=your-auth-token
+
+# Opt-in to Sentry while running `npm run dev`
+ENABLE_SENTRY_IN_DEV=true
+# (Client override; useful if you prefer to scope to browser only)
+NEXT_PUBLIC_ENABLE_SENTRY=true
 ```
 
 **Important Notes:**
-- `NEXT_PUBLIC_SENTRY_DSN` is used for client-side error tracking
-- `SENTRY_DSN` (without NEXT_PUBLIC) can also be used for server-side, but the client config will use `NEXT_PUBLIC_SENTRY_DSN`
+- `SENTRY_DSN` is read by all server and edge runtimes (including background jobs)
+- `NEXT_PUBLIC_SENTRY_DSN` is required only if you plan to capture browser errors
+- Sentry is automatically disabled during local development unless you set
+  `ENABLE_SENTRY_IN_DEV=true` (or the client-specific `NEXT_PUBLIC_ENABLE_SENTRY=true`)
 - The auth token is only needed for uploading source maps during builds
 - Never commit your `.env.local` file to version control
 
@@ -104,15 +116,14 @@ For production, consider:
 - `replaysSessionSampleRate: 0.1` (10% of sessions)
 - `replaysOnErrorSampleRate: 1.0` (100% of error sessions)
 
-### Disabling Sentry in Development
+### Enabling/Disabling Sentry in Development
 
-To disable Sentry in development, you can modify the config files to check `process.env.NODE_ENV`:
-
-```typescript
-if (process.env.NODE_ENV === 'production') {
-  Sentry.init({ ... });
-}
-```
+Sentry is now **disabled by default** when you run `npm run dev` to avoid noisy
+network errors in restricted environments. Opt in by setting either
+`ENABLE_SENTRY_IN_DEV=true` (covers server/edge) or
+`NEXT_PUBLIC_ENABLE_SENTRY=true` (client-only). Leaving these unset keeps
+local development traffic from being sent to Sentry while production remains
+fully instrumented.
 
 ## Troubleshooting
 

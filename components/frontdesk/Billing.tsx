@@ -10,6 +10,15 @@ import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { getCurrentBillingCycle, getNextBillingCycle, getBillingCycleId, getMonthName, type BillingCycle } from '@/lib/billingUtils';
 import { type AdminPatientRecord } from '@/lib/adminMockData';
 
+type BillingPatientRecord = AdminPatientRecord & {
+	id?: string;
+	assignedDoctor?: string;
+	diagnosis?: string;
+	treatmentProvided?: string;
+	progressNotes?: string;
+	referredBy?: string;
+};
+
 interface BillingRecord {
 	id?: string;
 	billingId: string;
@@ -128,7 +137,7 @@ function numberToWords(num: number): string {
 export default function Billing() {
 	const [billing, setBilling] = useState<BillingRecord[]>([]);
 	const [appointments, setAppointments] = useState<any[]>([]);
-	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
+	const [patients, setPatients] = useState<BillingPatientRecord[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [filterRange, setFilterRange] = useState<string>('30');
@@ -531,8 +540,13 @@ export default function Billing() {
 						phone: data.phone ? String(data.phone) : '',
 						email: data.email ? String(data.email) : '',
 						address: data.address ? String(data.address) : '',
+						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
+						diagnosis: data.diagnosis ? String(data.diagnosis) : undefined,
+						treatmentProvided: data.treatmentProvided ? String(data.treatmentProvided) : undefined,
+						progressNotes: data.progressNotes ? String(data.progressNotes) : undefined,
+						referredBy: data.referredBy ? String(data.referredBy) : undefined,
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
-					} as AdminPatientRecord & { id?: string };
+					} as BillingPatientRecord;
 				});
 				setPatients(mapped);
 			},
