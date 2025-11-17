@@ -147,23 +147,17 @@ const headStyles = {
 	textColor: [255, 255, 255] as [number, number, number],
 };
 
-<<<<<<< HEAD
-export async function generatePhysiotherapyReportPDF(data: PatientReportData): Promise<void> {
-	const [{ default: jsPDF }, autoTableModule] = await Promise.all([
-		import('jspdf'),
-		import('jspdf-autotable'),
-	]);
-	
-	// jspdf-autotable v5 exports the function as default
-	const autoTable = (autoTableModule as any).default || autoTableModule;
-=======
 export async function generatePhysiotherapyReportPDF(
 	data: PatientReportData,
 	options?: { forPrint?: boolean }
 ): Promise<string | void> {
-	const { default: jsPDF } = await import('jspdf');
-	const autoTable = (await import('jspdf-autotable')).default;
->>>>>>> f02feb34b0d749fa3ce25de19ec3d2f14b0ab897
+	const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+		import('jspdf'),
+		import('jspdf-autotable'),
+	]);
+
+	// jspdf-autotable v5 exports the function as default
+	const autoTable = (autoTableModule as any).default || autoTableModule;
 
 	const doc = new jsPDF('p', 'mm', 'a4');
 	let y = 8; // Initial Y position for logos
