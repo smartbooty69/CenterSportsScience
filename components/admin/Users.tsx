@@ -165,7 +165,8 @@ export default function Users() {
 		setError(null);
 	};
 
-	const openEditDialog = (employee: Employee) => {
+	const openEditDialog = (employee: Employee | null) => {
+		if (!employee) return;
 		setEditingEmployee(employee);
 		setFormState({
 			userName: employee.userName,
@@ -313,6 +314,20 @@ export default function Users() {
 		}
 	};
 
+	// Accept nullable since we call these with selectedEmployee which can be null
+	const handleResetPassword = async (employee: Employee | null) => {
+		if (!employee) return;
+		// Create a temp password and show to admin — replace with API call to update in Auth if needed
+		const tempPassword = Math.random().toString(36).slice(-8);
+		alert(`Temporary password for ${employee.userEmail}: ${tempPassword}\n\n(Show this to the user and/or update the Auth account through your admin API.)`);
+	};
+
+	const handleSendResetEmail = async (employee: Employee | null) => {
+		if (!employee) return;
+		// Placeholder behavior: show an alert. Replace with real sendPasswordResetEmail(auth, email) call if you want.
+		alert(`A password reset email would be sent to ${employee.userEmail} (placeholder).`);
+	};
+
 	const handleToggleStatus = async (employee: Employee) => {
 		const nextStatus: EmployeeStatus = employee.status === 'Active' ? 'Inactive' : 'Active';
 		try {
@@ -324,15 +339,10 @@ export default function Users() {
 		}
 	};
 
-	const handleResetPassword = async (employee: Employee) => {
-		const tempPassword = Math.random().toString(36).slice(-8);
-		alert(`Password reset email would be sent to ${employee.userEmail}.\nTemporary password: ${tempPassword}`);
-	};
-
 	const handleAddActivity = () => {
 		if (!selectedEmployee || !activityDraft.trim()) return;
 		const entry = {
-			id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+			id: typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2),
 			text: activityDraft.trim(),
 			createdAt: new Date(),
 		};
@@ -470,7 +480,7 @@ export default function Users() {
 									<th className="px-4 py-3 font-semibold">Role</th>
 									<th className="px-4 py-3 font-semibold">Status</th>
 									<th className="px-4 py-3 font-semibold">Created</th>
-									<th className="px-4 py-3 font-semibold text-right">Actions</th>
+									<th className="px-4 py-3 font-semibold text-center">Actions</th>
 								</tr>
 							</thead>
 							<tbody className="divide-y divide-slate-100">
@@ -505,8 +515,9 @@ export default function Users() {
 												</span>
 											</td>
 											<td className="px-4 py-4 text-sm text-slate-500">{formatDate(employee.createdAt)}</td>
-											<td className="px-4 py-4 text-right text-sm">
-												<div className="flex flex-wrap justify-end gap-2">
+											<td className="px-4 py-4 text-center text-sm">
+												<div className="flex flex-wrap justify-center gap-2">
+													{/* VIEW PROFILE */}
 													<button
 														type="button"
 														onClick={() => setSelectedEmployee(employee)}
@@ -515,30 +526,8 @@ export default function Users() {
 														<i className="fas fa-id-badge mr-1 text-[11px]" aria-hidden="true" />
 														View profile
 													</button>
-													<button
-														type="button"
-														onClick={() => handleResetPassword(employee)}
-														className="inline-flex items-center rounded-full border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-700 transition hover:border-indigo-400 hover:text-indigo-800 focus-visible:border-indigo-400 focus-visible:text-indigo-800 focus-visible:outline-none"
-													>
-														<i className="fas fa-key mr-1 text-[11px]" aria-hidden="true" />
-														Reset password
-													</button>
-													<button
-														type="button"
-														onClick={() => handleToggleStatus(employee)}
-														className="inline-flex items-center rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-400 hover:text-amber-800 focus-visible:border-amber-400 focus-visible:text-amber-800 focus-visible:outline-none"
-													>
-														<i className="fas fa-power-off mr-1 text-[11px]" aria-hidden="true" />
-														{employee.status === 'Active' ? 'Deactivate' : 'Activate'}
-													</button>
-													<button
-														type="button"
-														onClick={() => openEditDialog(employee)}
-														className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 focus-visible:border-slate-400 focus-visible:text-slate-900 focus-visible:outline-none"
-													>
-														<i className="fas fa-pen mr-1 text-[11px]" aria-hidden="true" />
-														Edit
-													</button>
+
+													{/* DELETE */}
 													<button
 														type="button"
 														onClick={() => handleDelete(employee)}
@@ -670,14 +659,27 @@ export default function Users() {
 								<div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
 									<h4 className="text-sm font-semibold text-slate-800">Quick actions</h4>
 									<div className="mt-3 space-y-2 text-xs">
+										{/* Send reset email (placeholder) */}
 										<button
 											type="button"
-											onClick={() => handleResetPassword(selectedEmployee)}
+											onClick={() => handleSendResetEmail(selectedEmployee)}
 											className="btn-tertiary w-full justify-start"
 										>
 											<i className="fas fa-envelope text-xs" aria-hidden="true" />
 											Send reset email
 										</button>
+
+										{/* Reset password (temporary password generator / placeholder) */}
+										<button
+											type="button"
+											onClick={() => handleResetPassword(selectedEmployee)}
+											className="btn-tertiary w-full justify-start"
+										>
+											<i className="fas fa-key text-xs" aria-hidden="true" />
+											Reset password
+										</button>
+
+										{/* Toggle status & edit remain available in modal */}
 										<button
 											type="button"
 											onClick={() => handleToggleStatus(selectedEmployee)}
@@ -841,4 +843,3 @@ export default function Users() {
 		</div>
 	);
 }
-
