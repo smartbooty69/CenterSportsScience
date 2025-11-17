@@ -123,6 +123,12 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_storage_bucket
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+
+# Sentry Error Tracking (optional but recommended)
+NEXT_PUBLIC_SENTRY_DSN=your_sentry_dsn
+SENTRY_ORG=your_sentry_org
+SENTRY_PROJECT=your_sentry_project
+SENTRY_AUTH_TOKEN=your_sentry_auth_token
 ```
 
 4. Run the development server

@@ -309,14 +309,14 @@ export default function Register() {
 				dob: form.dob,
 				gender: form.gender,
 				phone: form.phone.trim(),
-				email: form.email.trim() || undefined,
-				address: form.address.trim() || undefined,
+				email: form.email.trim() || null,
+				address: form.address.trim() || null,
 				complaint: '',
 				status: 'pending' as AdminPatientStatus,
 				registeredAt: serverTimestamp(),
 				patientType: form.patientType as PatientTypeOption,
 				paymentType: form.patientType === 'PAID' ? (form.paymentType as PaymentTypeOption) : 'without' as PaymentTypeOption,
-				paymentDescription: form.patientType === 'PAID' ? (form.paymentDescription.trim() || undefined) : undefined,
+				paymentDescription: form.patientType === 'PAID' ? (form.paymentDescription.trim() || null) : null,
 			};
 
 			await addDoc(collection(db, 'patients'), patientData);

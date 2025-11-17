@@ -7,6 +7,9 @@ export interface PatientReportData {
 	dateOfConsultation?: string;
 	contact?: string;
 	email?: string;
+	// Session tracking
+	totalSessionsRequired?: number;
+	remainingSessions?: number;
 	complaints?: string;
 	presentHistory?: string;
 	pastHistory?: string;
@@ -144,13 +147,56 @@ const headStyles = {
 	textColor: [255, 255, 255] as [number, number, number],
 };
 
-export async function generatePhysiotherapyReportPDF(data: PatientReportData): Promise<void> {
-	const { default: jsPDF } = await import('jspdf');
-	const autoTable = (await import('jspdf-autotable')).default;
+export async function generatePhysiotherapyReportPDF(
+	data: PatientReportData,
+	options?: { forPrint?: boolean }
+): Promise<string | void> {
+	const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+		import('jspdf'),
+		import('jspdf-autotable'),
+	]);
+
+	// jspdf-autotable v5 exports the function as default
+	const autoTable = (autoTableModule as any).default || autoTableModule;
 
 	const doc = new jsPDF('p', 'mm', 'a4');
-	let y = 12;
+	let y = 8; // Initial Y position for logos
 
+	// Load and add logos
+	try {
+		const centerLogoResponse = await fetch('/CenterSportsScience_logo.jpg');
+		if (centerLogoResponse.ok) {
+			const centerLogoBlob = await centerLogoResponse.blob();
+			const centerLogoDataUrl = await new Promise<string>((resolve) => {
+				const reader = new FileReader();
+				reader.onloadend = () => resolve(reader.result as string);
+				reader.readAsDataURL(centerLogoBlob);
+			});
+			// Left top corner logo - 25mm width, 12mm height
+			doc.addImage(centerLogoDataUrl, 'JPEG', 12, y, 25, 12);
+		}
+	} catch (error) {
+		console.warn('Could not load Center Sports Science logo:', error);
+	}
+
+	try {
+		const sixsLogoResponse = await fetch('/sixs_logo.jpg');
+		if (sixsLogoResponse.ok) {
+			const sixsLogoBlob = await sixsLogoResponse.blob();
+			const sixsLogoDataUrl = await new Promise<string>((resolve) => {
+				const reader = new FileReader();
+				reader.onloadend = () => resolve(reader.result as string);
+				reader.readAsDataURL(sixsLogoBlob);
+			});
+			// Right top corner logo - 25mm width, 12mm height
+			doc.addImage(sixsLogoDataUrl, 'JPEG', 161, y, 25, 12);
+		}
+	} catch (error) {
+		console.warn('Could not load Sixs logo:', error);
+	}
+
+	// Title
+	y = 22; // Adjusted Y position after logos
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(16);
 	doc.setTextColor(0, 51, 102);
@@ -160,7 +206,16 @@ export async function generatePhysiotherapyReportPDF(data: PatientReportData): P
 	doc.setFontSize(12);
 	doc.text('PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT', 105, y, { align: 'center' });
 
+	// Contact information
+	y += 6;
+	doc.setFont('helvetica', 'normal');
+	doc.setFontSize(9);
+	doc.setTextColor(0, 0, 0);
+	doc.text('Phone No: +91 97311 28396', 105, y, { align: 'center' });
 	y += 4;
+	doc.text('Address: Sree Kanteerava Stadium Gate 8 and 10, Sampangiram Nagar, Bengaluru, Karnataka 560027', 105, y, { align: 'center' });
+
+	y += 6;
 	doc.setDrawColor(0, 51, 102);
 	doc.line(12, y, 198, y);
 	y += 4;
@@ -176,6 +231,8 @@ export async function generatePhysiotherapyReportPDF(data: PatientReportData): P
 			['Age / Gender', `${data.age || ''} / ${data.gender || ''}`],
 			['Date of Consultation', data.dateOfConsultation || ''],
 			['Contact / Email', `${data.contact || ''} / ${data.email || ''}`],
+			['Total Sessions Required', data.totalSessionsRequired != null ? String(data.totalSessionsRequired) : ''],
+			['Remaining Sessions', data.remainingSessions != null ? String(data.remainingSessions) : ''],
 		],
 		headStyles,
 		styles: baseStyles,
@@ -391,5 +448,9 @@ export async function generatePhysiotherapyReportPDF(data: PatientReportData): P
 	doc.setFont('helvetica', 'normal');
 	doc.text(data.physioRegNo || '', 170, y);
 
-	doc.save(`Physiotherapy_Report_${data.patientId}.pdf`);
+	if (options?.forPrint) {
+		return doc.output('dataurlstring');
+	} else {
+		doc.save(`Physiotherapy_Report_${data.patientId}.pdf`);
+	}
 }
