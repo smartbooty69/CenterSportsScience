@@ -67,7 +67,7 @@ type FirestoreAppointmentRecord = AdminAppointmentRecord & {
 
 export default function Appointments() {
 	const [appointments, setAppointments] = useState<FirestoreAppointmentRecord[]>([]);
-	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
+	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string; patientType?: string })[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -197,7 +197,7 @@ export default function Appointments() {
 	}, []);
 
 	const patientLookup = useMemo(() => {
-		const map = new Map<string, AdminPatientRecord>();
+		const map = new Map<string, AdminPatientRecord & { id?: string; patientType?: string }>();
 		for (const patient of patients) {
 			map.set(patient.patientId, patient);
 		}

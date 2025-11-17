@@ -731,7 +731,7 @@ export default function Billing() {
 
 	// Admin features: Patient lookup and doctor options
 	const patientLookup = useMemo(() => {
-		const map = new Map<string, AdminPatientRecord>();
+		const map = new Map<string, BillingPatientRecord>();
 		for (const patient of patients) {
 			map.set(patient.patientId, patient);
 		}
