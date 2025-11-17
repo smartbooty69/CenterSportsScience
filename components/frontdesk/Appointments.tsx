@@ -11,6 +11,9 @@ import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { checkAppointmentConflict } from '@/lib/appointmentUtils';
 import AppointmentTemplates from '@/components/appointments/AppointmentTemplates';
+import { normalizeSessionAllowance } from '@/lib/sessionAllowance';
+import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
+import type { RecordSessionUsageResult } from '@/lib/sessionAllowanceClient';
 
 type AppointmentStatusFilter = 'all' | AdminAppointmentStatus;
 
@@ -174,6 +177,10 @@ export default function Appointments() {
 									: undefined,
 						status: (data.status as AdminPatientStatus) ?? 'pending',
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
+						patientType: data.patientType ? String(data.patientType) : undefined,
+						sessionAllowance: data.sessionAllowance
+							? normalizeSessionAllowance(data.sessionAllowance as Record<string, unknown>)
+							: undefined,
 					} as PatientRecordWithSessions;
 				});
 				setPatients(mapped);
@@ -490,6 +497,7 @@ export default function Appointments() {
 		const oldStatus = appointment.status;
 		const patientDetails = patients.find(p => p.patientId === appointment.patientId);
 		const staffMember = staff.find(s => s.userName === appointment.doctor);
+		let sessionUsageResult: RecordSessionUsageResult | null = null;
 
 		setUpdating(prev => ({ ...prev, [appointment.id]: true }));
 		try {
@@ -497,6 +505,18 @@ export default function Appointments() {
 			await updateDoc(appointmentRef, {
 				status,
 			});
+
+			if (status === 'completed' && oldStatus !== 'completed' && patientDetails?.id) {
+				try {
+					sessionUsageResult = await recordSessionUsageForAppointment({
+						patientDocId: patientDetails.id,
+						patientType: patientDetails.patientType,
+						appointmentId: appointment.id,
+					});
+				} catch (sessionError) {
+					console.error('Failed to record DYES session usage:', sessionError);
+				}
+			}
 
 			// Recalculate and update remaining sessions when status changes, if totalSessionsRequired is set
 			if (patientDetails && typeof patientDetails.totalSessionsRequired === 'number') {
@@ -593,6 +613,54 @@ export default function Appointments() {
 						});
 					} catch (emailError) {
 						console.error('Failed to send status change email to staff:', emailError);
+					}
+				}
+
+				if (sessionUsageResult && !sessionUsageResult.wasFree && patientDetails?.email) {
+					try {
+						await sendEmailNotification({
+							to: patientDetails.email,
+							subject: `Session Balance Update - ${appointment.patient}`,
+							template: 'session-balance',
+							data: {
+								recipientName: appointment.patient,
+								recipientType: 'patient',
+								patientName: appointment.patient,
+								patientEmail: patientDetails.email,
+								patientId: appointment.patientId,
+								appointmentDate: appointment.date,
+								appointmentTime: appointment.time,
+								freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+								pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+								pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+							},
+						});
+					} catch (sessionEmailError) {
+						console.error('Failed to send session balance email to patient:', sessionEmailError);
+					}
+				}
+
+				if (sessionUsageResult && !sessionUsageResult.wasFree && staffMember?.userEmail) {
+					try {
+						await sendEmailNotification({
+							to: staffMember.userEmail,
+							subject: `Pending Sessions Alert - ${appointment.patient}`,
+							template: 'session-balance',
+							data: {
+								recipientName: staffMember.userName,
+								recipientType: 'therapist',
+								patientName: appointment.patient,
+								patientEmail: staffMember.userEmail,
+								patientId: appointment.patientId,
+								appointmentDate: appointment.date,
+								appointmentTime: appointment.time,
+								freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+								pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+								pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+							},
+						});
+					} catch (sessionEmailError) {
+						console.error('Failed to send session balance email to staff:', sessionEmailError);
 					}
 				}
 			}

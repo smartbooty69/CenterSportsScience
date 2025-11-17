@@ -15,6 +15,9 @@ import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import RescheduleDialog from '@/components/appointments/RescheduleDialog';
 import CancelDialog from '@/components/appointments/CancelDialog';
 import { checkAppointmentConflict } from '@/lib/appointmentUtils';
+import { normalizeSessionAllowance } from '@/lib/sessionAllowance';
+import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
+import type { RecordSessionUsageResult } from '@/lib/sessionAllowanceClient';
 
 const statusLabels: Record<AdminAppointmentStatus, string> = {
 	pending: 'Pending',
@@ -123,6 +126,10 @@ export default function Appointments() {
 						complaint: data.complaint ? String(data.complaint) : '',
 						status: (data.status as string) ?? 'pending',
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
+						patientType: data.patientType ? String(data.patientType) : undefined,
+						sessionAllowance: data.sessionAllowance
+							? normalizeSessionAllowance(data.sessionAllowance as Record<string, unknown>)
+							: undefined,
 					} as AdminPatientRecord & { id: string };
 				});
 				setPatients(mapped);
@@ -288,6 +295,7 @@ export default function Appointments() {
 			const oldAppointment = { ...appointment };
 			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
 			const staffMember = staff.find(s => s.userName === (formData.doctor || appointment.doctor));
+			let sessionUsageResult: RecordSessionUsageResult | null = null;
 
 			const updateData: Record<string, unknown> = {
 				doctor: formData.doctor || null,
@@ -304,6 +312,18 @@ export default function Appointments() {
 			const statusChanged = oldAppointment.status !== formData.status;
 			const doctorChanged = oldAppointment.doctor !== formData.doctor;
 			const statusCapitalized = formData.status.charAt(0).toUpperCase() + formData.status.slice(1);
+
+			if (statusChanged && formData.status === 'completed' && patient?.id) {
+				try {
+					sessionUsageResult = await recordSessionUsageForAppointment({
+						patientDocId: patient.id,
+						patientType: patient.patientType,
+						appointmentId: appointment.id,
+					});
+				} catch (sessionError) {
+					console.error('Failed to record DYES session usage:', sessionError);
+				}
+			}
 
 			// Send email notification if patient has email and details changed
 			if (patient?.email && oldAppointment) {
@@ -375,6 +395,54 @@ export default function Appointments() {
 					});
 				} catch (emailError) {
 					console.error('Failed to send status change email to staff:', emailError);
+				}
+			}
+
+			if (sessionUsageResult && !sessionUsageResult.wasFree && patient?.email) {
+				try {
+					await sendEmailNotification({
+						to: patient.email,
+						subject: `Session Balance Update - ${appointment.patient || patient.name}`,
+						template: 'session-balance',
+						data: {
+							recipientName: appointment.patient || patient.name,
+							recipientType: 'patient',
+							patientName: appointment.patient || patient.name,
+							patientEmail: patient.email,
+							patientId: appointment.patientId,
+							appointmentDate: formData.date,
+							appointmentTime: formData.time,
+							freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+							pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+							pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+						},
+					});
+				} catch (sessionEmailError) {
+					console.error('Failed to send session balance email to patient:', sessionEmailError);
+				}
+			}
+
+			if (sessionUsageResult && !sessionUsageResult.wasFree && staffMember?.userEmail) {
+				try {
+					await sendEmailNotification({
+						to: staffMember.userEmail,
+						subject: `Pending Sessions Alert - ${appointment.patient || patient?.name}`,
+						template: 'session-balance',
+						data: {
+							recipientName: staffMember.userName,
+							recipientType: 'therapist',
+							patientName: appointment.patient || patient?.name || 'Patient',
+							patientEmail: staffMember.userEmail,
+							patientId: appointment.patientId,
+							appointmentDate: formData.date,
+							appointmentTime: formData.time,
+							freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+							pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+							pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+						},
+					});
+				} catch (sessionEmailError) {
+					console.error('Failed to send session balance email to staff:', sessionEmailError);
 				}
 			}
 

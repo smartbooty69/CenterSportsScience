@@ -5,7 +5,8 @@ export type EmailTemplate =
 	| 'appointment-updated'
 	| 'patient-registered'
 	| 'appointment-status-changed'
-	| 'billing-pending';
+	| 'billing-pending'
+	| 'session-balance';
 
 export interface EmailData {
 	to: string;
@@ -50,6 +51,10 @@ export function getEmailSubject(template: EmailTemplate, data: Record<string, un
 			return `Welcome to Centre For Sports Science - Patient ID: ${data.patientId as string}`;
 		case 'billing-pending':
 			return `Pending Payment Reminder - ${data.amount as string}`;
+		case 'session-balance': {
+			const name = (data.recipientName as string) || (data.patientName as string) || 'Patient';
+			return `Session Balance Update - ${name}`;
+		}
 		default:
 			return 'Notification from Centre For Sports Science';
 	}
@@ -420,6 +425,71 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 							<p>Thank you for your prompt attention to this matter.</p>
 							
 							<p>Best regards,<br>The ${clinicName} Billing Team</p>
+						</div>
+						<div class="footer">
+							<p><strong>${clinicName}</strong></p>
+							${clinicEmail ? `<p>Email: ${clinicEmail}</p>` : ''}
+							${clinicPhone ? `<p>Phone: ${clinicPhone}</p>` : ''}
+						</div>
+					</div>
+				</body>
+				</html>
+			`;
+		}
+
+		case 'session-balance': {
+			const sessionData = data as unknown as {
+				recipientName?: string;
+				recipientType?: 'patient' | 'therapist' | string;
+				patientName: string;
+				patientEmail: string;
+				patientId?: string;
+				appointmentDate?: string;
+				appointmentTime?: string;
+				freeSessionsRemaining: number;
+				pendingPaidSessions: number;
+				pendingChargeAmount?: number;
+			};
+
+			const recipientName = sessionData.recipientName || sessionData.patientName;
+			const isTherapist = sessionData.recipientType === 'therapist';
+			const pendingAmount =
+				typeof sessionData.pendingChargeAmount === 'number'
+					? `₹${sessionData.pendingChargeAmount.toFixed(2)}`
+					: sessionData.pendingChargeAmount || '—';
+
+			return `
+				<!DOCTYPE html>
+				<html>
+				<head>
+					<meta charset="utf-8">
+					<meta name="viewport" content="width=device-width, initial-scale=1.0">
+					${baseStyles}
+				</head>
+				<body>
+					<div class="container">
+						<div class="header">
+							<h1 style="margin: 0; font-size: 24px;">Session Balance Update</h1>
+						</div>
+						<div class="content">
+							<p>Dear ${recipientName},</p>
+							<p>
+								${isTherapist ? `Patient <strong>${sessionData.patientName}</strong> has exceeded their annual DYES session allowance.` : 'Here is your updated session balance for the DYES annual allocation.'}
+							</p>
+							
+							<div class="info-box">
+								${sessionData.patientId ? `<div class="detail-row"><span class="detail-label">Patient ID:</span> ${sessionData.patientId}</div>` : ''}
+								${sessionData.appointmentDate ? `<div class="detail-row"><span class="detail-label">Latest Session:</span> ${sessionData.appointmentDate}${sessionData.appointmentTime ? ` at ${sessionData.appointmentTime}` : ''}</div>` : ''}
+								<div class="detail-row"><span class="detail-label">Free Sessions Remaining:</span> ${sessionData.freeSessionsRemaining}</div>
+								<div class="detail-row"><span class="detail-label">Pending Sessions to Bill:</span> ${sessionData.pendingPaidSessions}</div>
+								<div class="detail-row"><span class="detail-label">Pending Amount:</span> ${pendingAmount}</div>
+							</div>
+
+							<p>The annual allotment provides 500 complimentary sessions for DYES. The balance resets automatically on January 1 every year.</p>
+							
+							<p>Please coordinate with the billing desk to settle any pending sessions.</p>
+
+							<p>Best regards,<br>The ${clinicName} Team</p>
 						</div>
 						<div class="footer">
 							<p><strong>${clinicName}</strong></p>
