@@ -145,8 +145,13 @@ const headStyles = {
 };
 
 export async function generatePhysiotherapyReportPDF(data: PatientReportData): Promise<void> {
-	const { default: jsPDF } = await import('jspdf');
-	const autoTable = (await import('jspdf-autotable')).default;
+	const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+		import('jspdf'),
+		import('jspdf-autotable'),
+	]);
+	
+	// jspdf-autotable v5 exports the function as default
+	const autoTable = (autoTableModule as any).default || autoTableModule;
 
 	const doc = new jsPDF('p', 'mm', 'a4');
 	let y = 12;

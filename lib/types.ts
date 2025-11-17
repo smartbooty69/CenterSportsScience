@@ -27,6 +27,8 @@ export interface PatientRecord {
 	name: string;
 	phone?: string;
 	email?: string;
+	status?: AdminPatientStatus;
+	assignedDoctor?: string;
 }
 
 export type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;

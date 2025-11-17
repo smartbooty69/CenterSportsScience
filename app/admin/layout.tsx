@@ -83,7 +83,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 			case 'seed':
 				return <Seed />;
 			case 'audit':
-			 return <AuditLogs />;
+				return <AuditLogs />;
 			default:
 				return <Dashboard onNavigate={handleLinkClick} />;
 		}

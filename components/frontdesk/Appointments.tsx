@@ -5,7 +5,7 @@ import { collection, doc, onSnapshot, updateDoc, deleteDoc, addDoc, serverTimest
 
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import type { AdminAppointmentStatus } from '@/lib/adminMockData';
+import type { AdminAppointmentStatus, AdminPatientStatus } from '@/lib/adminMockData';
 import type { PatientRecord } from '@/lib/types';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
@@ -155,6 +155,8 @@ export default function Appointments() {
 						name: data.name ? String(data.name) : '',
 						phone: data.phone ? String(data.phone) : undefined,
 						email: data.email ? String(data.email) : undefined,
+						status: (data.status as AdminPatientStatus) ?? 'pending',
+						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
 					} as PatientRecord;
 				});
 				setPatients(mapped);
@@ -772,6 +774,22 @@ export default function Appointments() {
 
 					createdAppointments.push(appointmentId);
 					appointmentIndex++;
+				}
+			}
+
+			// Ensure the patient's record reflects the assigned clinician
+			if (selectedPatient.id) {
+				try {
+					const patientRef = doc(db, 'patients', selectedPatient.id);
+					const patientUpdate: Record<string, unknown> = {
+						assignedDoctor: selectedStaff.userName,
+					};
+					if (!selectedPatient.status || selectedPatient.status === 'pending') {
+						patientUpdate.status = 'ongoing';
+					}
+					await updateDoc(patientRef, patientUpdate);
+				} catch (patientUpdateError) {
+					console.error('Failed to update patient assignment', patientUpdateError);
 				}
 			}
 
