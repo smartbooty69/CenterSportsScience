@@ -155,6 +155,18 @@ export default function Appointments() {
 						name: data.name ? String(data.name) : '',
 						phone: data.phone ? String(data.phone) : undefined,
 						email: data.email ? String(data.email) : undefined,
+						totalSessionsRequired:
+							typeof data.totalSessionsRequired === 'number'
+								? data.totalSessionsRequired
+								: data.totalSessionsRequired
+									? Number(data.totalSessionsRequired)
+									: undefined,
+						remainingSessions:
+							typeof data.remainingSessions === 'number'
+								? data.remainingSessions
+								: data.remainingSessions
+									? Number(data.remainingSessions)
+									: undefined,
 					} as PatientRecord;
 				});
 				setPatients(mapped);
@@ -479,6 +491,30 @@ export default function Appointments() {
 				status,
 			});
 
+			// Recalculate and update remaining sessions when status changes, if totalSessionsRequired is set
+			if (patientDetails && typeof patientDetails.totalSessionsRequired === 'number') {
+				const patientId = appointment.patientId;
+				const nonCancelledAfter = appointments
+					.map(a =>
+						a.appointmentId === appointmentId
+							? { ...a, status }
+							: a
+					)
+					.filter(a => a.patientId === patientId && a.status !== 'cancelled').length;
+
+				const newRemaining = Math.max(0, patientDetails.totalSessionsRequired - nonCancelledAfter);
+				const patientRef = doc(db, 'patients', patientDetails.id);
+				await updateDoc(patientRef, {
+					remainingSessions: newRemaining,
+				});
+
+				setPatients(prev =>
+					prev.map(p =>
+						p.id === patientDetails.id ? { ...p, remainingSessions: newRemaining } : p
+					)
+				);
+			}
+
 			// Only send notifications for completed or cancelled status changes
 			if (oldStatus !== status && (status === 'completed' || status === 'cancelled')) {
 				const statusCapitalized = status.charAt(0).toUpperCase() + status.slice(1);
@@ -773,6 +809,26 @@ export default function Appointments() {
 					createdAppointments.push(appointmentId);
 					appointmentIndex++;
 				}
+			}
+
+			// Update remaining sessions for the patient, if totalSessionsRequired is set
+			if (typeof selectedPatient.totalSessionsRequired === 'number') {
+				const nonCancelledBefore = appointments.filter(
+					a => a.patientId === bookingForm.patientId && a.status !== 'cancelled'
+				).length;
+				const totalNonCancelled = nonCancelledBefore + totalAppointments;
+				const newRemaining = Math.max(0, selectedPatient.totalSessionsRequired - totalNonCancelled);
+
+				const patientRef = doc(db, 'patients', selectedPatient.id);
+				await updateDoc(patientRef, {
+					remainingSessions: newRemaining,
+				});
+
+				setPatients(prev =>
+					prev.map(p =>
+						p.id === selectedPatient.id ? { ...p, remainingSessions: newRemaining } : p
+					)
+				);
 			}
 
 			// Send email notification if patient has email (only once for all appointments)

@@ -7,6 +7,9 @@ export interface PatientReportData {
 	dateOfConsultation?: string;
 	contact?: string;
 	email?: string;
+	// Session tracking
+	totalSessionsRequired?: number;
+	remainingSessions?: number;
 	complaints?: string;
 	presentHistory?: string;
 	pastHistory?: string;
@@ -223,6 +226,8 @@ export async function generatePhysiotherapyReportPDF(
 			['Age / Gender', `${data.age || ''} / ${data.gender || ''}`],
 			['Date of Consultation', data.dateOfConsultation || ''],
 			['Contact / Email', `${data.contact || ''} / ${data.email || ''}`],
+			['Total Sessions Required', data.totalSessionsRequired != null ? String(data.totalSessionsRequired) : ''],
+			['Remaining Sessions', data.remainingSessions != null ? String(data.remainingSessions) : ''],
 		],
 		headStyles,
 		styles: baseStyles,

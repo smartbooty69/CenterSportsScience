@@ -317,6 +317,8 @@ export default function Reports() {
 			dateOfConsultation: new Date().toISOString().split('T')[0],
 			contact: patient.phone || '',
 			email: patient.email || '',
+			totalSessionsRequired: patient.totalSessionsRequired,
+			remainingSessions: patient.remainingSessions,
 			complaints: patient.complaint || '',
 			presentHistory: '',
 			pastHistory: '',

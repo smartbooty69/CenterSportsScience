@@ -27,6 +27,9 @@ export interface PatientRecord {
 	name: string;
 	phone?: string;
 	email?: string;
+	// Session tracking fields
+	totalSessionsRequired?: number;
+	remainingSessions?: number;
 }
 
 export type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
@@ -44,6 +47,9 @@ export interface PatientRecordBasic {
 	status?: PatientStatus;
 	assignedDoctor?: string;
 	registeredAt?: string;
+	// Session tracking fields
+	totalSessionsRequired?: number;
+	remainingSessions?: number;
 }
 
 export interface PatientRecordTransfer {
@@ -161,6 +167,9 @@ export interface PatientRecordFull {
 	managementRemarks?: string;
 	nextFollowUpDate?: string;
 	nextFollowUpTime?: string;
+	// Session tracking fields
+	totalSessionsRequired?: number;
+	remainingSessions?: number;
 }
 
 export interface Appointment {

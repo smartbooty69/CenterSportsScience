@@ -545,6 +545,18 @@ export default function Billing() {
 						treatmentProvided: data.treatmentProvided ? String(data.treatmentProvided) : undefined,
 						progressNotes: data.progressNotes ? String(data.progressNotes) : undefined,
 						referredBy: data.referredBy ? String(data.referredBy) : undefined,
+						totalSessionsRequired:
+							typeof data.totalSessionsRequired === 'number'
+								? data.totalSessionsRequired
+								: data.totalSessionsRequired
+									? Number(data.totalSessionsRequired)
+									: undefined,
+						remainingSessions:
+							typeof data.remainingSessions === 'number'
+								? data.remainingSessions
+								: data.remainingSessions
+									? Number(data.remainingSessions)
+									: undefined,
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
 					} as BillingPatientRecord;
 				});
@@ -1835,6 +1847,32 @@ export default function Billing() {
 										<input
 											type="text"
 											value={selectedPatient.assignedDoctor || ''}
+											readOnly
+											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+										/>
+									</div>
+									<div>
+										<label className="block text-xs font-medium text-slate-500">Total Sessions Required</label>
+										<input
+											type="text"
+											value={
+												typeof selectedPatient.totalSessionsRequired === 'number'
+													? String(selectedPatient.totalSessionsRequired)
+													: ''
+											}
+											readOnly
+											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+										/>
+									</div>
+									<div>
+										<label className="block text-xs font-medium text-slate-500">Remaining Sessions</label>
+										<input
+											type="text"
+											value={
+												typeof selectedPatient.remainingSessions === 'number'
+													? String(selectedPatient.remainingSessions)
+													: ''
+											}
 											readOnly
 											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 										/>
