@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/PageHeader';
 import DashboardWidget from '@/components/dashboard/DashboardWidget';
 import StatsChart from '@/components/dashboard/StatsChart';
-import type { PatientRecordBasic } from '@/lib/types';
+import type { PatientRecordBasic, PatientStatus } from '@/lib/types';
 
 interface AppointmentRecord {
 	id: string;

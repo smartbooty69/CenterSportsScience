@@ -135,7 +135,7 @@ function removeUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
 		const value = obj[key];
 		if (value !== undefined) {
 			// Handle nested objects
-			if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+			if (value !== null && typeof value === 'object' && !Array.isArray(value) && !((value as any) instanceof Date)) {
 				const cleanedNested = removeUndefined(value);
 				// Only include if nested object has at least one property
 				if (Object.keys(cleanedNested).length > 0) {
@@ -1383,38 +1383,8 @@ export default function EditReport() {
 		const payload = buildReportPayload();
 		if (!payload) return;
 
-		const pdfDataUrl = await generatePhysiotherapyReportPDF(payload, { forPrint: true });
-		if (!pdfDataUrl) return;
-
-		// Open PDF in new window for printing
-		const printWindow = window.open();
-		if (!printWindow) {
-			alert('Please allow pop-ups to print the report');
-			return;
-		}
-
-		printWindow.document.write(`
-			<html>
-				<head>
-					<title>Print Report</title>
-					<style>
-						body { margin: 0; padding: 0; }
-						iframe { width: 100%; height: 100vh; border: none; }
-					</style>
-				</head>
-				<body>
-					<iframe src="${pdfDataUrl}"></iframe>
-					<script>
-						window.onload = function() {
-							setTimeout(function() {
-								window.print();
-							}, 500);
-						};
-					</script>
-				</body>
-			</html>
-		`);
-		printWindow.document.close();
+		// Generate and download the PDF (print from viewer if needed)
+		await generatePhysiotherapyReportPDF(payload);
 	};
 
 	return (
@@ -2409,8 +2379,8 @@ export default function EditReport() {
 
 			{/* Report History Modal */}
 			{showVersionHistory && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-					<div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4 py-6">
+					<div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[95vh] overflow-hidden flex flex-col">
 						<div className="flex items-center justify-between p-6 border-b border-slate-200">
 							<h2 className="text-xl font-semibold text-slate-900">
 								Report History - {selectedPatient?.name} ({selectedPatient?.patientId})
@@ -2497,8 +2467,8 @@ export default function EditReport() {
 
 			{/* View Report Modal */}
 			{viewingVersion && selectedPatient && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-					<div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4 py-6">
+					<div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[95vh] overflow-hidden flex flex-col">
 						<div className="flex items-center justify-between p-6 border-b border-slate-200">
 							<h2 className="text-xl font-semibold text-slate-900">
 								Report #{viewingVersion.version} - {selectedPatient.name} ({selectedPatient.patientId})

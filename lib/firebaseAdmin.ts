@@ -7,7 +7,7 @@ import type { App } from 'firebase-admin/app';
 import type { Auth } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
 
-let app: App;
+let app: App | null = null;
 let authAdmin: Auth;
 let dbAdmin: Firestore;
 
@@ -83,11 +83,16 @@ if (getApps().length === 0) {
 		}
 	}
 } else {
-	app = getApps()[0];
+	app = getApps()[0] || null;
 }
 
-authAdmin = getAuth(app);
-dbAdmin = getFirestore(app);
+// Final safety check to satisfy TypeScript definite assignment
+if (!app) {
+	app = getApps()[0] || initializeApp({ projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'centersportsscience-5be86' });
+}
+
+authAdmin = getAuth(app as App);
+dbAdmin = getFirestore(app as App);
 
 export { authAdmin, dbAdmin };
 

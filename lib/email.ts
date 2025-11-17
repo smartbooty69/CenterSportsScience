@@ -79,7 +79,7 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 
 	switch (template) {
 		case 'appointment-created': {
-			const appointmentData = data as AppointmentEmailData;
+			const appointmentData = data as unknown as AppointmentEmailData;
 			return `
 				<!DOCTYPE html>
 				<html>
@@ -130,7 +130,7 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 		}
 
 		case 'appointment-reminder': {
-			const appointmentData = data as AppointmentEmailData;
+			const appointmentData = data as unknown as AppointmentEmailData;
 			return `
 				<!DOCTYPE html>
 				<html>
@@ -177,7 +177,7 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 		}
 
 		case 'appointment-cancelled': {
-			const appointmentData = data as AppointmentEmailData;
+			const appointmentData = data as unknown as AppointmentEmailData;
 			return `
 				<!DOCTYPE html>
 				<html>
@@ -223,7 +223,7 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 		}
 
 		case 'appointment-updated': {
-			const appointmentData = data as AppointmentEmailData;
+			const appointmentData = data as unknown as AppointmentEmailData;
 			return `
 				<!DOCTYPE html>
 				<html>
@@ -271,7 +271,7 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 		}
 
 		case 'appointment-status-changed': {
-			const appointmentData = data as AppointmentEmailData & { status: string };
+			const appointmentData = data as unknown as AppointmentEmailData & { status: string };
 			return `
 				<!DOCTYPE html>
 				<html>
@@ -320,7 +320,7 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 		}
 
 		case 'patient-registered': {
-			const registrationData = data as PatientRegistrationEmailData;
+			const registrationData = data as unknown as PatientRegistrationEmailData;
 			return `
 				<!DOCTYPE html>
 				<html>
@@ -362,7 +362,7 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 		}
 
 		case 'billing-pending': {
-			const billingData = data as {
+			const billingData = data as unknown as {
 				patientName: string;
 				patientEmail: string;
 				patientId?: string;

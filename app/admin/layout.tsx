@@ -11,9 +11,10 @@ import Billing from '@/components/admin/Billing';
 import Reports from '@/components/admin/Reports';
 import Calendar from '@/components/admin/Calendar';
 import Seed from '@/components/admin/Seed';
+import AuditLogs from '@/components/admin/AuditLogs';
 import { useAuth } from '@/contexts/AuthContext';
 
-type AdminPage = 'dashboard' | 'users' | 'patients' | 'appointments' | 'billing' | 'reports' | 'calendar' | 'seed';
+type AdminPage = 'dashboard' | 'users' | 'patients' | 'appointments' | 'billing' | 'reports' | 'calendar' | 'audit' | 'seed';
 
 const adminLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-columns' },
@@ -23,6 +24,7 @@ const adminLinks: SidebarLink[] = [
 	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-alt' },
 	{ href: '#billing', label: 'Billing & Payments', icon: 'fas fa-file-invoice-dollar' },
 	{ href: '#reports', label: 'Reports & Analytics', icon: 'fas fa-chart-pie' },
+	{ href: '#audit', label: 'Audit Logs', icon: 'fas fa-clipboard-list' },
 	{ href: '#seed', label: 'Seed Data', icon: 'fas fa-database' },
 ];
 
@@ -80,6 +82,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 				return <Reports />;
 			case 'seed':
 				return <Seed />;
+			case 'audit':
+			 return <AuditLogs />;
 			default:
 				return <Dashboard onNavigate={handleLinkClick} />;
 		}

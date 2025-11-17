@@ -36,7 +36,7 @@ export function generateWhatsAppMessage(template: WhatsAppTemplate, data: Record
 
 	switch (template) {
 		case 'appointment-created': {
-			const appointmentData = data as AppointmentWhatsAppData;
+			const appointmentData = data as unknown as AppointmentWhatsAppData;
 			let message = `✅ *Appointment Confirmed*\n\n`;
 			message += `Hi ${appointmentData.patientName}, your appointment is confirmed with ${clinicName}.\n\n`;
 			message += `📅 *Date:* ${appointmentData.date}\n`;
@@ -53,7 +53,7 @@ export function generateWhatsAppMessage(template: WhatsAppTemplate, data: Record
 		}
 
 		case 'appointment-reminder': {
-			const appointmentData = data as AppointmentWhatsAppData;
+			const appointmentData = data as unknown as AppointmentWhatsAppData;
 			let message = `🔔 *Appointment Reminder*\n\n`;
 			message += `Hi ${appointmentData.patientName}, you have an appointment *tomorrow* with ${clinicName}.\n\n`;
 			message += `📅 *Date:* ${appointmentData.date}\n`;
@@ -67,7 +67,7 @@ export function generateWhatsAppMessage(template: WhatsAppTemplate, data: Record
 		}
 
 		case 'appointment-cancelled': {
-			const appointmentData = data as AppointmentWhatsAppData;
+			const appointmentData = data as unknown as AppointmentWhatsAppData;
 			let message = `❌ *Appointment Cancelled*\n\n`;
 			message += `Hi ${appointmentData.patientName}, your appointment on ${appointmentData.date} at ${appointmentData.time} has been cancelled.\n\n`;
 			if (clinicPhone) {
@@ -79,7 +79,7 @@ export function generateWhatsAppMessage(template: WhatsAppTemplate, data: Record
 		}
 
 		case 'appointment-updated': {
-			const appointmentData = data as AppointmentWhatsAppData;
+			const appointmentData = data as unknown as AppointmentWhatsAppData;
 			let message = `📝 *Appointment Updated*\n\n`;
 			message += `Hi ${appointmentData.patientName}, your appointment has been updated.\n\n`;
 			message += `📅 *New Date:* ${appointmentData.date}\n`;
@@ -92,7 +92,7 @@ export function generateWhatsAppMessage(template: WhatsAppTemplate, data: Record
 		}
 
 		case 'patient-registered': {
-			const registrationData = data as PatientRegistrationWhatsAppData;
+			const registrationData = data as unknown as PatientRegistrationWhatsAppData;
 			let message = `👋 *Welcome to ${clinicName}*\n\n`;
 			message += `Hi ${registrationData.patientName}, thank you for registering with us!\n\n`;
 			message += `🆔 *Your Patient ID:* ${registrationData.patientId}\n`;

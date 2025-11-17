@@ -164,6 +164,21 @@ npm run dev
 - ✅ Fixed remove schedule functionality
 - ✅ Auto-save for all availability changes
 
+### Admin Updates
+- ✅ Audit Logs: Added Admin viewer at `/admin/audit` with filters and CSV export (actions logged: patients import/export, admin reset password, billing notifications)
+- ✅ Billing: Cycle-level reporting view and Pending table CSV/Excel export
+- ✅ Patients: Advanced filters (status, assigned doctor, registered date range, text search)
+- ✅ Admin Reports: Download PDF and Print actions enabled
+
+### What’s Pending
+- Reports: Templates (save/load configurations)
+
+### Quick Test Checklist
+- Patients: search, status filter, date-from/to, doctor filter; CSV export; import and duplicate skipping; profile notes/attachments/history
+- Billing: complete appointment → bill auto-sync by patient type rules; cycle reports update; pending export; notifications work and log
+- Audit Logs: actions appear in `/admin/audit`; filters work; CSV export
+- Guards: protected APIs require Authorization header and correct roles
+
 ## Contributing
 
 This is a private project. For questions or issues, please contact the development team.

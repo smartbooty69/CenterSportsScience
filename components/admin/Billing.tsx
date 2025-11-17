@@ -8,7 +8,7 @@ import {
 	type AdminAppointmentRecord,
 	type AdminPatientRecord,
 } from '@/lib/adminMockData';
-import { db } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
@@ -65,7 +65,7 @@ const isWithinDays = (value: string | undefined, window: DateFilter) => {
 };
 
 export default function Billing() {
-	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string })[]>([]);
+	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string; amount?: number })[]>([]);
 	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 
@@ -84,6 +84,7 @@ export default function Billing() {
 	const [defaultBillingDate] = useState(() => new Date().toISOString().slice(0, 10));
 	const [currentCycle, setCurrentCycle] = useState(() => getCurrentBillingCycle());
 	const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
+	const [selectedCycleId, setSelectedCycleId] = useState<string | 'current'>('current');
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -640,7 +641,12 @@ export default function Billing() {
 
 		setSendingNotifications(true);
 		try {
-			const response = await fetch('/api/billing/notifications?days=3');
+			const user = auth.currentUser;
+			if (!user) throw new Error('Not authenticated');
+			const token = await user.getIdToken();
+			const response = await fetch('/api/billing/notifications?days=3', {
+				headers: { Authorization: `Bearer ${token}` },
+			});
 			const result = await response.json();
 
 			if (result.success) {
@@ -655,6 +661,102 @@ export default function Billing() {
 			setSendingNotifications(false);
 		}
 	};
+
+	const handleExportPending = (format: 'csv' | 'excel' = 'csv') => {
+		if (pendingRows.length === 0) {
+			alert('No pending items to export.');
+		 return;
+		}
+		const rows = [
+			['Patient', 'Clinician', 'Visit Date', 'Draft Amount (₹)', 'Draft Billing Date'],
+			...pendingRows.map(row => {
+				const draft = pendingDrafts[row.appointment.id] ?? { amount: '', date: defaultBillingDate };
+				return [
+					row.patientName || '',
+					row.appointment.doctor || '',
+					row.appointment.date || '',
+					draft.amount || '',
+					draft.date || '',
+				];
+			}),
+		];
+		if (format === 'csv') {
+			const csv = rows.map(line => line.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
+			const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.setAttribute('download', `pending-billing-${new Date().toISOString().slice(0, 10)}.csv`);
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+		} else {
+			const ws = XLSX.utils.aoa_to_sheet(rows);
+			const wb = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(wb, ws, 'Pending Billing');
+			ws['!cols'] = [
+				{ wch: 25 }, // Patient
+				{ wch: 20 }, // Clinician
+				{ wch: 14 }, // Visit Date
+				{ wch: 16 }, // Draft Amount
+				{ wch: 16 }, // Draft Billing Date
+			];
+			XLSX.writeFile(wb, `pending-billing-${new Date().toISOString().slice(0, 10)}.xlsx`);
+		}
+	};
+
+	const isWithinCycle = (dateIso: string | undefined, cycle?: { startDate?: string; endDate?: string }) => {
+		if (!dateIso || !cycle?.startDate || !cycle?.endDate) return false;
+		const d = new Date(dateIso);
+		if (Number.isNaN(d.getTime())) return false;
+		const start = new Date(cycle.startDate);
+		const end = new Date(cycle.endDate);
+		return d >= start && d <= end;
+	};
+
+	const selectedCycle = useMemo(() => {
+		if (selectedCycleId === 'current') return currentCycle;
+		return billingCycles.find(c => c.id === selectedCycleId) || currentCycle;
+	}, [selectedCycleId, billingCycles, currentCycle]);
+
+	const cycleSummary = useMemo(() => {
+		const cycle = selectedCycle;
+		if (!cycle) {
+			return {
+				pendingCount: 0,
+				completedCount: 0,
+				collectedAmount: 0,
+				byClinician: [] as Array<{ doctor: string; amount: number }>,
+			};
+		}
+		let pendingCount = 0;
+		let completedCount = 0;
+		let collectedAmount = 0;
+		const byClinicianMap = new Map<string, number>();
+
+		for (const appt of appointments) {
+			// Pending within cycle = completed appointment with no billing, visit date within cycle
+			if (appt.status === 'completed' && !appt.billing && isWithinCycle(appt.date, cycle)) {
+				pendingCount += 1;
+			}
+			// Collections within cycle = billing date within cycle
+			const billDate = appt.billing?.date;
+			const billAmount = Number(appt.billing?.amount ?? 0);
+			if (billDate && isWithinCycle(billDate, cycle)) {
+				completedCount += 1;
+				collectedAmount += Number.isFinite(billAmount) ? billAmount : 0;
+				const key = appt.doctor || 'Unassigned';
+				byClinicianMap.set(key, (byClinicianMap.get(key) || 0) + (Number.isFinite(billAmount) ? billAmount : 0));
+			}
+		}
+
+		const byClinician = Array.from(byClinicianMap.entries())
+			.map(([doctor, amount]) => ({ doctor, amount }))
+			.sort((a, b) => b.amount - a.amount);
+
+		return { pendingCount, completedCount, collectedAmount, byClinician };
+	}, [appointments, selectedCycle]);
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -741,6 +843,65 @@ export default function Billing() {
 					)}
 				</section>
 
+				{/* Cycle Reports */}
+				<section className="rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
+					<div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+						<div>
+							<h3 className="text-lg font-semibold text-slate-900">Cycle Reports</h3>
+							<p className="text-sm text-slate-600">Summary of pending and collections within a selected billing cycle.</p>
+						</div>
+						<div className="min-w-[220px]">
+							<label className="block text-sm font-medium text-slate-700">Select Cycle</label>
+							<select
+								value={selectedCycleId}
+								onChange={e => setSelectedCycleId(e.target.value as any)}
+								className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+							>
+								<option value="current">Current ({getMonthName(currentCycle.month)} {currentCycle.year})</option>
+								{billingCycles.slice().reverse().map(cycle => (
+									<option key={cycle.id} value={cycle.id}>
+										{getMonthName(cycle.month)} {cycle.year} ({cycle.startDate} → {cycle.endDate})
+									</option>
+								))}
+							</select>
+						</div>
+					</div>
+					<div className="grid gap-4 sm:grid-cols-3">
+						<div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+							<p className="text-xs uppercase tracking-wide text-slate-500">Pending (in cycle)</p>
+							<p className="mt-2 text-2xl font-semibold text-slate-900">{cycleSummary.pendingCount}</p>
+						</div>
+						<div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+							<p className="text-xs uppercase tracking-wide text-slate-500">Bills Completed (in cycle)</p>
+							<p className="mt-2 text-2xl font-semibold text-slate-900">{cycleSummary.completedCount}</p>
+						</div>
+						<div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+							<p className="text-xs uppercase tracking-wide text-slate-500">Collections (in cycle)</p>
+							<p className="mt-2 text-2xl font-semibold text-slate-900">{rupee(cycleSummary.collectedAmount)}</p>
+						</div>
+					</div>
+					{cycleSummary.byClinician.length > 0 && (
+						<div className="mt-6 overflow-x-auto">
+							<table className="min-w-full divide-y divide-slate-200 text-left text-sm text-slate-700">
+								<thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+									<tr>
+										<th className="px-4 py-2 font-semibold">Clinician</th>
+										<th className="px-4 py-2 font-semibold">Collections (₹)</th>
+									</tr>
+								</thead>
+								<tbody className="divide-y divide-slate-100">
+									{cycleSummary.byClinician.map(row => (
+										<tr key={row.doctor}>
+											<td className="px-4 py-2">{row.doctor}</td>
+											<td className="px-4 py-2">{rupee(row.amount)}</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
+					)}
+				</section>
+
 				<section className="flex flex-wrap gap-4 rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
 				<div className="min-w-[220px] flex-1">
 					<label className="block text-sm font-medium text-slate-700">Filter by Clinician</label>
@@ -800,9 +961,27 @@ export default function Billing() {
 								Completed appointments awaiting a recorded payment.
 							</p>
 						</div>
+						<div className="flex items-center gap-2">
+							<button
+								type="button"
+								onClick={() => handleExportPending('csv')}
+								className="inline-flex items-center rounded-full border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-900 transition hover:border-amber-400 focus-visible:outline-none"
+							>
+								<i className="fas fa-file-csv mr-1 text-[11px]" aria-hidden="true" />
+								Export CSV
+							</button>
+							<button
+								type="button"
+								onClick={() => handleExportPending('excel')}
+								className="inline-flex items-center rounded-full border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-900 transition hover:border-amber-400 focus-visible:outline-none"
+							>
+								<i className="fas fa-file-excel mr-1 text-[11px]" aria-hidden="true" />
+								Export Excel
+							</button>
 						<span className="inline-flex h-7 min-w-8 items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-semibold text-white">
 							{pendingRows.length}
 						</span>
+						</div>
 					</header>
 					<div className="overflow-x-auto px-5 pb-5 pt-3">
 						<table className="min-w-full divide-y divide-amber-200 text-left text-sm text-slate-700">

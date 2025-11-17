@@ -37,7 +37,7 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 
 	switch (template) {
 		case 'appointment-created': {
-			const appointmentData = data as AppointmentSMSData;
+			const appointmentData = data as unknown as AppointmentSMSData;
 			let message = `Hi ${appointmentData.patientName}, your appointment is confirmed with ${clinicName}.\n\n`;
 			message += `Date: ${appointmentData.date}\n`;
 			message += `Time: ${appointmentData.time}\n`;
@@ -53,7 +53,7 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 		}
 
 		case 'appointment-reminder': {
-			const appointmentData = data as AppointmentSMSData;
+			const appointmentData = data as unknown as AppointmentSMSData;
 			let message = `Reminder: You have an appointment tomorrow with ${clinicName}.\n\n`;
 			message += `Date: ${appointmentData.date}\n`;
 			message += `Time: ${appointmentData.time}\n`;
@@ -66,7 +66,7 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 		}
 
 		case 'appointment-cancelled': {
-			const appointmentData = data as AppointmentSMSData;
+			const appointmentData = data as unknown as AppointmentSMSData;
 			let message = `Hi ${appointmentData.patientName}, your appointment on ${appointmentData.date} at ${appointmentData.time} has been cancelled.\n\n`;
 			if (clinicPhone) {
 				message += `To reschedule, call ${clinicPhone}`;
@@ -77,7 +77,7 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 		}
 
 		case 'appointment-updated': {
-			const appointmentData = data as AppointmentSMSData;
+			const appointmentData = data as unknown as AppointmentSMSData;
 			let message = `Hi ${appointmentData.patientName}, your appointment has been updated.\n\n`;
 			message += `New Date: ${appointmentData.date}\n`;
 			message += `New Time: ${appointmentData.time}\n`;
@@ -89,7 +89,7 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 		}
 
 		case 'patient-registered': {
-			const registrationData = data as PatientRegistrationSMSData;
+			const registrationData = data as unknown as PatientRegistrationSMSData;
 			let message = `Welcome to ${clinicName}, ${registrationData.patientName}!\n\n`;
 			message += `Your Patient ID: ${registrationData.patientId}\n`;
 			message += `Please save this ID for future reference.`;
@@ -100,7 +100,7 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 		}
 
 		case 'billing-pending': {
-			const billingData = data as {
+			const billingData = data as unknown as {
 				patientName: string;
 				patientPhone: string;
 				patientId?: string;

@@ -25,27 +25,37 @@
 
 ### 🔴 **HIGH PRIORITY - Critical Features**
 
-#### 1. **Billing Automation Enhancements** (Person 4)
-**Status**: Basic sync exists, needs enhancement
-- ✅ Basic auto-sync from completed appointments (Both Frontdesk & Admin)
-- ✅ Payment recording - Already implemented (manual entry)
-- ❌ Monthly billing reset - Not implemented (structure exists but no reset logic)
-- ❌ Billing cycle management - Partially implemented (collection exists, needs UI/logic)
-- ❌ Billing notifications (for pending bills) - Not implemented
-- ❌ Billing export (CSV/Excel) - Not implemented
+#### 1. **Billing Enhancements** (Person 4)
+**Status**: Implemented
+- ✅ Auto-sync from completed appointments (Admin & Frontdesk)
+- ✅ Payment recording (manual entry)
+- ✅ Monthly billing reset UI/logic; `billingCycles` collection
+- ✅ Billing notifications API (`/api/billing/notifications`)
+- ✅ Billing history export (CSV/Excel)
+- ✅ Cycle-level reporting views (Admin)
+- ✅ Pending table export (CSV/Excel)
 - **Files to Update**: 
   - `components/admin/Billing.tsx`
   - `components/frontdesk/Billing.tsx`
-- **Estimated Time**: 3-4 hours
+- **Estimated Time**: —
 
 #### 2. **Report Templates** (Person 2)
 **Status**: Version history exists, templates missing
 - ✅ Report version history - Implemented
 - ❌ Report templates (save/load report configurations) - Not implemented
-- ❌ Report approval workflow (draft → review → approved) - Not implemented
+- (Removed) Approval workflow — not required
 - **Files to Update**: 
   - `components/clinical-team/EditReport.tsx`
-- **Estimated Time**: 2-3 hours
+
+#### 3. **Patients & Users (Enhancements)** (Person 5)
+**Status**: Mostly implemented
+- ✅ Patient CSV import/export, profile view, history/notes/attachments
+- ✅ User CRUD and roles
+- ✅ Advanced patient filters (status, doctor, registered date range, text search)
+- ✅ Audit logs framework + Admin viewer
+
+#### 4. **(Removed) Permissions & Admin Reset Email**
+Removed from scope per decision (each role uses its dashboard; user reset flow is sufficient).
 
 ---
 
@@ -89,15 +99,8 @@
 - ❌ Export billing records to CSV/Excel
 - **Estimated Time**: 1 hour
 
-#### 7. **Password Reset Email Integration** (Person 5)
-- ✅ Password reset API exists
-- ❌ Email sending integration (currently just shows alert)
-- **Files to Update**: `app/api/admin/users/reset-password/route.ts`
-- **Estimated Time**: 1 hour
-
-#### 8. **Advanced Permissions System** (Person 5)
-- ❌ Granular permissions beyond basic roles
-- **Estimated Time**: 4-6 hours
+#### 7. (Removed) Password Reset Email Integration
+Removed from scope per decision.
 
 ---
 
@@ -106,35 +109,31 @@
 | Module | Previous % | Updated % | Status |
 |--------|------------|-----------|--------|
 | **Person 1: ROM & Transfer** | ~95% | ~95% | Complete ✅ |
-| **Person 2: Reports** | ~85% | ~90% | PDF/Print now in Admin ✅, missing templates |
+| **Person 2: Reports** | ~85% | ~88% | Admin/Frontdesk PDF/Print ✅; templates pending |
 | **Person 3: Calendar & Notifications** | ~95% | ~95% | Complete ✅ |
-| **Person 4: Billing** | ~50% | ~65% | Auto-sync in both Admin & Frontdesk ✅, needs enhancements |
-| **Person 5: Patients & Users** | ~75% | ~75% | No change |
-| **Person 6: Appointments & Dashboards** | ~90% | ~85% | Frontdesk charts verified, Admin/Clinical missing |
+| **Person 4: Billing** | ~50% | ~90% | Auto-sync/reset/notifications/export/cycle reports ✅ |
+| **Person 5: Patients & Users** | ~75% | ~85% | Filters + audit logs viewer ✅ |
+| **Person 6: Appointments & Dashboards** | ~90% | ~90% | Conflict/recurring/templates/charts ✅ |
 
-**Overall Project Completion**: ~84% (up from ~78%)
+**Overall Project Completion**: ~84%
 
 ---
 
 ## 🎯 **UPDATED PRIORITY ORDER**
 
 ### **Immediate (This Week)**
-1. ✅ Admin Reports PDF Export - **DONE**
-2. ✅ Admin Billing Auto-sync - **DONE**
-3. **Dashboard Analytics Integration** - Add charts to Admin & Clinical Team (2-3 hours)
+1. **Report Templates** (2-3 hours)
 
 ### **Short Term (Next Week)**
-4. **Billing Automation Enhancement** - High value (3-4 hours)
-5. **Report Templates** - Important feature (2-3 hours)
+3. **Advanced Patient Search** (2-3 hours)
+4. **User Activity Logs** (2-3 hours)
 
 ### **Medium Term (Week 3-4)**
-6. **User Activity Logs** - Security/audit (2-3 hours)
-7. **Advanced Patient Search** - Better UX (2-3 hours)
-8. **Password Reset Email Integration** - Complete feature (1 hour)
+5. **Advanced Permissions System** (4-6 hours)
+6. (Optional) **Admin reset email** (1 hour)
 
 ### **Long Term (Future)**
-9. **Advanced Permissions System** - Complex feature (4-6 hours)
-10. **Billing Export** - Nice to have (1 hour)
+7. (Optional) **Pending table export** (1 hour)
 
 ---
 

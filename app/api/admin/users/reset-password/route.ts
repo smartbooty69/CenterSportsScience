@@ -1,7 +1,9 @@
 'use server';
 
 import { NextRequest } from 'next/server';
-import { authAdmin, dbAdmin } from '@/lib/firebaseAdmin';
+import { authAdmin } from '@/lib/firebaseAdmin';
+import { requireRole } from '@/lib/authz';
+import { logAudit } from '@/lib/audit';
 
 function randomPassword(length = 10) {
 	const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
@@ -12,42 +14,8 @@ function randomPassword(length = 10) {
 	return out;
 }
 
-async function requireAdmin(request: NextRequest) {
-	const auth = request.headers.get('authorization') || request.headers.get('Authorization');
-	if (!auth || !auth.startsWith('Bearer ')) {
-		return { ok: false, status: 401, message: 'Missing Authorization header' as const };
-	}
-	const token = auth.slice('Bearer '.length).trim();
-	try {
-		const decoded = await authAdmin.verifyIdToken(token);
-		let role = (decoded as any).role || (decoded as any).claims?.role;
-		
-		// If role not in token claims, check Firestore profile
-		if (!role || (role !== 'Admin' && role !== 'admin')) {
-			try {
-				const userDoc = await dbAdmin.collection('users').doc(decoded.uid).get();
-				if (userDoc.exists) {
-					const userData = userDoc.data();
-					role = userData?.role;
-				}
-			} catch (firestoreError) {
-				console.error('Failed to check Firestore for role', firestoreError);
-			}
-		}
-		
-		// Check for 'Admin' (capitalized) to match the app's role naming convention
-		if (role !== 'Admin' && role !== 'admin') {
-			return { ok: false, status: 403, message: 'Forbidden: admin role required' as const };
-		}
-		return { ok: true as const, uid: decoded.uid };
-	} catch (err) {
-		console.error('verifyIdToken failed', err);
-	 return { ok: false, status: 401, message: 'Invalid token' as const };
-	}
-}
-
 export async function POST(request: NextRequest) {
-	const gate = await requireAdmin(request);
+	const gate = await requireRole(request, ['Admin']);
 	if (!gate.ok) {
 		return new Response(JSON.stringify({ status: 'error', message: gate.message }), { status: gate.status });
 	}
@@ -60,6 +28,16 @@ export async function POST(request: NextRequest) {
 		const tempPwd = randomPassword(12);
 		await authAdmin.updateUser(uid, { password: tempPwd });
 		// TODO: send email to user with reset instructions
+
+		// audit
+		await logAudit({
+			action: 'user-reset-password',
+			userId: (gate as any).uid,
+			resourceType: 'user',
+			resourceId: uid,
+			metadata: { method: 'temp-password' },
+		});
+
 		return new Response(JSON.stringify({ status: 'ok', uid, tempPwd }), { status: 200 });
 	} catch (err: any) {
 		console.error('POST /api/admin/users/reset-password failed', err);

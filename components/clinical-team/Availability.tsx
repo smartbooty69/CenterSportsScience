@@ -241,6 +241,34 @@ export default function Availability() {
 		return () => unsubscribe();
 	}, [selectedDate, currentStaffUserName]);
 
+	// Imperative loader for appointments on a specific date (used before destructive actions)
+	const loadAppointmentsForDate = async (date: string) => {
+		if (!currentStaffUserName) {
+			setAppointmentsForDate([]);
+			return;
+		}
+		setLoadingAppointments(true);
+		try {
+			const appointmentsQuery = query(
+				collection(db, 'appointments'),
+				where('doctor', '==', currentStaffUserName),
+				where('date', '==', date)
+			);
+			const snapshot = await getDocs(appointmentsQuery);
+			const appointments = snapshot.docs.map(doc => ({
+				time: doc.data().time as string,
+				patient: doc.data().patient as string,
+				status: doc.data().status as string,
+			}));
+			setAppointmentsForDate(appointments);
+		} catch (error) {
+			console.error('Failed to load appointments for date', error);
+			setAppointmentsForDate([]);
+		} finally {
+			setLoadingAppointments(false);
+		}
+	};
+
 	const handleDateClick = async (date: string) => {
 		setSelectedDate(date);
 		const currentSchedule = getDateSchedule(date);

@@ -7,7 +7,8 @@
 ## Person 2: Reports
 - Reports Viewing System
 - Edit Reports Component
-- Report Export (PDF/CSV)
+- Report Export (PDF/CSV) — implemented
+- Pending: Templates (save/load), Approval workflow
 
 ## Person 3: Calendar & Notifications
 - FullCalendar Integration
@@ -15,14 +16,16 @@
 - Appointment Reminders API
 
 ## Person 4: Billing & Payments
-- Billing System Enhancement
-- Payment Gateway Integration
-- Billing Automation
+- Billing System Enhancement — auto-sync/reset/notifications/export implemented
+- Cycle-level reports — implemented
+- Pending table export — implemented
 
 ## Person 5: Patients & Users
 - Patient Management Enhancement
 - User Management System
 - Data Import/Export
+- Advanced patient filters (status, doctor, date range, text) — implemented
+- Audit logs + Admin viewer (`/admin/audit`) — implemented
 
 ## Person 6: Appointments & Dashboards
 - Appointments Management
