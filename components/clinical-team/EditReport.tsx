@@ -154,9 +154,13 @@ function deriveCurrentSessionRemaining(
 	totalSessionsRequired?: number,
 	storedRemaining?: number
 ) {
-	if (typeof totalSessionsRequired !== 'number') return storedRemaining;
+	const hasValidTotal =
+		typeof totalSessionsRequired === 'number' && !Number.isNaN(totalSessionsRequired);
+	if (!hasValidTotal) return storedRemaining;
 	const base =
-		typeof storedRemaining === 'number' ? storedRemaining : totalSessionsRequired;
+		typeof storedRemaining === 'number' && !Number.isNaN(storedRemaining)
+			? storedRemaining
+			: totalSessionsRequired;
 	return Math.max(0, base - 1);
 }
 
@@ -1702,19 +1706,53 @@ export default function EditReport() {
 									min={0}
 									value={formData.totalSessionsRequired ?? ''}
 									onChange={e => {
-										const parsed = e.target.value === '' ? undefined : Math.max(Number(e.target.value), 0);
+										const raw = e.target.value;
+										const numericValue = Number(raw);
+										const sanitized =
+											raw === '' || Number.isNaN(numericValue)
+												? undefined
+												: Math.max(numericValue, 0);
+
 										setFormData(prev => {
-											const total = parsed;
-											const nextRemaining =
-												total === undefined
+											const total = sanitized;
+
+											if (total === undefined) {
+												return {
+													...prev,
+													totalSessionsRequired: undefined,
+													remainingSessions: undefined,
+												};
+											}
+
+											const baselineTotal =
+												typeof prev.totalSessionsRequired === 'number' && !Number.isNaN(prev.totalSessionsRequired)
+													? prev.totalSessionsRequired
+													: typeof selectedPatient?.totalSessionsRequired === 'number'
+														? selectedPatient.totalSessionsRequired
+														: undefined;
+
+											const baselineRemaining =
+												typeof prev.remainingSessions === 'number' && !Number.isNaN(prev.remainingSessions)
 													? prev.remainingSessions
-													: prev.remainingSessions === undefined || prev.remainingSessions === null
-														? deriveCurrentSessionRemaining(total)
-														: prev.remainingSessions;
+													: typeof selectedPatient?.remainingSessions === 'number'
+														? selectedPatient.remainingSessions
+														: undefined;
+
+											const completedSessions =
+												typeof baselineTotal === 'number' &&
+												typeof baselineRemaining === 'number'
+													? Math.max(0, baselineTotal - 1 - baselineRemaining)
+													: undefined;
+
+											const nextRemaining =
+												typeof completedSessions === 'number'
+													? Math.max(0, total - 1 - completedSessions)
+													: deriveCurrentSessionRemaining(total);
+
 											return {
 												...prev,
 												totalSessionsRequired: total,
-												remainingSessions: nextRemaining ?? undefined,
+												remainingSessions: nextRemaining,
 											};
 										});
 									}}

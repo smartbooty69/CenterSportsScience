@@ -113,6 +113,7 @@ function escapeHtml(unsafe: any) {
 /* --------------------------------------------------------
 	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
+<<<<<<< HEAD
 function generateInvoiceHtml(
 	bill: BillingRecord, 
 	invoiceNo: string,
@@ -125,15 +126,19 @@ function generateInvoiceHtml(
 		taxRate?: number;
 	}
 ) {
+=======
+async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
+>>>>>>> 1a708b049aaa174b1730a179fcc7d804b4eca5e0
 	const taxableValue = Number(bill.amount || 0);
 	const taxRate = options?.taxRate || 5; // 5% CGST + 5% SGST = 10% total
 	const cgstAmount = Number((taxableValue * (taxRate / 100)).toFixed(2));
 	const sgstAmount = cgstAmount;
 	const grandTotal = Number((taxableValue + cgstAmount + sgstAmount).toFixed(2));
-	
+
 	const words = numberToWords(grandTotal);
 	const taxWords = numberToWords(cgstAmount + sgstAmount);
 	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
+<<<<<<< HEAD
 	
 	const paymentModeDisplay = bill.paymentMode || 'Cash';
 	const buyerName = escapeHtml(options?.patientName || bill.patient);
@@ -143,7 +148,48 @@ function generateInvoiceHtml(
 	const hsnSac = options?.hsnSac || '9993';
 	
 	// Get the base URL for the logo (works in both dev and production)
+=======
+
+	let paymentModeDisplay = bill.paymentMode || 'Cash';
+	const normalizedMode = paymentModeDisplay.toLowerCase();
+	if ((normalizedMode.includes('upi') || normalizedMode.includes('online')) && bill.utr) {
+		const lastFive = bill.utr.slice(-5);
+		paymentModeDisplay += ` (...${lastFive})`;
+	}
+
+	const buyerName = escapeHtml(bill.patient);
+	const buyerAddress = `Patient ID: ${escapeHtml(bill.patientId)}`;
+	const buyerCity = bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '';
+
+>>>>>>> 1a708b049aaa174b1730a179fcc7d804b4eca5e0
 	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+
+	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
+	const headerConfig = await getHeaderConfig('billing');
+	const defaultConfig = getDefaultHeaderConfig('billing');
+
+	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
+	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
+	const contactInfo =
+		headerConfig?.contactInfo ||
+		defaultConfig.contactInfo ||
+		'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
+
+	const contactParts = contactInfo.split('|').map(s => s.trim());
+	const addressPart =
+		contactParts.find(
+			p => p.toLowerCase().includes('stadium') || p.toLowerCase().includes('address') || p.toLowerCase().includes('bangalore')
+		) || contactParts[0] || '';
+	const phonePart = contactParts.find(p => p.toLowerCase().includes('phone')) || contactParts[1] || '';
+
+	const headerLines = [
+		mainTitle ? `<span class="bold" style="font-size: 14px;">${escapeHtml(mainTitle)}</span>` : '',
+		subtitle ? escapeHtml(subtitle) : '',
+		addressPart ? escapeHtml(addressPart) : '',
+		phonePart ? escapeHtml(phonePart) : '',
+	]
+		.filter(Boolean)
+		.join('<br>');
 
 	return `
 		<!DOCTYPE html>
@@ -205,14 +251,13 @@ function generateInvoiceHtml(
 						<div style="display: flex; gap: 10px; align-items: flex-start;">
 							<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto; flex-shrink: 0;">
 							<div>
-								<span class="bold" style="font-size: 14px;">SIXS SPORTS AND BUSINESS SOLUTIONS INC</span><br>
-								Blr: No.503, 5th Floor Donata Marvel Apartment,<br>
-								Gokula Extension, Mattikere, Bangalore-560054<br>
-								<strong>Del:</strong> 1st Floor, No.99 Block S/F, Bharat Road, Darya Ganja, New Delhi-110002<br>
-								<strong>GSTIN/UIN:</strong> 07ADZFS3168H1ZC<br>
-								State Name: Karnataka, Code: 29<br>
-								Contact: +91-9731128398 / 9916509206<br>
-								E-Mail: sportsixs2019@gmail.com
+								${headerLines ||
+									`<span class="bold" style="font-size: 14px;">SIXS SPORTS AND BUSINESS SOLUTIONS INC</span><br>
+									Blr: No.503, 5th Floor Donata Marvel Apartment,<br>
+									Gokula Extension, Mattikere, Bangalore-560054<br>
+									<strong>GSTIN/UIN:</strong> 07ADZFS3168H1ZC<br>
+									Contact: +91-9731128398 / 9916509206<br>
+									E-Mail: sportsixs2019@gmail.com`}
 							</div>
 						</div>
 					</td>
@@ -248,7 +293,6 @@ function generateInvoiceHtml(
 						</table>
 					</td>
 				</tr>
-
 				<tr>
 					<td colspan="2">
 						<strong>Consignee (Ship to)</strong><br>
@@ -326,6 +370,25 @@ function generateInvoiceHtml(
 			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
 				<strong>Amount Chargeable (in words):</strong><br>
 				${escapeHtml(words.toUpperCase())} ONLY
+				<div style="font-size:12px;margin-top:8px;">
+					<b>Amount in words:</b> ${escapeHtml(words)}
+				</div>
+
+				<div style="border:1px solid #666;padding:12px;margin-top:10px;">
+					<b>For:</b> ${escapeHtml(bill.appointmentId || '')}<br/>
+					${bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}<br/>` : ''}
+					${paymentModeDisplay ? `Payment Mode: ${escapeHtml(paymentModeDisplay)}<br/>` : ''}
+
+					<div style="margin-top:18px;text-align:center;font-weight:700;">
+						Digitally Signed
+					</div>
+				</div>
+
+				<div style="text-align:right;margin-top:20px;">
+					For ${escapeHtml(mainTitle)}
+				</div>
+
+				<div style="font-size:10px;margin-top:12px;">Computer generated receipt.</div>
 			</div>
 
 			<table class="text-center" style="border-top: none;">
@@ -596,6 +659,40 @@ function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 	`;
 }
 
+<<<<<<< HEAD
+=======
+/* --------------------------------------------------------
+	GENERATE INVOICE & UPDATE FIRESTORE
+---------------------------------------------------------- */
+async function handleGenerateInvoice(bill: BillingRecord) {
+	try {
+		const invoiceNo = bill.invoiceNo || bill.billingId || `INV-${bill.id?.slice(0, 8) || 'NA'}`;
+
+		const html = await generateInvoiceHtml(bill, invoiceNo);
+		const printWindow = window.open('', '_blank');
+
+		if (!printWindow) {
+			alert('Please allow pop-ups to generate the invoice.');
+			return;
+		}
+
+		// Write the complete HTML document directly (it already includes <html>, <head>, <body>)
+		printWindow.document.write(html);
+		printWindow.document.close();
+		printWindow.print();
+
+		if (bill.id) {
+			await updateDoc(doc(db, 'billing', bill.id), {
+				invoiceNo,
+				invoiceGeneratedAt: new Date().toISOString(),
+			});
+		}
+	} catch (error) {
+		console.error('Invoice generation error:', error);
+		alert('Failed to generate invoice. Please try again.');
+	}
+}
+>>>>>>> 1a708b049aaa174b1730a179fcc7d804b4eca5e0
 
 export default function Billing() {
 	const [billing, setBilling] = useState<BillingRecord[]>([]);
@@ -856,8 +953,9 @@ export default function Billing() {
 	const completed = useMemo(() => filteredBilling.filter(b => b.status === 'Completed'), [filteredBilling]);
 
 	// Calculate cycle summary based on selected cycle
+	type CycleRange = ReturnType<typeof getCurrentBillingCycle>;
 	const cycleSummary = useMemo(() => {
-		let selectedCycle: BillingCycle | null = null;
+		let selectedCycle: BillingCycle | CycleRange | null = null;
 
 		if (selectedCycleId === 'current') {
 			selectedCycle = currentCycle;
