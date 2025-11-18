@@ -20,6 +20,14 @@ interface DateSpecificAvailability {
 	[date: string]: DayAvailability; // date in YYYY-MM-DD format
 }
 
+interface DateAppointmentSummary {
+	id?: string;
+	date?: string;
+	time: string;
+	status: string;
+	patient?: string;
+}
+
 const BUTTON_DANGER =
 	'inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700 focus-visible:border-rose-300 focus-visible:text-rose-700 focus-visible:outline-none';
 
@@ -49,7 +57,7 @@ export default function Availability() {
 	});
 	const [selectedDate, setSelectedDate] = useState<string | null>(null);
 	const [editingDateSchedule, setEditingDateSchedule] = useState<DayAvailability | null>(null);
-	const [appointmentsForDate, setAppointmentsForDate] = useState<Array<{ time: string; patient: string; status: string }>>([]);
+	const [appointmentsForDate, setAppointmentsForDate] = useState<DateAppointmentSummary[]>([]);
 	const [loadingAppointments, setLoadingAppointments] = useState(false);
 	const [currentStaffUserName, setCurrentStaffUserName] = useState<string | null>(null);
 
@@ -227,7 +235,9 @@ const hasAppointmentsInSlot = (slot: TimeSlot, date: string): boolean => {
 		const unsubscribe = onSnapshot(
 			appointmentsQuery,
 			(snapshot) => {
-				const appointments = snapshot.docs.map(doc => ({
+				const appointments: DateAppointmentSummary[] = snapshot.docs.map(doc => ({
+					id: doc.id,
+					date: selectedDate || undefined,
 					time: doc.data().time as string,
 					patient: doc.data().patient as string,
 					status: doc.data().status as string,
@@ -249,7 +259,7 @@ const hasAppointmentsInSlot = (slot: TimeSlot, date: string): boolean => {
 const loadAppointmentsForDate = async (
 	date: string,
 	includeCancelled = false
-): Promise<Array<{ id: string; date: string; time: string; status: string }>> => {
+): Promise<DateAppointmentSummary[]> => {
 		if (!currentStaffUserName) {
 			setAppointmentsForDate([]);
 			return [];
@@ -262,8 +272,9 @@ const loadAppointmentsForDate = async (
 				where('date', '==', date)
 			);
 			const snapshot = await getDocs(appointmentsQuery);
-			const appointments = snapshot.docs.map(doc => ({
+			const appointments: DateAppointmentSummary[] = snapshot.docs.map(doc => ({
 				id: doc.id,
+				date,
 				time: doc.data().time as string,
 				patient: doc.data().patient as string,
 				status: doc.data().status as string,

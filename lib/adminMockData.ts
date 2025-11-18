@@ -54,6 +54,7 @@ export interface AdminPatientRecord {
 	registeredAt: string;
 	totalSessionsRequired?: number;
 	remainingSessions?: number;
+	patientType?: string;
 }
 
 export const DEFAULT_ADMIN_PATIENTS: AdminPatientRecord[] = [
@@ -68,6 +69,7 @@ export const DEFAULT_ADMIN_PATIENTS: AdminPatientRecord[] = [
 		complaint: 'Shoulder impingement',
 		status: 'ongoing',
 		registeredAt: new Date('2024-02-14T09:24:00Z').toISOString(),
+		patientType: '',
 	},
 	{
 		patientId: 'PT-2024-002',
@@ -80,6 +82,7 @@ export const DEFAULT_ADMIN_PATIENTS: AdminPatientRecord[] = [
 		complaint: 'ACL rehab follow-up',
 		status: 'pending',
 		registeredAt: new Date('2024-01-27T15:45:00Z').toISOString(),
+		patientType: '',
 	},
 	{
 		patientId: 'PT-2023-118',
@@ -92,6 +95,7 @@ export const DEFAULT_ADMIN_PATIENTS: AdminPatientRecord[] = [
 		complaint: 'Hamstring strain',
 		status: 'completed',
 		registeredAt: new Date('2023-12-05T13:12:00Z').toISOString(),
+		patientType: '',
 	},
 ];
 
