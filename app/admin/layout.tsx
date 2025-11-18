@@ -12,9 +12,10 @@ import Reports from '@/components/admin/Reports';
 import Calendar from '@/components/admin/Calendar';
 import Seed from '@/components/admin/Seed';
 import AuditLogs from '@/components/admin/AuditLogs';
+import HeaderManagement from '@/components/admin/HeaderManagement';
 import { useAuth } from '@/contexts/AuthContext';
 
-type AdminPage = 'dashboard' | 'users' | 'patients' | 'appointments' | 'billing' | 'reports' | 'calendar' | 'audit' | 'seed';
+type AdminPage = 'dashboard' | 'users' | 'patients' | 'appointments' | 'billing' | 'reports' | 'calendar' | 'audit' | 'seed' | 'headers';
 
 const adminLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-columns' },
@@ -24,6 +25,7 @@ const adminLinks: SidebarLink[] = [
 	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-alt' },
 	{ href: '#billing', label: 'Billing & Payments', icon: 'fas fa-file-invoice-dollar' },
 	{ href: '#reports', label: 'Reports & Analytics', icon: 'fas fa-chart-pie' },
+	{ href: '#headers', label: 'Header Management', icon: 'fas fa-heading' },
 	{ href: '#audit', label: 'Audit Logs', icon: 'fas fa-clipboard-list' },
 	{ href: '#seed', label: 'Seed Data', icon: 'fas fa-database' },
 ];
@@ -80,6 +82,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 				return <Billing />;
 			case 'reports':
 				return <Reports />;
+			case 'headers':
+				return <HeaderManagement />;
 			case 'seed':
 				return <Seed />;
 			case 'audit':
