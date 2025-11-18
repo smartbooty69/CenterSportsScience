@@ -299,10 +299,10 @@ export default function Reports() {
 			patientId: selectedPatient.patientId,
 			referredBy: selectedPatient.assignedDoctor || selectedPatient.referredBy || '',
 			age: age ? String(age) : '',
-			gender: '',
+			gender: selectedPatient.gender || '',
 			dateOfConsultation: selectedPatient.dateOfConsultation || new Date().toISOString().split('T')[0],
-			contact: '',
-			email: '',
+			contact: selectedPatient.phone || '',
+			email: selectedPatient.email || '',
 			complaints: selectedPatient.complaints || '',
 			presentHistory: selectedPatient.presentHistory || '',
 			pastHistory: selectedPatient.pastHistory || '',
@@ -360,8 +360,8 @@ export default function Reports() {
 			complianceWithHEP: selectedPatient.complianceWithHEP || '',
 			physioName: selectedPatient.physioName || '',
 			physioRegNo: selectedPatient.physioId || '',
-		});
-		// Note: The PDF will be downloaded. Users can open it and print from their PDF viewer.
+			patientType: selectedPatient.patientType || '',
+		}, { forPrint: true });
 	};
 
 	function renderRomPrintTable(joint: string, data: any): string {
@@ -535,6 +535,7 @@ export default function Reports() {
 			complianceWithHEP: patient.complianceWithHEP || '',
 			physioName: patient.physioName || '',
 			physioRegNo: patient.physioId || '',
+			patientType: patient.patientType || '',
 		});
 	};
 

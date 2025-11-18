@@ -1405,6 +1405,7 @@ export default function EditReport() {
 			nextFollowUpTime: formData.nextFollowUpTime || '',
 			physioName: formData.physioName || '',
 			physioRegNo: formData.physioId || '',
+			patientType: selectedPatient.patientType || '',
 		} as PatientReportData;
 	};
 
@@ -1418,8 +1419,8 @@ export default function EditReport() {
 		const payload = buildReportPayload();
 		if (!payload) return;
 
-		// Generate and download the PDF (print from viewer if needed)
-		await generatePhysiotherapyReportPDF(payload);
+		// Generate PDF and open print window
+		await generatePhysiotherapyReportPDF(payload, { forPrint: true });
 	};
 
 	return (

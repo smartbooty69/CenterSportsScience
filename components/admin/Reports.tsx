@@ -388,8 +388,8 @@ export default function Reports() {
 			complianceWithHEP: '',
 			physioName: '',
 			physioRegNo: '',
-		});
-		// Note: The PDF will be downloaded. Users can open it and print from their PDF viewer.
+			patientType: patient.patientType || '',
+		}, { forPrint: true });
 	};
 
 	const handleDownloadPDF = async () => {
@@ -463,6 +463,7 @@ export default function Reports() {
 			complianceWithHEP: '',
 			physioName: '',
 			physioRegNo: '',
+			patientType: patient.patientType || '',
 		});
 	};
 
