@@ -13,6 +13,10 @@ import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { getCurrentBillingCycle, getNextBillingCycle, getBillingCycleId, getMonthName, type BillingCycle } from '@/lib/billingUtils';
+import { getRemainingFreeSessions, normalizeSessionAllowance } from '@/lib/sessionAllowance';
+import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
+import type { RecordSessionUsageResult } from '@/lib/sessionAllowanceClient';
+import type { SessionAllowance } from '@/lib/types';
 
 interface StaffMember {
 	id: string;
@@ -66,7 +70,7 @@ const isWithinDays = (value: string | undefined, window: DateFilter) => {
 
 export default function Billing() {
 	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string; amount?: number })[]>([]);
-	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
+	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string; patientType?: string; sessionAllowance?: SessionAllowance })[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 
 	const [doctorFilter, setDoctorFilter] = useState<'all' | string>('all');
@@ -141,6 +145,10 @@ export default function Billing() {
 						complaint: data.complaint ? String(data.complaint) : '',
 						status: (data.status as string) ?? 'pending',
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
+						patientType: data.patientType ? String(data.patientType) : undefined,
+						sessionAllowance: data.sessionAllowance
+							? normalizeSessionAllowance(data.sessionAllowance as Record<string, unknown>)
+							: undefined,
 					} as AdminPatientRecord & { id: string };
 				});
 				setPatients(mapped);
@@ -316,7 +324,7 @@ export default function Billing() {
 	}, [appointments.length, patients.length, loading]);
 
 	const patientLookup = useMemo(() => {
-		const map = new Map<string, AdminPatientRecord>();
+		const map = new Map<string, AdminPatientRecord & { id?: string; patientType?: string; sessionAllowance?: SessionAllowance }>();
 		for (const patient of patients) {
 			map.set(patient.patientId, patient);
 		}
@@ -348,7 +356,7 @@ export default function Billing() {
 					: undefined;
 				const patientName =
 					entry.appointment.patient || (patient ? patient.name : undefined) || entry.appointment.patientId || 'N/A';
-				return { ...entry, patientName };
+				return { ...entry, patientName, patientRecord: patient };
 			});
 	}, [appointments, doctorFilter, pendingWindow, patientLookup]);
 
@@ -425,6 +433,8 @@ export default function Billing() {
 		const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
 		const staffMember = staff.find(s => s.userName === appointment.doctor);
 
+		let sessionUsageResult: RecordSessionUsageResult | null = null;
+
 		try {
 			await updateDoc(doc(db, 'appointments', appointmentId), {
 				status: 'completed',
@@ -436,6 +446,19 @@ export default function Billing() {
 
 			// Send notifications only if status changed from non-completed to completed
 			if (!wasAlreadyCompleted) {
+				if (patient?.id) {
+					try {
+						sessionUsageResult = await recordSessionUsageForAppointment({
+							patientDocId: patient.id,
+							patientType: patient.patientType,
+							appointmentId,
+							sessionCost: amountValue,
+						});
+					} catch (sessionError) {
+						console.error('Failed to record DYES session usage:', sessionError);
+					}
+				}
+
 				// Send notification to patient
 				if (patient?.email) {
 					try {
@@ -479,6 +502,54 @@ export default function Billing() {
 						});
 					} catch (emailError) {
 						console.error('Failed to send completion email to staff:', emailError);
+					}
+				}
+
+				if (sessionUsageResult && !sessionUsageResult.wasFree && patient?.email) {
+					try {
+						await sendEmailNotification({
+							to: patient.email,
+							subject: `Session Balance Update - ${appointment.patient || patient.name}`,
+							template: 'session-balance',
+							data: {
+								recipientName: appointment.patient || patient.name,
+								recipientType: 'patient',
+								patientName: appointment.patient || patient.name,
+								patientEmail: patient.email,
+								patientId: appointment.patientId,
+								appointmentDate: appointment.date,
+								appointmentTime: appointment.time,
+								freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+								pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+								pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+							},
+						});
+					} catch (sessionEmailError) {
+						console.error('Failed to send session balance email to patient:', sessionEmailError);
+					}
+				}
+
+				if (sessionUsageResult && !sessionUsageResult.wasFree && staffMember?.userEmail) {
+					try {
+						await sendEmailNotification({
+							to: staffMember.userEmail,
+							subject: `Pending Sessions Alert - ${appointment.patient || patient?.name}`,
+							template: 'session-balance',
+							data: {
+								recipientName: staffMember.userName,
+								recipientType: 'therapist',
+								patientName: appointment.patient || patient?.name || 'Patient',
+								patientEmail: staffMember.userEmail,
+								patientId: appointment.patientId,
+								appointmentDate: appointment.date,
+								appointmentTime: appointment.time,
+								freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+								pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+								pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+							},
+						});
+					} catch (sessionEmailError) {
+						console.error('Failed to send session balance email to staff:', sessionEmailError);
 					}
 				}
 			}
@@ -1010,7 +1081,18 @@ export default function Billing() {
 										};
 										return (
 											<tr key={row.appointment.id}>
-												<td className="px-3 py-3 font-medium text-slate-800">{row.patientName}</td>
+												<td className="px-3 py-3 font-medium text-slate-800">
+													<div>{row.patientName}</div>
+													{row.patientRecord?.patientType === 'DYES' && (
+														<p className="mt-0.5 text-xs text-amber-600">
+															Pending sessions:{' '}
+															{row.patientRecord.sessionAllowance?.pendingPaidSessions ?? 0}
+															{row.patientRecord.sessionAllowance
+																? ` · Free left: ${getRemainingFreeSessions(row.patientRecord.sessionAllowance)}`
+																: ''}
+														</p>
+													)}
+												</td>
 												<td className="px-3 py-3 text-slate-600">{row.appointment.doctor || '—'}</td>
 												<td className="px-3 py-3 text-slate-600">{row.appointment.date || '—'}</td>
 												<td className="px-3 py-3">

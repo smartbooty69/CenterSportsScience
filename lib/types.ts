@@ -19,6 +19,18 @@ export interface Patient {
 	address: string;
 	status: 'pending' | 'ongoing' | 'completed';
 	registeredAt: string;
+	patientType?: string;
+	sessionAllowance?: SessionAllowance | null;
+}
+
+export interface SessionAllowance {
+	annualFreeSessionCap: number;
+	freeSessionsUsed: number;
+	pendingPaidSessions: number;
+	pendingChargeAmount: number;
+	nextResetAt: string;
+	lastResetAt?: string | null;
+	lastUpdatedAt?: string | null;
 }
 
 export interface PatientRecord {
@@ -32,6 +44,8 @@ export interface PatientRecord {
 	remainingSessions?: number;
 	status?: AdminPatientStatus;
 	assignedDoctor?: string;
+	patientType?: string;
+	sessionAllowance?: SessionAllowance | null;
 }
 
 export type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
@@ -52,6 +66,8 @@ export interface PatientRecordBasic {
 	// Session tracking fields
 	totalSessionsRequired?: number;
 	remainingSessions?: number;
+	patientType?: string;
+	sessionAllowance?: SessionAllowance | null;
 }
 
 export interface PatientRecordTransfer {
@@ -75,6 +91,8 @@ export interface PatientRecordFull {
 	status: AdminPatientStatus;
 	registeredAt: string;
 	assignedDoctor?: string;
+	patientType?: string;
+	sessionAllowance?: SessionAllowance | null;
 	// Report fields
 	complaints?: string;
 	presentHistory?: string;

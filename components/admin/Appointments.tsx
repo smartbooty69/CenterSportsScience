@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import {
+	addDoc,
+	collection,
+	doc,
+	onSnapshot,
+	serverTimestamp,
+	updateDoc,
+	type QuerySnapshot,
+	type Timestamp,
+} from 'firebase/firestore';
 
 import {
 	type AdminAppointmentRecord,
@@ -14,7 +23,10 @@ import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import RescheduleDialog from '@/components/appointments/RescheduleDialog';
 import CancelDialog from '@/components/appointments/CancelDialog';
-import { checkAppointmentConflict } from '@/lib/appointmentUtils';
+import { checkAppointmentConflict, checkAvailabilityConflict } from '@/lib/appointmentUtils';
+import { normalizeSessionAllowance } from '@/lib/sessionAllowance';
+import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
+import type { RecordSessionUsageResult } from '@/lib/sessionAllowanceClient';
 
 const statusLabels: Record<AdminAppointmentStatus, string> = {
 	pending: 'Pending',
@@ -30,12 +42,20 @@ const statusChipClasses: Record<AdminAppointmentStatus, string> = {
 	cancelled: 'status-badge-cancelled',
 };
 
+type DateSpecificAvailability = {
+	[date: string]: {
+		enabled: boolean;
+		slots: Array<{ start: string; end: string }>;
+	};
+};
+
 interface StaffMember {
 	id: string;
 	userName: string;
 	role: string;
 	status: string;
 	userEmail?: string;
+	dateSpecificAvailability?: DateSpecificAvailability;
 }
 
 type FirestoreAppointmentRecord = AdminAppointmentRecord & {
@@ -47,7 +67,7 @@ type FirestoreAppointmentRecord = AdminAppointmentRecord & {
 
 export default function Appointments() {
 	const [appointments, setAppointments] = useState<FirestoreAppointmentRecord[]>([]);
-	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
+	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string; patientType?: string })[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -69,6 +89,15 @@ export default function Appointments() {
 	});
 	const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 	const [showPatientAppointmentsModal, setShowPatientAppointmentsModal] = useState(false);
+	const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+	const [bookingLoading, setBookingLoading] = useState(false);
+	const [bookingForm, setBookingForm] = useState({
+		patientId: '',
+		doctor: '',
+		date: '',
+		time: '',
+		notes: '',
+	});
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -123,6 +152,10 @@ export default function Appointments() {
 						complaint: data.complaint ? String(data.complaint) : '',
 						status: (data.status as string) ?? 'pending',
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
+						patientType: data.patientType ? String(data.patientType) : undefined,
+						sessionAllowance: data.sessionAllowance
+							? normalizeSessionAllowance(data.sessionAllowance as Record<string, unknown>)
+							: undefined,
 					} as AdminPatientRecord & { id: string };
 				});
 				setPatients(mapped);
@@ -149,6 +182,7 @@ export default function Appointments() {
 						role: data.role ? String(data.role) : '',
 						status: data.status ? String(data.status) : '',
 						userEmail: data.userEmail ? String(data.userEmail) : undefined,
+						dateSpecificAvailability: data.dateSpecificAvailability as DateSpecificAvailability | undefined,
 					} as StaffMember;
 				});
 				setStaff(mapped);
@@ -163,7 +197,7 @@ export default function Appointments() {
 	}, []);
 
 	const patientLookup = useMemo(() => {
-		const map = new Map<string, AdminPatientRecord>();
+		const map = new Map<string, AdminPatientRecord & { id?: string; patientType?: string }>();
 		for (const patient of patients) {
 			map.set(patient.patientId, patient);
 		}
@@ -171,12 +205,43 @@ export default function Appointments() {
 	}, [patients]);
 
 	const doctorOptions = useMemo(() => {
-		return staff
+		const base = staff
 			.filter(member => member.role === 'ClinicalTeam' && member.status !== 'Inactive')
 			.map(member => member.userName)
 			.filter(Boolean)
 			.sort((a, b) => a.localeCompare(b));
-	}, [staff]);
+
+		if (!bookingForm.date || !bookingForm.time) {
+			return base;
+		}
+
+		return base.filter(name => {
+			const member = staff.find(staffMember => staffMember.userName === name);
+			if (!member) return false;
+			const availability = checkAvailabilityConflict(
+				member.dateSpecificAvailability,
+				bookingForm.date,
+				bookingForm.time
+			);
+			return availability.isAvailable;
+		});
+	}, [staff, bookingForm.date, bookingForm.time]);
+
+	const patientSelectOptions = useMemo(() => {
+		return [...patients]
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map(patient => ({
+				label: `${patient.name} (${patient.patientId})`,
+				value: patient.patientId,
+			}));
+	}, [patients]);
+
+	useEffect(() => {
+		if (!bookingForm.doctor) return;
+		if (!doctorOptions.includes(bookingForm.doctor)) {
+			setBookingForm(prev => ({ ...prev, doctor: '' }));
+		}
+	}, [bookingForm.doctor, doctorOptions]);
 
 	// Group appointments by patient
 	const groupedByPatient = useMemo(() => {
@@ -263,6 +328,164 @@ export default function Appointments() {
 		});
 	};
 
+	const resetBookingForm = () => {
+		setBookingForm({
+			patientId: '',
+			doctor: '',
+			date: '',
+			time: '',
+			notes: '',
+		});
+	};
+
+	const closeBookingModal = () => {
+		resetBookingForm();
+		setIsBookingModalOpen(false);
+	};
+
+	const handleCreateAppointment = async () => {
+		if (!bookingForm.patientId || !bookingForm.doctor || !bookingForm.date || !bookingForm.time) {
+			alert('Please select patient, clinician, date, and time.');
+			return;
+		}
+
+		const patientRecord = patients.find(p => p.patientId === bookingForm.patientId);
+		const staffMember = staff.find(member => member.userName === bookingForm.doctor);
+
+		if (!patientRecord) {
+			alert('Unable to find the selected patient.');
+			return;
+		}
+
+		if (!staffMember) {
+			alert('Unable to find the selected clinician.');
+			return;
+		}
+
+		const conflict = checkAppointmentConflict(
+			appointments.map(appointment => ({
+				id: appointment.id,
+				appointmentId: appointment.appointmentId,
+				patient: appointment.patient,
+				doctor: appointment.doctor,
+				date: appointment.date,
+				time: appointment.time,
+				status: appointment.status,
+			})),
+			{
+				doctor: bookingForm.doctor,
+				date: bookingForm.date,
+				time: bookingForm.time,
+			}
+		);
+
+		if (conflict.hasConflict) {
+			const proceed = window.confirm(
+				`Warning: ${bookingForm.doctor} already has an appointment at this time.\nProceed anyway?`
+			);
+			if (!proceed) {
+				return;
+			}
+		}
+
+		setBookingLoading(true);
+		try {
+			const appointmentId = `APT${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+			await addDoc(collection(db, 'appointments'), {
+				appointmentId,
+				patientId: patientRecord.patientId,
+				patient: patientRecord.name,
+				doctor: bookingForm.doctor,
+				date: bookingForm.date,
+				time: bookingForm.time,
+				status: 'pending',
+				notes: bookingForm.notes.trim() || null,
+				createdAt: serverTimestamp(),
+			});
+
+			if (patientRecord.id) {
+				const updates: Record<string, unknown> = {
+					assignedDoctor: bookingForm.doctor,
+				};
+				if (!patientRecord.status || patientRecord.status === 'pending') {
+					updates.status = 'ongoing';
+				}
+				await updateDoc(doc(db, 'patients', patientRecord.id), updates);
+			}
+
+			if (patientRecord.email) {
+				try {
+					await sendEmailNotification({
+						to: patientRecord.email,
+						subject: `Appointment Scheduled - ${bookingForm.date}`,
+						template: 'appointment-created',
+						data: {
+							patientName: patientRecord.name,
+							patientEmail: patientRecord.email,
+							patientId: patientRecord.patientId,
+							doctor: bookingForm.doctor,
+							date: bookingForm.date,
+							time: bookingForm.time,
+							appointmentId,
+						},
+					});
+				} catch (emailError) {
+					console.error('Failed to send confirmation email to patient:', emailError);
+				}
+			}
+
+			if (patientRecord.phone && isValidPhoneNumber(patientRecord.phone)) {
+				try {
+					await sendSMSNotification({
+						to: patientRecord.phone,
+						template: 'appointment-created',
+						data: {
+							patientName: patientRecord.name,
+							patientPhone: patientRecord.phone,
+							patientId: patientRecord.patientId,
+							doctor: bookingForm.doctor,
+							date: bookingForm.date,
+							time: bookingForm.time,
+							appointmentId,
+						},
+					});
+				} catch (smsError) {
+					console.error('Failed to send confirmation SMS:', smsError);
+				}
+			}
+
+			if (staffMember.userEmail) {
+				try {
+					await sendEmailNotification({
+						to: staffMember.userEmail,
+						subject: `New Appointment - ${patientRecord.name} on ${bookingForm.date}`,
+						template: 'appointment-created',
+						data: {
+							patientName: patientRecord.name,
+							patientEmail: patientRecord.email || staffMember.userEmail,
+							patientId: patientRecord.patientId,
+							doctor: bookingForm.doctor,
+							date: bookingForm.date,
+							time: bookingForm.time,
+							appointmentId,
+						},
+					});
+				} catch (emailError) {
+					console.error('Failed to notify staff member:', emailError);
+				}
+			}
+
+			alert('Appointment booked successfully.');
+			resetBookingForm();
+			setIsBookingModalOpen(false);
+		} catch (error) {
+			console.error('Failed to create appointment', error);
+			alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setBookingLoading(false);
+		}
+	};
+
 	const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (editingId === null) return;
@@ -288,6 +511,7 @@ export default function Appointments() {
 			const oldAppointment = { ...appointment };
 			const patient = appointment.patientId ? patientLookup.get(appointment.patientId) : undefined;
 			const staffMember = staff.find(s => s.userName === (formData.doctor || appointment.doctor));
+			let sessionUsageResult: RecordSessionUsageResult | null = null;
 
 			const updateData: Record<string, unknown> = {
 				doctor: formData.doctor || null,
@@ -304,6 +528,18 @@ export default function Appointments() {
 			const statusChanged = oldAppointment.status !== formData.status;
 			const doctorChanged = oldAppointment.doctor !== formData.doctor;
 			const statusCapitalized = formData.status.charAt(0).toUpperCase() + formData.status.slice(1);
+
+			if (statusChanged && formData.status === 'completed' && patient?.id) {
+				try {
+					sessionUsageResult = await recordSessionUsageForAppointment({
+						patientDocId: patient.id,
+						patientType: patient.patientType,
+						appointmentId: appointment.id,
+					});
+				} catch (sessionError) {
+					console.error('Failed to record DYES session usage:', sessionError);
+				}
+			}
 
 			// Send email notification if patient has email and details changed
 			if (patient?.email && oldAppointment) {
@@ -375,6 +611,54 @@ export default function Appointments() {
 					});
 				} catch (emailError) {
 					console.error('Failed to send status change email to staff:', emailError);
+				}
+			}
+
+			if (sessionUsageResult && !sessionUsageResult.wasFree && patient?.email) {
+				try {
+					await sendEmailNotification({
+						to: patient.email,
+						subject: `Session Balance Update - ${appointment.patient || patient.name}`,
+						template: 'session-balance',
+						data: {
+							recipientName: appointment.patient || patient.name,
+							recipientType: 'patient',
+							patientName: appointment.patient || patient.name,
+							patientEmail: patient.email,
+							patientId: appointment.patientId,
+							appointmentDate: formData.date,
+							appointmentTime: formData.time,
+							freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+							pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+							pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+						},
+					});
+				} catch (sessionEmailError) {
+					console.error('Failed to send session balance email to patient:', sessionEmailError);
+				}
+			}
+
+			if (sessionUsageResult && !sessionUsageResult.wasFree && staffMember?.userEmail) {
+				try {
+					await sendEmailNotification({
+						to: staffMember.userEmail,
+						subject: `Pending Sessions Alert - ${appointment.patient || patient?.name}`,
+						template: 'session-balance',
+						data: {
+							recipientName: staffMember.userName,
+							recipientType: 'therapist',
+							patientName: appointment.patient || patient?.name || 'Patient',
+							patientEmail: staffMember.userEmail,
+							patientId: appointment.patientId,
+							appointmentDate: formData.date,
+							appointmentTime: formData.time,
+							freeSessionsRemaining: sessionUsageResult.remainingFreeSessions,
+							pendingPaidSessions: sessionUsageResult.allowance.pendingPaidSessions,
+							pendingChargeAmount: sessionUsageResult.allowance.pendingChargeAmount,
+						},
+					});
+				} catch (sessionEmailError) {
+					console.error('Failed to send session balance email to staff:', sessionEmailError);
 				}
 			}
 
@@ -582,6 +866,16 @@ export default function Appointments() {
 					badge="Admin"
 					title="Appointments"
 					description="Monitor upcoming visits and assign clinical team members to each patient."
+					actions={
+						<button
+							type="button"
+							onClick={() => setIsBookingModalOpen(true)}
+							className="btn-primary"
+						>
+							<i className="fas fa-calendar-plus text-xs" aria-hidden="true" />
+							Book Appointment
+						</button>
+					}
 				/>
 
 				<div className="border-t border-slate-200" />
@@ -852,6 +1146,153 @@ export default function Appointments() {
 				onClose={() => setCancelDialog({ isOpen: false, appointment: null })}
 				onConfirm={handleCancel}
 			/>
+
+			{/* Booking Modal */}
+			{isBookingModalOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">Book Appointment</h2>
+								<p className="text-xs text-slate-500">Create a new visit for any patient</p>
+							</div>
+							<button
+								type="button"
+								onClick={closeBookingModal}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+								aria-label="Close dialog"
+								disabled={bookingLoading}
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="max-h-[70vh] overflow-y-auto px-6 py-4">
+							<div className="space-y-4">
+								<div>
+									<label className="block text-sm font-medium text-slate-700">
+										Patient <span className="text-rose-500">*</span>
+									</label>
+									<select
+										value={bookingForm.patientId}
+										onChange={event => setBookingForm(prev => ({ ...prev, patientId: event.target.value }))}
+										className="select-base mt-2"
+										required
+									>
+										<option value="">{patientSelectOptions.length ? 'Select patient' : 'No patients available'}</option>
+										{patientSelectOptions.map(option => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								</div>
+
+								<div>
+									<label className="block text-sm font-medium text-slate-700">
+										Clinician <span className="text-rose-500">*</span>
+									</label>
+									<select
+										value={bookingForm.doctor}
+										onChange={event => setBookingForm(prev => ({ ...prev, doctor: event.target.value }))}
+										className="select-base mt-2"
+										disabled={!bookingForm.date || !bookingForm.time || bookingLoading}
+										required
+									>
+										<option value="">
+											{!bookingForm.date || !bookingForm.time
+												? 'Select date & time first'
+												: doctorOptions.length
+													? 'Select clinician'
+													: 'No clinicians available'}
+										</option>
+										{doctorOptions.map(option => (
+											<option key={option} value={option}>
+												{option}
+											</option>
+										))}
+									</select>
+									{(!bookingForm.date || !bookingForm.time) && (
+										<p className="mt-1 text-xs text-slate-500">Pick a date and time to view available clinicians.</p>
+									)}
+									{bookingForm.date && bookingForm.time && doctorOptions.length === 0 && (
+										<p className="mt-1 text-xs text-amber-600">
+											No clinicians have availability for {bookingForm.date} at {bookingForm.time}.
+										</p>
+									)}
+								</div>
+
+								<div className="grid gap-4 sm:grid-cols-2">
+									<div>
+										<label className="block text-sm font-medium text-slate-700">
+											Date <span className="text-rose-500">*</span>
+										</label>
+										<input
+											type="date"
+											className="input-base mt-2"
+											value={bookingForm.date}
+											onChange={event => setBookingForm(prev => ({ ...prev, date: event.target.value }))}
+											min={new Date().toISOString().split('T')[0]}
+											required
+										/>
+									</div>
+									<div>
+										<label className="block text-sm font-medium text-slate-700">
+											Time <span className="text-rose-500">*</span>
+										</label>
+										<input
+											type="time"
+											className="input-base mt-2"
+											value={bookingForm.time}
+											onChange={event => setBookingForm(prev => ({ ...prev, time: event.target.value }))}
+											required
+										/>
+									</div>
+								</div>
+
+								<div>
+									<label className="block text-sm font-medium text-slate-700">Notes (optional)</label>
+									<textarea
+										className="input-base mt-2"
+										rows={3}
+										value={bookingForm.notes}
+										onChange={event => setBookingForm(prev => ({ ...prev, notes: event.target.value }))}
+										placeholder="Add any notes for the clinician..."
+									/>
+								</div>
+							</div>
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button type="button" onClick={closeBookingModal} className="btn-secondary" disabled={bookingLoading}>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleCreateAppointment}
+								className="btn-primary"
+								disabled={
+									bookingLoading ||
+									!bookingForm.patientId ||
+									!bookingForm.doctor ||
+									!bookingForm.date ||
+									!bookingForm.time
+								}
+							>
+								{bookingLoading ? (
+									<>
+										<div className="mr-2 inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-white border-t-transparent animate-spin" />
+										Booking...
+									</>
+								) : (
+									<>
+										<i className="fas fa-check text-xs" aria-hidden="true" />
+										Create Appointment
+									</>
+								)}
+							</button>
+						</footer>
+					</div>
+				</div>
+			)}
 
 			{/* Patient Appointments Modal */}
 			{showPatientAppointmentsModal && selectedPatientId && (
