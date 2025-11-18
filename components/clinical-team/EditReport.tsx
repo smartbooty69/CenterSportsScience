@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AdminGenderOption, AdminPatientStatus } from '@/lib/adminMockData';
-import { generatePhysiotherapyReportPDF, type PatientReportData } from '@/lib/pdfGenerator';
+import { generatePhysiotherapyReportPDF, type PatientReportData, type ReportSection } from '@/lib/pdfGenerator';
 import type { PatientRecordFull } from '@/lib/types';
 import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
 
@@ -239,7 +239,8 @@ async function refreshPatientSessionProgress(
 		);
 		const completedSnapshot = await getDocs(completedQuery);
 		const completedCount = completedSnapshot.size;
-		const remainingSessions = Math.max(0, totalRequired - completedCount);
+		// remainingSessions starts at totalSessionsRequired - 1 and decreases with each completed appointment
+		const remainingSessions = Math.max(0, totalRequired - 1 - completedCount);
 
 		const updates: Partial<PatientRecordFull> = {
 			remainingSessions,
@@ -284,7 +285,22 @@ export default function EditReport() {
 	}>>([]);
 	const [loadingVersions, setLoadingVersions] = useState(false);
 	const [viewingVersion, setViewingVersion] = useState<typeof versionHistory[0] | null>(null);
-	const [patientScope, setPatientScope] = useState<'mine' | 'all'>('mine');
+	const [showCrispReportModal, setShowCrispReportModal] = useState(false);
+	const [selectedSections, setSelectedSections] = useState<ReportSection[]>([
+		'patientInformation',
+		'assessmentOverview',
+		'painAssessment',
+		'onObservation',
+		'onPalpation',
+		'rom',
+		'mmt',
+		'advancedAssessment',
+		'physiotherapyManagement',
+		'followUpVisits',
+		'currentStatus',
+		'nextFollowUp',
+		'signature',
+	]);
 	const vasValue = Number(formData.vasScale || '5');
 	const vasEmoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, vasValue) - 1)];
 	const hydrationValue = Number(formData.hydration || '4');
@@ -451,37 +467,24 @@ export default function EditReport() {
 			});
 		}
 
-		// Determine which patients to show based on the selected scope
-		let scopedPatients: PatientRecordFull[] = patients;
-		if (patientScope === 'mine') {
-			if (!clinicianName) {
-				scopedPatients = patients;
-			} else {
-				const assigned = patients.filter(patient => normalize(patient.assignedDoctor) === clinicianName);
-				if (assigned.length > 0) {
-					scopedPatients = assigned;
-				} else if (patients.length > 0 && process.env.NODE_ENV === 'development') {
-					console.warn('EditReport - No patients matched assignedDoctor filter. Showing all patients.', {
-						clinicianName,
-						totalPatients: patients.length,
-						uniqueAssignedDoctors: [...new Set(patients.map(p => p.assignedDoctor).filter(Boolean))]
-					});
-				}
-			}
+		// Only show patients assigned to the current clinician
+		let assignedPatients: PatientRecordFull[] = [];
+		if (clinicianName) {
+			assignedPatients = patients.filter(patient => normalize(patient.assignedDoctor) === clinicianName);
 		}
 
 		// Then filter by search term
 		const query = searchTerm.trim().toLowerCase();
-		if (!query) return scopedPatients;
+		if (!query) return assignedPatients;
 		
-		return scopedPatients.filter(patient => {
+		return assignedPatients.filter(patient => {
 			return (
 				(patient.name || '').toLowerCase().includes(query) ||
 				(patient.patientId || '').toLowerCase().includes(query) ||
 				(patient.phone || '').toLowerCase().includes(query)
 			);
 		});
-	}, [patients, searchTerm, clinicianName, user?.displayName, patientScope]);
+	}, [patients, searchTerm, clinicianName, user?.displayName]);
 
 	const handleSelectPatient = (patient: PatientRecordFull) => {
 		setSelectedPatient(patient);
@@ -718,12 +721,28 @@ export default function EditReport() {
 						: formData.totalSessionsRequired
 							? Number(formData.totalSessionsRequired)
 							: null,
-				remainingSessions:
-					typeof formData.remainingSessions === 'number'
-						? formData.remainingSessions
-						: formData.remainingSessions
-							? Number(formData.remainingSessions)
-							: null,
+				remainingSessions: (() => {
+					// If explicitly set in form, use that value
+					if (typeof formData.remainingSessions === 'number') {
+						return formData.remainingSessions;
+					}
+					if (formData.remainingSessions) {
+						return Number(formData.remainingSessions);
+					}
+					// If totalSessionsRequired is set/changed but remainingSessions is not explicitly set,
+					// calculate it as totalSessionsRequired - 1 (one less than total)
+					const totalValue =
+						typeof formData.totalSessionsRequired === 'number'
+							? formData.totalSessionsRequired
+							: typeof selectedPatient.totalSessionsRequired === 'number'
+								? selectedPatient.totalSessionsRequired
+								: null;
+					if (totalValue !== null) {
+						// Calculate based on completed appointments
+						return null; // Will be calculated by refreshPatientSessionProgress
+					}
+					return null;
+				})(),
 				updatedAt: serverTimestamp(),
 			};
 
@@ -1384,28 +1403,15 @@ export default function EditReport() {
 					</header>
 
 					<section className="section-card">
-						<div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-							<div className="flex-1">
-								<label className="block text-sm font-medium text-slate-700">Search patients</label>
-								<input
-									type="search"
-									value={searchTerm}
-									onChange={e => setSearchTerm(e.target.value)}
-									className="input-base"
-									placeholder="Search by name, ID, or phone"
-								/>
-							</div>
-							<div className="w-full md:w-60">
-								<label className="block text-sm font-medium text-slate-700">Show patients</label>
-								<select
-									value={patientScope}
-									onChange={e => setPatientScope(e.target.value as 'mine' | 'all')}
-									className="select-base"
-								>
-									<option value="mine">Assigned to me</option>
-									<option value="all">All patients</option>
-								</select>
-							</div>
+						<div className="mb-4">
+							<label className="block text-sm font-medium text-slate-700">Search patients</label>
+							<input
+								type="search"
+								value={searchTerm}
+								onChange={e => setSearchTerm(e.target.value)}
+								className="input-base mt-2"
+								placeholder="Search by name, ID, or phone"
+							/>
 						</div>
 
 						{loading ? (
@@ -1549,21 +1555,60 @@ export default function EditReport() {
 			nextFollowUpTime: formData.nextFollowUpTime || '',
 			physioName: formData.physioName || '',
 			physioRegNo: formData.physioId || '',
+			patientType: selectedPatient.patientType || '',
 		} as PatientReportData;
 	};
 
-	const handleDownloadPDF = () => {
+	const handleDownloadPDF = (sections?: ReportSection[]) => {
 		const payload = buildReportPayload();
 		if (!payload) return;
-		generatePhysiotherapyReportPDF(payload);
+		generatePhysiotherapyReportPDF(payload, { sections });
 	};
 
-	const handlePrint = async () => {
+	const handlePrint = async (sections?: ReportSection[]) => {
 		const payload = buildReportPayload();
 		if (!payload) return;
 
-		// Generate and download the PDF (print from viewer if needed)
-		await generatePhysiotherapyReportPDF(payload);
+		// Generate PDF and open print window
+		await generatePhysiotherapyReportPDF(payload, { forPrint: true, sections });
+	};
+
+	const handleCrispReport = () => {
+		setShowCrispReportModal(true);
+	};
+
+	const handleCrispReportPrint = async () => {
+		setShowCrispReportModal(false);
+		await handlePrint(selectedSections);
+	};
+
+	const handleCrispReportDownload = () => {
+		setShowCrispReportModal(false);
+		handleDownloadPDF(selectedSections);
+	};
+
+	const allSections: Array<{ key: ReportSection; label: string }> = [
+		{ key: 'patientInformation', label: 'Patient Information' },
+		{ key: 'assessmentOverview', label: 'Assessment Overview' },
+		{ key: 'painAssessment', label: 'Pain Assessment' },
+		{ key: 'onObservation', label: 'On Observation' },
+		{ key: 'onPalpation', label: 'On Palpation' },
+		{ key: 'rom', label: 'ROM (Range of Motion)' },
+		{ key: 'mmt', label: 'Manual Muscle Testing' },
+		{ key: 'advancedAssessment', label: 'Advanced Assessment' },
+		{ key: 'physiotherapyManagement', label: 'Physiotherapy Management' },
+		{ key: 'followUpVisits', label: 'Follow-Up Visits' },
+		{ key: 'currentStatus', label: 'Current Status' },
+		{ key: 'nextFollowUp', label: 'Next Follow-Up Details' },
+		{ key: 'signature', label: 'Physiotherapist Signature' },
+	];
+
+	const toggleSection = (section: ReportSection) => {
+		setSelectedSections(prev =>
+			prev.includes(section)
+				? prev.filter(s => s !== section)
+				: [...prev, section]
+		);
 	};
 
 	return (
@@ -2559,6 +2604,15 @@ export default function EditReport() {
 						</button>
 						<button
 							type="button"
+							onClick={handleCrispReport}
+							className="btn-secondary"
+							disabled={!selectedPatient}
+						>
+							<i className="fas fa-file-alt text-xs" aria-hidden="true" />
+							Crisp Report
+						</button>
+						<button
+							type="button"
 							onClick={handlePrint}
 							className="btn-secondary"
 							disabled={!selectedPatient}
@@ -2591,6 +2645,70 @@ export default function EditReport() {
 					</div>
 				</div>
 			</div>
+
+			{/* Crisp Report Modal */}
+			{showCrispReportModal && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4 py-6">
+					<div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+						<div className="flex items-center justify-between p-6 border-b border-slate-200">
+							<h2 className="text-xl font-semibold text-slate-900">Select Report Sections</h2>
+							<button
+								type="button"
+								onClick={() => setShowCrispReportModal(false)}
+								className="text-slate-400 hover:text-slate-600 transition"
+								aria-label="Close"
+							>
+								<i className="fas fa-times text-xl" />
+							</button>
+						</div>
+						<div className="flex-1 overflow-y-auto p-6">
+							<div className="space-y-3">
+								{allSections.map(section => (
+									<label
+										key={section.key}
+										className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer"
+									>
+										<input
+											type="checkbox"
+											checked={selectedSections.includes(section.key)}
+											onChange={() => toggleSection(section.key)}
+											className="h-4 w-4 border-slate-300 text-sky-600 focus:ring-sky-200 rounded"
+										/>
+										<span className="text-sm font-medium text-slate-700">{section.label}</span>
+									</label>
+								))}
+							</div>
+						</div>
+						<div className="flex items-center justify-end gap-3 border-t border-slate-200 p-6">
+							<button
+								type="button"
+								onClick={() => setShowCrispReportModal(false)}
+								className="btn-secondary"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleCrispReportDownload}
+								className="btn-secondary"
+								disabled={selectedSections.length === 0}
+							>
+								<i className="fas fa-download text-xs" aria-hidden="true" />
+								Download PDF
+							</button>
+							<button
+								type="button"
+								onClick={handleCrispReportPrint}
+								className="btn-primary"
+								disabled={selectedSections.length === 0}
+							>
+								<i className="fas fa-print text-xs" aria-hidden="true" />
+								Print
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 
 			{/* Report History Modal */}
 			{showVersionHistory && (

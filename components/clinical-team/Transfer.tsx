@@ -84,7 +84,6 @@ export default function Transfer() {
 	const [loading, setLoading] = useState(true);
 	const [searchTerm, setSearchTerm] = useState('');
 	const [statusFilter, setStatusFilter] = useState<AdminPatientStatus | 'all'>('all');
-	const [therapistFilter, setTherapistFilter] = useState<string>('all');
 	const [transferring, setTransferring] = useState<Record<string, boolean>>({});
 	const [successMessage, setSuccessMessage] = useState<string | null>(null);
 	const [selectedTherapists, setSelectedTherapists] = useState<Record<string, string>>({});
@@ -251,6 +250,21 @@ export default function Transfer() {
 		return () => unsubscribe();
 	}, []);
 
+	// Filter therapists to only show those who have at least one patient assigned
+	const assignedTherapists = useMemo(() => {
+		// Get all unique assigned doctor names from patients
+		const assignedDoctorNames = new Set(
+			patients
+				.map(p => p.assignedDoctor)
+				.filter((name): name is string => Boolean(name && name.trim()))
+		);
+
+		// Filter therapists to only include those with assigned patients
+		return therapists.filter(therapist => 
+			assignedDoctorNames.has(therapist.name)
+		);
+	}, [therapists, patients]);
+
 	const filteredPatients = useMemo(() => {
 		// Debug logging in development
 		if (process.env.NODE_ENV === 'development') {
@@ -268,21 +282,19 @@ export default function Transfer() {
 			});
 		}
 
-		// First filter by assigned doctor (only show patients assigned to current staff member OR unassigned)
+		// First filter by assigned doctor (only show patients assigned to current staff member)
 		let assignedPatients: PatientRecordTransfer[];
 		
 		if (!clinicianName) {
 			// If no clinician name, show empty (user needs to have displayName set)
 			assignedPatients = [];
 		} else {
-			// Filter by assigned doctor - must match exactly (after normalization) OR be unassigned
+			// Filter by assigned doctor - must match exactly (after normalization)
 			assignedPatients = patients.filter(patient => {
 				// Show patients assigned to current user
 				const normalizedAssigned = normalize(patient.assignedDoctor);
 				const isAssignedToMe = normalizedAssigned === clinicianName;
-				// Also show unassigned patients (no assignedDoctor set)
-				const isUnassigned = !patient.assignedDoctor || patient.assignedDoctor.trim() === '';
-				return isAssignedToMe || isUnassigned;
+				return isAssignedToMe;
 			});
 		}
 
@@ -294,14 +306,10 @@ export default function Transfer() {
 				patient.name.toLowerCase().includes(query) ||
 				patient.patientId.toLowerCase().includes(query);
 			const matchesStatus = statusFilter === 'all' || patient.status === statusFilter;
-			const matchesTherapist =
-				therapistFilter === 'all' ||
-				(therapistFilter === 'unassigned' && !patient.assignedDoctor) ||
-				patient.assignedDoctor === therapistFilter;
 
-			return matchesSearch && matchesStatus && matchesTherapist;
+			return matchesSearch && matchesStatus;
 		});
-	}, [patients, searchTerm, statusFilter, therapistFilter, clinicianName, user?.displayName]);
+	}, [patients, searchTerm, statusFilter, clinicianName, user?.displayName]);
 
 	// Load transfer history
 	useEffect(() => {
@@ -1164,7 +1172,7 @@ export default function Transfer() {
 				)}
 
 				<section className="section-card">
-					<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-3">
+					<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2">
 						<div>
 							<label htmlFor="search-patients" className="block text-sm font-medium text-slate-700">
 								Search Patients
@@ -1195,31 +1203,6 @@ export default function Transfer() {
 								<option value="cancelled">Cancelled</option>
 							</select>
 						</div>
-						<div>
-							<label htmlFor="therapist-filter" className="block text-sm font-medium text-slate-700">
-								Filter by Therapist
-							</label>
-							<select
-								id="therapist-filter"
-								value={therapistFilter}
-								onChange={event => setTherapistFilter(event.target.value)}
-								className="select-base"
-							>
-								<option value="all">All Therapists</option>
-								<option value="unassigned">Unassigned</option>
-								{therapists
-									.filter(therapist => {
-										// Exclude current user from filter dropdown
-										const therapistNameNormalized = normalize(therapist.name);
-										return therapistNameNormalized !== clinicianName;
-									})
-									.map(therapist => (
-										<option key={therapist.id} value={therapist.name}>
-											{therapist.name}
-										</option>
-									))}
-							</select>
-						</div>
 					</div>
 				</section>
 
@@ -1239,7 +1222,6 @@ export default function Transfer() {
 								onClick={() => {
 									setSearchTerm('');
 									setStatusFilter('all');
-									setTherapistFilter('all');
 								}}
 								className="btn-secondary"
 							>

@@ -12,6 +12,8 @@ import {
 	serverTimestamp,
 	writeBatch,
 	getDocs,
+	query,
+	where,
 	type QuerySnapshot,
 	type Timestamp,
 } from 'firebase/firestore';
@@ -644,9 +646,32 @@ export default function Patients() {
 	};
 
 	const handleDelete = async (id: string) => {
-		const confirmed = window.confirm('Delete this patient? This cannot be undone.');
+		const patient = patients.find(p => (p as AdminPatientRecord & { id?: string }).id === id);
+		if (!patient) return;
+
+		const confirmed = window.confirm(
+			`Delete patient "${patient.name}" (ID: ${patient.patientId})? This will also delete all appointments for this patient. This cannot be undone.`
+		);
 		if (!confirmed) return;
 		try {
+			// First, delete all appointments for this patient
+			const appointmentsQuery = query(
+				collection(db, 'appointments'),
+				where('patientId', '==', patient.patientId)
+			);
+			const appointmentsSnapshot = await getDocs(appointmentsQuery);
+			
+			if (appointmentsSnapshot.docs.length > 0) {
+				// Use batch write for better performance and atomicity
+				const batch = writeBatch(db);
+				appointmentsSnapshot.docs.forEach(appointmentDoc => {
+					batch.delete(appointmentDoc.ref);
+				});
+				await batch.commit();
+				console.log(`Deleted ${appointmentsSnapshot.docs.length} appointment(s) for patient ${patient.patientId}`);
+			}
+
+			// Then delete the patient
 			await deleteDoc(doc(db, 'patients', id));
 		} catch (error) {
 			console.error('Failed to delete patient', error);

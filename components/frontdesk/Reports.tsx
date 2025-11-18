@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, query, where, orderBy, getDocs, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import { generatePhysiotherapyReportPDF } from '@/lib/pdfGenerator';
+import { generatePhysiotherapyReportPDF, type ReportSection } from '@/lib/pdfGenerator';
 import type { PatientRecordFull } from '@/lib/types';
 
 type PatientRecord = Omit<PatientRecordFull, 'id' | 'status'> & { id?: string; status?: string };
@@ -91,6 +91,22 @@ export default function Reports() {
 	}>>([]);
 	const [loadingVersions, setLoadingVersions] = useState(false);
 	const [viewingVersionData, setViewingVersionData] = useState<Partial<PatientRecordFull> | null>(null);
+	const [showCrispReportModal, setShowCrispReportModal] = useState(false);
+	const [selectedSections, setSelectedSections] = useState<ReportSection[]>([
+		'patientInformation',
+		'assessmentOverview',
+		'painAssessment',
+		'onObservation',
+		'onPalpation',
+		'rom',
+		'mmt',
+		'advancedAssessment',
+		'physiotherapyManagement',
+		'followUpVisits',
+		'currentStatus',
+		'nextFollowUp',
+		'signature',
+	]);
 
 	// Load patients from Firestore
 	useEffect(() => {
@@ -290,7 +306,7 @@ export default function Reports() {
 		}
 	};
 
-	const handlePrint = async () => {
+	const handlePrint = async (sections?: ReportSection[]) => {
 		if (!selectedPatient) return;
 
 		const age = selectedPatient.dob ? new Date().getFullYear() - new Date(selectedPatient.dob).getFullYear() : undefined;
@@ -299,10 +315,10 @@ export default function Reports() {
 			patientId: selectedPatient.patientId,
 			referredBy: selectedPatient.assignedDoctor || selectedPatient.referredBy || '',
 			age: age ? String(age) : '',
-			gender: '',
+			gender: selectedPatient.gender || '',
 			dateOfConsultation: selectedPatient.dateOfConsultation || new Date().toISOString().split('T')[0],
-			contact: '',
-			email: '',
+			contact: selectedPatient.phone || '',
+			email: selectedPatient.email || '',
 			complaints: selectedPatient.complaints || '',
 			presentHistory: selectedPatient.presentHistory || '',
 			pastHistory: selectedPatient.pastHistory || '',
@@ -360,8 +376,47 @@ export default function Reports() {
 			complianceWithHEP: selectedPatient.complianceWithHEP || '',
 			physioName: selectedPatient.physioName || '',
 			physioRegNo: selectedPatient.physioId || '',
-		});
-		// Note: The PDF will be downloaded. Users can open it and print from their PDF viewer.
+			patientType: selectedPatient.patientType || '',
+		}, { forPrint: true, sections });
+	};
+
+	const handleCrispReport = () => {
+		setShowCrispReportModal(true);
+	};
+
+	const handleCrispReportPrint = async () => {
+		setShowCrispReportModal(false);
+		await handlePrint(selectedSections);
+	};
+
+	const handleCrispReportDownload = async () => {
+		if (!selectedPatient) return;
+		setShowCrispReportModal(false);
+		await handleDownloadPDF(selectedPatient, selectedSections);
+	};
+
+	const allSections: Array<{ key: ReportSection; label: string }> = [
+		{ key: 'patientInformation', label: 'Patient Information' },
+		{ key: 'assessmentOverview', label: 'Assessment Overview' },
+		{ key: 'painAssessment', label: 'Pain Assessment' },
+		{ key: 'onObservation', label: 'On Observation' },
+		{ key: 'onPalpation', label: 'On Palpation' },
+		{ key: 'rom', label: 'ROM (Range of Motion)' },
+		{ key: 'mmt', label: 'Manual Muscle Testing' },
+		{ key: 'advancedAssessment', label: 'Advanced Assessment' },
+		{ key: 'physiotherapyManagement', label: 'Physiotherapy Management' },
+		{ key: 'followUpVisits', label: 'Follow-Up Visits' },
+		{ key: 'currentStatus', label: 'Current Status' },
+		{ key: 'nextFollowUp', label: 'Next Follow-Up Details' },
+		{ key: 'signature', label: 'Physiotherapist Signature' },
+	];
+
+	const toggleSection = (section: ReportSection) => {
+		setSelectedSections(prev =>
+			prev.includes(section)
+				? prev.filter(s => s !== section)
+				: [...prev, section]
+		);
 	};
 
 	function renderRomPrintTable(joint: string, data: any): string {
@@ -467,7 +522,7 @@ export default function Reports() {
 		);
 	}
 
-	const handleDownloadPDF = async (patient: PatientRecord) => {
+	const handleDownloadPDF = async (patient: PatientRecord, sections?: ReportSection[]) => {
 		const age = patient.dob ? new Date().getFullYear() - new Date(patient.dob).getFullYear() : undefined;
 		await generatePhysiotherapyReportPDF({
 			patientName: patient.name,
@@ -535,7 +590,8 @@ export default function Reports() {
 			complianceWithHEP: patient.complianceWithHEP || '',
 			physioName: patient.physioName || '',
 			physioRegNo: patient.physioId || '',
-		});
+			patientType: patient.patientType || '',
+		}, { sections });
 	};
 
 	return (
@@ -1173,6 +1229,15 @@ export default function Reports() {
 							<div className="flex items-center gap-3">
 								<button
 									type="button"
+									onClick={handleCrispReport}
+									disabled={!selectedPatient}
+									className="inline-flex items-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									<i className="fas fa-file-alt mr-2" aria-hidden="true" />
+									Crisp Report
+								</button>
+								<button
+									type="button"
 									onClick={() => selectedPatient && handleDownloadPDF(selectedPatient)}
 									disabled={!selectedPatient}
 									className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1182,7 +1247,7 @@ export default function Reports() {
 								</button>
 								<button
 									type="button"
-									onClick={handlePrint}
+									onClick={() => handlePrint()}
 									disabled={!selectedPatient}
 									className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
 								>
@@ -1201,6 +1266,70 @@ export default function Reports() {
 								</button>
 							</div>
 						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Crisp Report Modal */}
+			{showCrispReportModal && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4 py-6">
+					<div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+						<div className="flex items-center justify-between p-6 border-b border-slate-200">
+							<h2 className="text-xl font-semibold text-slate-900">Select Report Sections</h2>
+							<button
+								type="button"
+								onClick={() => setShowCrispReportModal(false)}
+								className="text-slate-400 hover:text-slate-600 transition"
+								aria-label="Close"
+							>
+								<i className="fas fa-times text-xl" />
+							</button>
+						</div>
+						<div className="flex-1 overflow-y-auto p-6">
+							<div className="space-y-3">
+								{allSections.map(section => (
+									<label
+										key={section.key}
+										className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer"
+									>
+										<input
+											type="checkbox"
+											checked={selectedSections.includes(section.key)}
+											onChange={() => toggleSection(section.key)}
+											className="h-4 w-4 border-slate-300 text-sky-600 focus:ring-sky-200 rounded"
+										/>
+										<span className="text-sm font-medium text-slate-700">{section.label}</span>
+									</label>
+								))}
+							</div>
+						</div>
+						<div className="flex items-center justify-end gap-3 border-t border-slate-200 p-6">
+							<button
+								type="button"
+								onClick={() => setShowCrispReportModal(false)}
+								className="btn-secondary"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleCrispReportDownload}
+								className="btn-secondary"
+								disabled={selectedSections.length === 0 || !selectedPatient}
+							>
+								<i className="fas fa-download text-xs" aria-hidden="true" />
+								Download PDF
+							</button>
+							<button
+								type="button"
+								onClick={handleCrispReportPrint}
+								className="btn-primary"
+								disabled={selectedSections.length === 0 || !selectedPatient}
+							>
+								<i className="fas fa-print text-xs" aria-hidden="true" />
+								Print
+							</button>
+						</div>
 					</div>
 				</div>
 			)}
