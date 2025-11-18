@@ -1433,7 +1433,7 @@ export default function Patients() {
 										</label>
 										<input
 											type="file"
-											accept=".csv"
+											accept=".csv,.xlsx,.xls"
 											onChange={handleFileSelect}
 											className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
 										/>

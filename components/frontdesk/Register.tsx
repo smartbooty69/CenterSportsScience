@@ -13,6 +13,8 @@ import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { sendWhatsAppNotification } from '@/lib/whatsapp';
+import { createInitialSessionAllowance, normalizeSessionAllowance } from '@/lib/sessionAllowance';
+import type { SessionAllowance } from '@/lib/types';
 
 type PaymentTypeOption = 'with' | 'without';
 // MODIFIED: Changed Gethhma to GETHNA
@@ -34,6 +36,7 @@ interface FrontdeskPatient {
 	paymentType: PaymentTypeOption;
 	paymentDescription?: string;
 	assignedDoctor?: string;
+	sessionAllowance?: SessionAllowance | null;
 }
 
 interface FrontdeskAppointment {
@@ -192,6 +195,9 @@ export default function Register() {
 						paymentType: (data.paymentType as PaymentTypeOption) || 'without',
 						paymentDescription: data.paymentDescription ? String(data.paymentDescription) : undefined,
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
+						sessionAllowance: data.sessionAllowance
+							? normalizeSessionAllowance(data.sessionAllowance as SessionAllowance)
+							: null,
 					} as FrontdeskPatient;
 				});
 				setPatients(mapped);
@@ -309,14 +315,15 @@ export default function Register() {
 				dob: form.dob,
 				gender: form.gender,
 				phone: form.phone.trim(),
-				email: form.email.trim() || undefined,
-				address: form.address.trim() || undefined,
+				email: form.email.trim() || null,
+				address: form.address.trim() || null,
 				complaint: '',
 				status: 'pending' as AdminPatientStatus,
 				registeredAt: serverTimestamp(),
 				patientType: form.patientType as PatientTypeOption,
 				paymentType: form.patientType === 'PAID' ? (form.paymentType as PaymentTypeOption) : 'without' as PaymentTypeOption,
-				paymentDescription: form.patientType === 'PAID' ? (form.paymentDescription.trim() || undefined) : undefined,
+				paymentDescription: form.patientType === 'PAID' ? (form.paymentDescription.trim() || null) : null,
+				sessionAllowance: form.patientType === 'DYES' ? createInitialSessionAllowance() : null,
 			};
 
 			await addDoc(collection(db, 'patients'), patientData);

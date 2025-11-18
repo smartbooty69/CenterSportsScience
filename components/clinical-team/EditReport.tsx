@@ -210,6 +210,19 @@ export default function EditReport() {
 						complaint: data.complaint ? String(data.complaint) : undefined,
 						status: (data.status as AdminPatientStatus) ?? 'pending',
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
+						// Session tracking
+						totalSessionsRequired:
+							typeof data.totalSessionsRequired === 'number'
+								? data.totalSessionsRequired
+								: data.totalSessionsRequired
+									? Number(data.totalSessionsRequired)
+									: undefined,
+						remainingSessions:
+							typeof data.remainingSessions === 'number'
+								? data.remainingSessions
+								: data.remainingSessions
+									? Number(data.remainingSessions)
+									: undefined,
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
 						complaints: data.complaints ? String(data.complaints) : undefined,
 						presentHistory: data.presentHistory ? String(data.presentHistory) : undefined,
@@ -589,6 +602,19 @@ export default function EditReport() {
 				managementRemarks: formData.managementRemarks || '',
 				nextFollowUpDate: formData.nextFollowUpDate || '',
 				nextFollowUpTime: formData.nextFollowUpTime || '',
+				// Session tracking
+				totalSessionsRequired:
+					typeof formData.totalSessionsRequired === 'number'
+						? formData.totalSessionsRequired
+						: formData.totalSessionsRequired
+							? Number(formData.totalSessionsRequired)
+							: null,
+				remainingSessions:
+					typeof formData.remainingSessions === 'number'
+						? formData.remainingSessions
+						: formData.remainingSessions
+							? Number(formData.remainingSessions)
+							: null,
 				updatedAt: serverTimestamp(),
 			};
 
@@ -670,6 +696,8 @@ export default function EditReport() {
 				managementRemarks: selectedPatient.managementRemarks,
 				nextFollowUpDate: selectedPatient.nextFollowUpDate,
 				nextFollowUpTime: selectedPatient.nextFollowUpTime,
+				totalSessionsRequired: selectedPatient.totalSessionsRequired,
+				remainingSessions: selectedPatient.remainingSessions,
 			};
 
 			// Check if there's any existing report data to save as previous report
@@ -1313,6 +1341,8 @@ export default function EditReport() {
 			dateOfConsultation: formData.dateOfConsultation || new Date().toISOString().split('T')[0],
 			contact: selectedPatient.phone || '',
 			email: selectedPatient.email || '',
+			totalSessionsRequired: formData.totalSessionsRequired ?? selectedPatient.totalSessionsRequired,
+			remainingSessions: formData.remainingSessions ?? selectedPatient.remainingSessions,
 			complaints: formData.complaints || '',
 			presentHistory: formData.presentHistory || '',
 			pastHistory: formData.pastHistory || '',
@@ -1467,6 +1497,40 @@ export default function EditReport() {
 								<input
 									type="text"
 									value={selectedPatient.assignedDoctor || ''}
+									readOnly
+									className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Total Sessions Required</label>
+								<input
+									type="number"
+									min={0}
+									value={formData.totalSessionsRequired ?? ''}
+									onChange={e => {
+										const value = e.target.value === '' ? undefined : Number(e.target.value);
+										setFormData(prev => {
+											const total = value;
+											const nextRemaining =
+												prev.remainingSessions === undefined || prev.remainingSessions === null
+													? total
+													: prev.remainingSessions;
+											return {
+												...prev,
+												totalSessionsRequired: total,
+												remainingSessions: nextRemaining,
+											};
+										});
+									}}
+									className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Remaining Sessions</label>
+								<input
+									type="number"
+									min={0}
+									value={formData.remainingSessions ?? ''}
 									readOnly
 									className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 								/>

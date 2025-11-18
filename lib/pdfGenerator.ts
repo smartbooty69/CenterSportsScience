@@ -7,6 +7,9 @@ export interface PatientReportData {
 	dateOfConsultation?: string;
 	contact?: string;
 	email?: string;
+	// Session tracking
+	totalSessionsRequired?: number;
+	remainingSessions?: number;
 	complaints?: string;
 	presentHistory?: string;
 	pastHistory?: string;
@@ -148,8 +151,13 @@ export async function generatePhysiotherapyReportPDF(
 	data: PatientReportData,
 	options?: { forPrint?: boolean }
 ): Promise<string | void> {
-	const { default: jsPDF } = await import('jspdf');
-	const autoTable = (await import('jspdf-autotable')).default;
+	const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+		import('jspdf'),
+		import('jspdf-autotable'),
+	]);
+
+	// jspdf-autotable v5 exports the function as default
+	const autoTable = (autoTableModule as any).default || autoTableModule;
 
 	const doc = new jsPDF('p', 'mm', 'a4');
 	let y = 8; // Initial Y position for logos
@@ -223,6 +231,8 @@ export async function generatePhysiotherapyReportPDF(
 			['Age / Gender', `${data.age || ''} / ${data.gender || ''}`],
 			['Date of Consultation', data.dateOfConsultation || ''],
 			['Contact / Email', `${data.contact || ''} / ${data.email || ''}`],
+			['Total Sessions Required', data.totalSessionsRequired != null ? String(data.totalSessionsRequired) : ''],
+			['Remaining Sessions', data.remainingSessions != null ? String(data.remainingSessions) : ''],
 		],
 		headStyles,
 		styles: baseStyles,

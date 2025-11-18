@@ -181,6 +181,18 @@ export default function Reports() {
 						managementRemarks: data.managementRemarks ? String(data.managementRemarks) : undefined,
 						nextFollowUpDate: data.nextFollowUpDate ? String(data.nextFollowUpDate) : undefined,
 						nextFollowUpTime: data.nextFollowUpTime ? String(data.nextFollowUpTime) : undefined,
+						totalSessionsRequired:
+							typeof data.totalSessionsRequired === 'number'
+								? data.totalSessionsRequired
+								: data.totalSessionsRequired
+									? Number(data.totalSessionsRequired)
+									: undefined,
+						remainingSessions:
+							typeof data.remainingSessions === 'number'
+								? data.remainingSessions
+								: data.remainingSessions
+									? Number(data.remainingSessions)
+									: undefined,
 					} as PatientRecord;
 				});
 				setPatients(mapped);
@@ -557,6 +569,8 @@ export default function Reports() {
 									<th className="px-4 py-3 font-semibold">Name</th>
 									<th className="px-4 py-3 font-semibold">Status</th>
 									<th className="px-4 py-3 font-semibold">Assigned Doctor</th>
+									<th className="px-4 py-3 font-semibold">Total Sessions</th>
+									<th className="px-4 py-3 font-semibold">Remaining</th>
 									<th className="px-4 py-3 font-semibold text-right">Actions</th>
 								</tr>
 							</thead>
@@ -579,6 +593,12 @@ export default function Reports() {
 											</span>
 										</td>
 										<td className="px-4 py-4 text-sm text-slate-600">{patient.assignedDoctor || 'Unassigned'}</td>
+										<td className="px-4 py-4 text-sm text-slate-700">
+											{patient.totalSessionsRequired ?? '—'}
+										</td>
+										<td className="px-4 py-4 text-sm text-slate-700">
+											{patient.remainingSessions ?? '—'}
+										</td>
 										<td className="px-4 py-4 text-right">
 											<div className="inline-flex items-center gap-2">
 												<button
@@ -684,6 +704,32 @@ export default function Reports() {
 										<input
 											type="text"
 											value={selectedPatient.assignedDoctor || ''}
+											readOnly
+											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+										/>
+									</div>
+									<div>
+										<label className="block text-xs font-medium text-slate-500">Total Sessions Required</label>
+										<input
+											type="text"
+											value={
+												typeof selectedPatient.totalSessionsRequired === 'number'
+													? String(selectedPatient.totalSessionsRequired)
+													: ''
+											}
+											readOnly
+											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+										/>
+									</div>
+									<div>
+										<label className="block text-xs font-medium text-slate-500">Remaining Sessions</label>
+										<input
+											type="text"
+											value={
+												typeof selectedPatient.remainingSessions === 'number'
+													? String(selectedPatient.remainingSessions)
+													: ''
+											}
 											readOnly
 											className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 										/>
