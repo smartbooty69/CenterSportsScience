@@ -2613,7 +2613,7 @@ export default function EditReport() {
 						</button>
 						<button
 							type="button"
-							onClick={handlePrint}
+							onClick={() => handlePrint()}
 							className="btn-secondary"
 							disabled={!selectedPatient}
 						>
@@ -2622,7 +2622,7 @@ export default function EditReport() {
 						</button>
 						<button
 							type="button"
-							onClick={handleDownloadPDF}
+							onClick={() => handleDownloadPDF()}
 							className="btn-secondary"
 							disabled={!selectedPatient}
 						>
