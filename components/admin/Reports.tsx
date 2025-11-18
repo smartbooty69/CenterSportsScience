@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, deleteDoc, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, deleteDoc, query, where, getDocs, writeBatch, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import {
 	type AdminAppointmentRecord,
@@ -303,11 +303,31 @@ export default function Reports() {
 	};
 
 	const handleDelete = async (patientId: string) => {
-		const confirmed = window.confirm('Delete this patient record? This cannot be undone.');
+		const confirmed = window.confirm(
+			`Delete this patient record? This will also delete all appointments for this patient. This cannot be undone.`
+		);
 		if (!confirmed) return;
 		const patient = patients.find(p => p.patientId === patientId && p.id);
 		if (!patient?.id) return;
 		try {
+			// First, delete all appointments for this patient
+			const appointmentsQuery = query(
+				collection(db, 'appointments'),
+				where('patientId', '==', patient.patientId)
+			);
+			const appointmentsSnapshot = await getDocs(appointmentsQuery);
+			
+			if (appointmentsSnapshot.docs.length > 0) {
+				// Use batch write for better performance and atomicity
+				const batch = writeBatch(db);
+				appointmentsSnapshot.docs.forEach(appointmentDoc => {
+					batch.delete(appointmentDoc.ref);
+				});
+				await batch.commit();
+				console.log(`Deleted ${appointmentsSnapshot.docs.length} appointment(s) for patient ${patient.patientId}`);
+			}
+
+			// Then delete the patient
 			await deleteDoc(doc(db, 'patients', patient.id));
 		} catch (error) {
 			console.error('Failed to delete patient', error);

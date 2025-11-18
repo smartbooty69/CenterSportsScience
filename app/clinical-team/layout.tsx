@@ -8,13 +8,15 @@ import Calendar from '@/components/clinical-team/Calendar';
 import EditReport from '@/components/clinical-team/EditReport';
 import Availability from '@/components/clinical-team/Availability';
 import Transfer from '@/components/clinical-team/Transfer';
+import Appointments from '@/components/clinical-team/Appointments';
 import { useAuth } from '@/contexts/AuthContext';
 
-type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer';
+type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer' | 'appointments';
 
 const clinicalTeamLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-dumbbell' },
 	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-week' },
+	{ href: '#appointments', label: 'Appointments', icon: 'fas fa-calendar-check' },
 	{ href: '#edit-report', label: 'View/Edit Reports', icon: 'fas fa-notes-medical' },
 	{ href: '#availability', label: 'My Availability', icon: 'fas fa-calendar-check' },
 	{ href: '#transfer', label: 'Transfer Patients', icon: 'fas fa-exchange-alt' },
@@ -66,6 +68,8 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 			setActivePage('edit-report');
 		} else if (pathname?.includes('/calendar')) {
 			setActivePage('calendar');
+		} else if (pathname?.includes('/appointments')) {
+			setActivePage('appointments');
 		} else if (pathname?.includes('/availability')) {
 			setActivePage('availability');
 		} else if (pathname?.includes('/transfer')) {
@@ -99,6 +103,8 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 				return <Dashboard onNavigate={handleLinkClick} />;
 			case 'calendar':
 				return <Calendar />;
+			case 'appointments':
+				return <Appointments />;
 			case 'edit-report':
 				return <EditReport />;
 			case 'availability':

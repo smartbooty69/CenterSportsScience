@@ -486,12 +486,12 @@ export default function Appointments() {
 		return groupedByPatient.reduce((sum, group) => sum + group.appointments.length, 0);
 	}, [groupedByPatient]);
 
-	// Filter out patients who already have appointments (so they can only be set once)
+	// Only show patients who already have appointments (frontdesk assigns first, clinical team handles rest)
 	const availablePatients = useMemo(() => {
 		const patientsWithAppointments = new Set(
 			appointments.map(apt => apt.patientId)
 		);
-		return patients.filter(patient => !patientsWithAppointments.has(patient.patientId));
+		return patients.filter(patient => patientsWithAppointments.has(patient.patientId));
 	}, [patients, appointments]);
 
 	const pendingCount = appointments.filter(appointment => appointment.status === 'pending').length;
@@ -789,9 +789,33 @@ export default function Appointments() {
 	};
 
 	const handleCreateAppointment = async () => {
-		// Frontdesk can only select one time slot
-		if (!bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time) {
-			alert('Please fill in all required fields and select a time slot.');
+		// Save current day's selections first
+		saveCurrentDaySelections();
+
+		// Collect all appointments from all saved days
+		const allAppointments: Array<{ date: string; times: string[] }> = [];
+		
+		// Add current day if it has selections
+		if (bookingForm.date && bookingForm.selectedTimes.length > 0) {
+			allAppointments.push({
+				date: bookingForm.date,
+				times: [...bookingForm.selectedTimes],
+			});
+		}
+
+		// Add all other saved days
+		bookingForm.selectedAppointments.forEach((times, date) => {
+			// Skip current date as we already added it
+			if (date !== bookingForm.date && times.length > 0) {
+				allAppointments.push({ date, times });
+			}
+		});
+
+		// Flatten to get total count
+		const totalAppointments = allAppointments.reduce((sum, apt) => sum + apt.times.length, 0);
+
+		if (!bookingForm.patientId || !bookingForm.staffId || totalAppointments === 0) {
+			alert('Please fill in all required fields and select at least one time slot across any day.');
 			return;
 		}
 
@@ -803,27 +827,38 @@ export default function Appointments() {
 			return;
 		}
 
-		// Check for conflicts
-		const conflict = checkAppointmentConflict(
-			appointments.map(a => ({
-				id: a.id,
-				appointmentId: a.appointmentId,
-				patient: a.patient,
-				doctor: a.doctor,
-				date: a.date,
-				time: a.time,
-				status: a.status,
-			})),
-			{
-				doctor: selectedStaff.userName,
-				date: bookingForm.date,
-				time: bookingForm.time,
-			},
-			30
-		);
+		// Check for conflicts for all appointments across all days
+		const allConflicts: Array<{ date: string; time: string; conflict: ReturnType<typeof checkAppointmentConflict> }> = [];
+		for (const apt of allAppointments) {
+			for (const time of apt.times) {
+				const conflict = checkAppointmentConflict(
+					appointments.map(a => ({
+						id: a.id,
+						appointmentId: a.appointmentId,
+						patient: a.patient,
+						doctor: a.doctor,
+						date: a.date,
+						time: a.time,
+						status: a.status,
+					})),
+					{
+						doctor: selectedStaff.userName,
+						date: apt.date,
+						time: time,
+					},
+					30
+				);
+				if (conflict.hasConflict) {
+					allConflicts.push({ date: apt.date, time, conflict });
+				}
+			}
+		}
 
-		if (conflict.hasConflict) {
-			const confirmMessage = `Conflict detected at ${bookingForm.date} ${bookingForm.time}: ${conflict.conflictingAppointments.length} conflict(s)\n\nContinue anyway?`;
+		if (allConflicts.length > 0) {
+			const conflictMessages = allConflicts.map(({ date, time, conflict }) => 
+				`${date} at ${time}: ${conflict.conflictingAppointments.length} conflict(s)`
+			).join('\n');
+			const confirmMessage = `Conflict detected:\n${conflictMessages}\n\nContinue anyway?`;
 			if (!window.confirm(confirmMessage)) {
 				return;
 			}
@@ -831,21 +866,33 @@ export default function Appointments() {
 
 		setBookingLoading(true);
 		try {
-			// Generate unique appointment ID
-			const appointmentId = `APT${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+			const createdAppointments: string[] = [];
+			let appointmentIndex = 0;
+			const baseTimestamp = Date.now();
+			
+			// Create appointments for all days and times
+			for (const apt of allAppointments) {
+				for (const time of apt.times) {
+					// Generate unique appointment ID for each
+					const appointmentId = `APT${baseTimestamp}${appointmentIndex}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-			await addDoc(collection(db, 'appointments'), {
-				appointmentId,
-				patientId: bookingForm.patientId,
-				patient: selectedPatient.name,
-				doctor: selectedStaff.userName,
-				staffId: selectedStaff.id,
-				date: bookingForm.date,
-				time: bookingForm.time,
-				status: 'pending' as AdminAppointmentStatus,
-				notes: bookingForm.notes?.trim() || null,
-				createdAt: serverTimestamp(),
-			});
+					await addDoc(collection(db, 'appointments'), {
+						appointmentId,
+						patientId: bookingForm.patientId,
+						patient: selectedPatient.name,
+						doctor: selectedStaff.userName,
+						staffId: selectedStaff.id,
+						date: apt.date,
+						time: time,
+						status: 'pending' as AdminAppointmentStatus,
+						notes: bookingForm.notes?.trim() || null,
+						createdAt: serverTimestamp(),
+					});
+
+					createdAppointments.push(appointmentId);
+					appointmentIndex++;
+				}
+			}
 
 			// Update remaining sessions for the patient, if totalSessionsRequired is set
 			if (typeof selectedPatient.totalSessionsRequired === 'number') {
@@ -883,21 +930,24 @@ export default function Appointments() {
 				}
 			}
 
-			// Send email notification if patient has email
-			if (selectedPatient.email) {
+			// Send email notification if patient has email (only once for all appointments)
+			if (selectedPatient.email && totalAppointments > 0) {
 				try {
+					const datesList = allAppointments.map(apt => 
+						`${formatDateLabel(apt.date)}: ${apt.times.join(', ')}`
+					).join('\n');
 					await sendEmailNotification({
 						to: selectedPatient.email,
-						subject: `Appointment Scheduled`,
+						subject: `${totalAppointments} Appointment(s) Scheduled`,
 						template: 'appointment-created',
 						data: {
 							patientName: selectedPatient.name,
 							patientEmail: selectedPatient.email,
 							patientId: bookingForm.patientId,
 							doctor: selectedStaff.userName,
-							date: formatDateLabel(bookingForm.date),
-							time: bookingForm.time,
-							appointmentId: appointmentId,
+							date: allAppointments.map(a => formatDateLabel(a.date)).join(', '),
+							time: allAppointments.map(a => a.times.join(', ')).join('; '),
+							appointmentId: createdAppointments.join(', '),
 						},
 					});
 				} catch (emailError) {
@@ -906,10 +956,10 @@ export default function Appointments() {
 			}
 
 			handleCloseBookingModal();
-			alert(`Successfully created appointment for ${selectedPatient.name} on ${formatDateLabel(bookingForm.date)} at ${bookingForm.time}!`);
+			alert(`Successfully created ${totalAppointments} appointment(s) across ${allAppointments.length} day(s)!`);
 		} catch (error) {
-			console.error('Failed to create appointment', error);
-			alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+			console.error('Failed to create appointment(s)', error);
+			alert(`Failed to create appointment(s): ${error instanceof Error ? error.message : 'Unknown error'}`);
 		} finally {
 			setBookingLoading(false);
 		}
@@ -919,9 +969,9 @@ export default function Appointments() {
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
 				<PageHeader
-					badge="Front Desk"
+					badge="Clinical Team"
 					title="Appointments"
-					description="Review scheduled visits, update statuses in real time, and manage front desk hand-offs with the same layout used in the legacy Super Admin console."
+					description="Review scheduled visits, update statuses in real time, and manage appointments with the same layout used in the legacy Super Admin console."
 					actions={
 						<button type="button" onClick={handleOpenBookingModal} className="btn-primary">
 							<i className="fas fa-plus text-xs" aria-hidden="true" />
@@ -1132,7 +1182,7 @@ export default function Appointments() {
 										<option value="">Select a patient</option>
 										{availablePatients.length === 0 ? (
 											<option value="" disabled>
-												No patients available (all patients already have appointments)
+												No patients available (patients must have their first appointment assigned by frontdesk)
 											</option>
 										) : (
 											availablePatients.map(patient => (
@@ -1144,7 +1194,7 @@ export default function Appointments() {
 									</select>
 									{availablePatients.length === 0 && (
 										<p className="mt-1 text-xs text-amber-600">
-											All patients already have their first appointment. Frontdesk assigns the initial appointment, and clinical team handles subsequent appointments.
+											No patients available. Patients must have their first appointment assigned by the frontdesk before clinical team can schedule additional appointments.
 										</p>
 									)}
 								</div>
@@ -1210,12 +1260,28 @@ export default function Appointments() {
 											type="date"
 											value={bookingForm.date}
 											onChange={e => {
-												setBookingForm(prev => ({
-													...prev,
-													date: e.target.value,
-													time: '',
-													selectedTimes: [],
-												}));
+												const newDate = e.target.value;
+												// Save current day's selections before switching
+												if (bookingForm.date && bookingForm.selectedTimes.length > 0) {
+													saveCurrentDaySelections();
+												}
+												// Load saved selections for the new date
+												setBookingForm(prev => {
+													const newMap = new Map(prev.selectedAppointments);
+													// Save current date selections
+													if (prev.date && prev.selectedTimes.length > 0) {
+														newMap.set(prev.date, [...prev.selectedTimes]);
+													}
+													// Load new date selections
+													const saved = newMap.get(newDate);
+													return {
+														...prev,
+														date: newDate,
+														selectedTimes: saved ? [...saved] : [],
+														time: saved && saved.length === 1 ? saved[0] : '',
+														selectedAppointments: newMap,
+													};
+												});
 											}}
 											min={new Date().toISOString().split('T')[0]}
 											className="input-base mt-2"
@@ -1233,23 +1299,33 @@ export default function Appointments() {
 								{bookingForm.date && (
 									<div>
 										<label className="block text-sm font-medium text-slate-700">
-											Available Time Slot <span className="text-rose-500">*</span>
+											Available Time Slots <span className="text-rose-500">*</span>
+											{bookingForm.selectedTimes.length > 0 && (
+												<span className="ml-2 text-xs font-normal text-slate-500">
+													({bookingForm.selectedTimes.length} selected)
+												</span>
+											)}
 										</label>
 										{availableTimeSlots.length > 0 ? (
 											<>
 												<div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
 													{availableTimeSlots.map(slot => {
-														const isSelected = bookingForm.time === slot;
+														const isSelected = bookingForm.selectedTimes.includes(slot);
 														return (
 															<button
 																key={slot}
 																type="button"
 																onClick={() => {
-																	setBookingForm(prev => ({
-																		...prev,
-																		time: isSelected ? '' : slot,
-																		selectedTimes: isSelected ? [] : [slot],
-																	}));
+																	setBookingForm(prev => {
+																		const newSelectedTimes = isSelected
+																			? prev.selectedTimes.filter(t => t !== slot)
+																			: [...prev.selectedTimes, slot].sort();
+																		return {
+																			...prev,
+																			time: newSelectedTimes.length === 1 ? newSelectedTimes[0] : prev.time,
+																			selectedTimes: newSelectedTimes,
+																		};
+																	});
 																}}
 																className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
 																	isSelected
@@ -1265,18 +1341,32 @@ export default function Appointments() {
 														);
 													})}
 												</div>
-												{bookingForm.time && (
+												{bookingForm.selectedTimes.length > 0 && (
 													<div className="mt-3 flex items-center justify-between rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
 														<span className="text-sm text-sky-700">
-															Selected: {bookingForm.time}
+															Selected: {bookingForm.selectedTimes.join(', ')}
 														</span>
-														<button
-															type="button"
-															onClick={() => setBookingForm(prev => ({ ...prev, selectedTimes: [], time: '' }))}
-															className="text-xs font-medium text-sky-600 hover:text-sky-700"
-														>
-															Clear
-														</button>
+														<div className="flex gap-2">
+															<button
+																type="button"
+																onClick={() => {
+																	saveCurrentDaySelections();
+																	alert('Selections saved! You can now navigate to another day.');
+																}}
+																className="text-xs font-medium text-sky-600 hover:text-sky-700"
+																title="Save selections for this day"
+															>
+																<i className="fas fa-save mr-1" aria-hidden="true" />
+																Save
+															</button>
+															<button
+																type="button"
+																onClick={() => setBookingForm(prev => ({ ...prev, selectedTimes: [], time: '' }))}
+																className="text-xs font-medium text-sky-600 hover:text-sky-700"
+															>
+																Clear
+															</button>
+														</div>
 													</div>
 												)}
 											</>
@@ -1289,6 +1379,47 @@ export default function Appointments() {
 									</div>
 								)}
 
+								{/* Saved Appointments for Other Days */}
+								{bookingForm.selectedAppointments.size > 0 && (
+									<div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
+										<div className="mb-2 flex items-center justify-between">
+											<h4 className="text-sm font-semibold text-sky-900">
+												Saved Appointments ({Array.from(bookingForm.selectedAppointments.values()).reduce((sum, times) => sum + times.length, 0)} total)
+											</h4>
+										</div>
+										<div className="space-y-2">
+											{Array.from(bookingForm.selectedAppointments.entries())
+												.filter(([date]) => date !== bookingForm.date)
+												.map(([date, times]) => (
+													<div key={date} className="flex items-center justify-between rounded-md border border-sky-200 bg-white px-3 py-2">
+														<div className="flex-1">
+															<p className="text-sm font-medium text-slate-900">
+																{formatDateLabel(date)} ({getDayOfWeek(date)})
+															</p>
+															<p className="text-xs text-slate-600">{times.join(', ')}</p>
+														</div>
+														<button
+															type="button"
+															onClick={() => {
+																setBookingForm(prev => {
+																	const newMap = new Map(prev.selectedAppointments);
+																	newMap.delete(date);
+																	return {
+																		...prev,
+																		selectedAppointments: newMap,
+																	};
+																});
+															}}
+															className="ml-2 rounded p-1 text-xs text-rose-600 hover:bg-rose-50"
+															title="Remove saved appointments for this date"
+														>
+															<i className="fas fa-times" aria-hidden="true" />
+														</button>
+													</div>
+												))}
+										</div>
+									</div>
+								)}
 
 								{/* Notes */}
 								<div>
@@ -1317,7 +1448,7 @@ export default function Appointments() {
 									type="button"
 									onClick={handleCreateAppointment}
 									className="btn-primary"
-									disabled={bookingLoading || !bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || !bookingForm.time}
+									disabled={bookingLoading || !bookingForm.patientId || !bookingForm.staffId || !bookingForm.date || (bookingForm.selectedTimes.length === 0 && bookingForm.selectedAppointments.size === 0 && !bookingForm.time)}
 								>
 								{bookingLoading ? (
 									<>
@@ -1327,7 +1458,17 @@ export default function Appointments() {
 								) : (
 									<>
 										<i className="fas fa-check text-xs" aria-hidden="true" />
-										Create Appointment
+										{(() => {
+											const currentDayCount = bookingForm.selectedTimes.length;
+											const otherDaysCount = Array.from(bookingForm.selectedAppointments.entries())
+												.filter(([date]) => date !== bookingForm.date)
+												.reduce((sum, [, times]) => sum + times.length, 0);
+											const totalCount = currentDayCount + otherDaysCount;
+											if (totalCount > 1) {
+												return `Create ${totalCount} Appointments`;
+											}
+											return 'Create Appointment';
+										})()}
 									</>
 								)}
 							</button>
