@@ -182,6 +182,26 @@ export async function generatePhysiotherapyReportPDF(
 		return options.sections.includes(section);
 	};
 
+	// Load header configuration based on patient type
+	const patientTypeUpper = data.patientType?.toUpperCase() || '';
+	const isDYES = patientTypeUpper === 'DYES';
+	const headerType = isDYES ? 'reportDYES' : 'reportNonDYES';
+	
+	const { getHeaderConfig, getDefaultHeaderConfig } = await import('./headerConfig');
+	const headerConfig = await getHeaderConfig(headerType);
+	const defaultConfig = getDefaultHeaderConfig(headerType);
+	
+	// Use configured values or fall back to defaults
+	const headerSettings = {
+		mainTitle: headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE',
+		subtitle: headerConfig?.subtitle || defaultConfig.subtitle || 'PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT',
+		contactInfo: headerConfig?.contactInfo || defaultConfig.contactInfo || '',
+		associationText: headerConfig?.associationText || defaultConfig.associationText || '',
+		govermentOrder: headerConfig?.govermentOrder || defaultConfig.govermentOrder || '',
+		leftLogo: headerConfig?.leftLogo || null,
+		rightLogo: headerConfig?.rightLogo || null,
+	};
+
 	const doc = new jsPDF('p', 'mm', 'a4');
 	const pageWidth = 210; // A4 width in mm
 	const pageMargin = 10; // Left and right margin
@@ -195,99 +215,170 @@ export async function generatePhysiotherapyReportPDF(
 	const headerY = 10; // Starting Y position - same for all elements
 	const headerEndY = headerY + logoHeight; // Ending Y position - same for all elements
 
-	// Load and add Center Sports Science logo at left top corner
-	try {
-		const centerLogoResponse = await fetch('/CenterSportsScience_logo.jpg');
-		if (centerLogoResponse.ok) {
-			const centerLogoBlob = await centerLogoResponse.blob();
-			const centerLogoDataUrl = await new Promise<string>((resolve) => {
-				const reader = new FileReader();
-				reader.onloadend = () => resolve(reader.result as string);
-				reader.readAsDataURL(centerLogoBlob);
-			});
-			// Left logo - aligned to left margin, starting at headerY
-			doc.addImage(centerLogoDataUrl, 'JPEG', leftLogoX, headerY, logoWidth, logoHeight);
-		} else {
-			console.warn('Center Sports Science logo not found at /CenterSportsScience_logo.jpg');
+	// Load and add left logo (from config or default)
+	if (headerSettings.leftLogo) {
+		try {
+			// If it's a base64 string, use it directly; otherwise try to fetch
+			if (headerSettings.leftLogo.startsWith('data:')) {
+				doc.addImage(headerSettings.leftLogo, 'JPEG', leftLogoX, headerY, logoWidth, logoHeight);
+			} else {
+				const logoResponse = await fetch(headerSettings.leftLogo);
+				if (logoResponse.ok) {
+					const logoBlob = await logoResponse.blob();
+					const logoDataUrl = await new Promise<string>((resolve) => {
+						const reader = new FileReader();
+						reader.onloadend = () => resolve(reader.result as string);
+						reader.readAsDataURL(logoBlob);
+					});
+					doc.addImage(logoDataUrl, 'JPEG', leftLogoX, headerY, logoWidth, logoHeight);
+				}
+			}
+		} catch (error) {
+			console.warn('Could not load configured left logo, trying default:', error);
+			// Fallback to default logo
+			try {
+				const centerLogoResponse = await fetch('/CenterSportsScience_logo.jpg');
+				if (centerLogoResponse.ok) {
+					const centerLogoBlob = await centerLogoResponse.blob();
+					const centerLogoDataUrl = await new Promise<string>((resolve) => {
+						const reader = new FileReader();
+						reader.onloadend = () => resolve(reader.result as string);
+						reader.readAsDataURL(centerLogoBlob);
+					});
+					doc.addImage(centerLogoDataUrl, 'JPEG', leftLogoX, headerY, logoWidth, logoHeight);
+				}
+			} catch (fallbackError) {
+				console.warn('Could not load default left logo:', fallbackError);
+			}
 		}
-	} catch (error) {
-		console.warn('Could not load Center Sports Science logo:', error);
+	} else {
+		// Use default logo
+		try {
+			const centerLogoResponse = await fetch('/CenterSportsScience_logo.jpg');
+			if (centerLogoResponse.ok) {
+				const centerLogoBlob = await centerLogoResponse.blob();
+				const centerLogoDataUrl = await new Promise<string>((resolve) => {
+					const reader = new FileReader();
+					reader.onloadend = () => resolve(reader.result as string);
+					reader.readAsDataURL(centerLogoBlob);
+				});
+				doc.addImage(centerLogoDataUrl, 'JPEG', leftLogoX, headerY, logoWidth, logoHeight);
+			}
+		} catch (error) {
+			console.warn('Could not load Center Sports Science logo:', error);
+		}
 	}
 
-	// Load right top corner logo - DYES logo for DYES patients, otherwise sixs logo
-	// Make comparison case-insensitive to handle variations
-	const patientTypeUpper = data.patientType?.toUpperCase() || '';
-	const isDYES = patientTypeUpper === 'DYES';
-	const rightLogoPath = isDYES ? '/Dyes_logo.jpg' : '/sixs_logo.jpg';
-	const rightLogoName = isDYES ? 'DYES' : 'Sixs';
-	
-	// Debug logging
-	console.log('PDF Generation - patientType:', data.patientType, 'isDYES:', isDYES);
-	
-	try {
-		const rightLogoResponse = await fetch(rightLogoPath);
-		if (rightLogoResponse.ok) {
-			const rightLogoBlob = await rightLogoResponse.blob();
-			const rightLogoDataUrl = await new Promise<string>((resolve) => {
-				const reader = new FileReader();
-				reader.onloadend = () => resolve(reader.result as string);
-				reader.readAsDataURL(rightLogoBlob);
-			});
-			// Right logo - aligned to right margin, starting at headerY
-			doc.addImage(rightLogoDataUrl, 'JPEG', rightLogoX, headerY, logoWidth, logoHeight);
-		} else {
-			console.warn(`${rightLogoName} logo not found at ${rightLogoPath}`);
+	// Load and add right logo (from config or default)
+	if (headerSettings.rightLogo) {
+		try {
+			// If it's a base64 string, use it directly; otherwise try to fetch
+			if (headerSettings.rightLogo.startsWith('data:')) {
+				doc.addImage(headerSettings.rightLogo, 'JPEG', rightLogoX, headerY, logoWidth, logoHeight);
+			} else {
+				const logoResponse = await fetch(headerSettings.rightLogo);
+				if (logoResponse.ok) {
+					const logoBlob = await logoResponse.blob();
+					const logoDataUrl = await new Promise<string>((resolve) => {
+						const reader = new FileReader();
+						reader.onloadend = () => resolve(reader.result as string);
+						reader.readAsDataURL(logoBlob);
+					});
+					doc.addImage(logoDataUrl, 'JPEG', rightLogoX, headerY, logoWidth, logoHeight);
+				}
+			}
+		} catch (error) {
+			console.warn('Could not load configured right logo, trying default:', error);
+			// Fallback to default logo
+			const rightLogoPath = isDYES ? '/Dyes_logo.jpg' : '/sixs_logo.jpg';
+			try {
+				const rightLogoResponse = await fetch(rightLogoPath);
+				if (rightLogoResponse.ok) {
+					const rightLogoBlob = await rightLogoResponse.blob();
+					const rightLogoDataUrl = await new Promise<string>((resolve) => {
+						const reader = new FileReader();
+						reader.onloadend = () => resolve(reader.result as string);
+						reader.readAsDataURL(rightLogoBlob);
+					});
+					doc.addImage(rightLogoDataUrl, 'JPEG', rightLogoX, headerY, logoWidth, logoHeight);
+				}
+			} catch (fallbackError) {
+				console.warn('Could not load default right logo:', fallbackError);
+			}
 		}
-	} catch (error) {
-		console.warn(`Could not load ${rightLogoName} logo:`, error);
+	} else {
+		// Use default logo
+		const rightLogoPath = isDYES ? '/Dyes_logo.jpg' : '/sixs_logo.jpg';
+		try {
+			const rightLogoResponse = await fetch(rightLogoPath);
+			if (rightLogoResponse.ok) {
+				const rightLogoBlob = await rightLogoResponse.blob();
+				const rightLogoDataUrl = await new Promise<string>((resolve) => {
+					const reader = new FileReader();
+					reader.onloadend = () => resolve(reader.result as string);
+					reader.readAsDataURL(rightLogoBlob);
+				});
+				doc.addImage(rightLogoDataUrl, 'JPEG', rightLogoX, headerY, logoWidth, logoHeight);
+			}
+		} catch (error) {
+			console.warn('Could not load right logo:', error);
+		}
 	}
 
 	// Calculate text baseline to center it vertically within the logo height
 	// headerY + (logoHeight / 2) centers the text baseline in the middle of the logo
 	const textBaselineY = headerY + (logoHeight / 2);
 	
-	// Title - Centered vertically within the same row as logos
+	// Title - Centered vertically within the same row as logos (from config)
 	doc.setFont('helvetica', 'bold');
 	doc.setFontSize(20);
 	doc.setTextColor(0, 51, 102);
 	// Center text across full page width (flexbox-like behavior: text centered in full width)
-	doc.text('CENTRE FOR SPORTS SCIENCE', pageCenterX, textBaselineY, { align: 'center' });
+	doc.text(headerSettings.mainTitle || 'CENTRE FOR SPORTS SCIENCE', pageCenterX, textBaselineY, { align: 'center' });
 	
 	// Phone and address - positioned just below "CENTRE FOR SPORTS SCIENCE"
 	let y = headerEndY + 4; // Start just below the header row
 	
 	// Add contact information for PAID, VIP, GETHNA patients, or DYES association text for DYES patients
 	if (isDYES) {
-		// DYES association text - positioned just below the title
-		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(9);
-		doc.setTextColor(0, 0, 0);
-		// Center text across full page width
-		doc.text('(In association with Department of Youth Empowerment and Sports-Govt of Karnataka)', pageCenterX, y, { align: 'center' });
-		y += 4;
-		doc.setFontSize(8);
-		doc.text('GOVT ORDER: YU SE KRIE/VI/68/2016-17', pageCenterX, y, { align: 'center' });
+		// DYES association text - positioned just below the title (from config)
+		if (headerSettings.associationText) {
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(9);
+			doc.setTextColor(0, 0, 0);
+			// Center text across full page width
+			doc.text(headerSettings.associationText, pageCenterX, y, { align: 'center' });
+			y += 4;
+		}
+		if (headerSettings.govermentOrder) {
+			doc.setFontSize(8);
+			doc.text(headerSettings.govermentOrder, pageCenterX, y, { align: 'center' });
+			y += 4;
+		}
 		y += 6; // One line space
 	} else {
-		// For all non-DYES patients (PAID, VIP, GETHNA, or any other type), show phone and address just below title
-		doc.setFont('helvetica', 'normal');
-		doc.setFontSize(7); // Smaller font size
-		doc.setTextColor(0, 0, 0);
-		// Phone and address in one line - removed "Karnataka" and "India" from address
-		const contactText = 'Phone No: +91 9731128396 | Address: Sree Kanteerava Stadium Gate 8 and 10, Sampangiram Nagar, Bengaluru 560027';
-		const contactLines = doc.splitTextToSize(contactText, 180);
-		// Center text across full page width - positioned just below "CENTRE FOR SPORTS SCIENCE"
-		doc.text(contactLines, pageCenterX, y, { align: 'center' });
-		y += contactLines.length * 3.5; // Adjust spacing based on number of lines
-		y += 2.5; // Additional spacing to make it one line space total
+		// For all non-DYES patients (PAID, VIP, GETHNA, or any other type), show phone and address just below title (from config)
+		if (headerSettings.contactInfo) {
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(7); // Smaller font size
+			doc.setTextColor(0, 0, 0);
+			const contactLines = doc.splitTextToSize(headerSettings.contactInfo, 180);
+			// Center text across full page width - positioned just below "CENTRE FOR SPORTS SCIENCE"
+			doc.text(contactLines, pageCenterX, y, { align: 'center' });
+			y += contactLines.length * 3.5; // Adjust spacing based on number of lines
+			y += 2.5; // Additional spacing to make it one line space total
+		}
 	}
 	
-	// Next header in green color
-	doc.setFontSize(12);
-	doc.setFont('helvetica', 'bold');
-	doc.setTextColor(0, 128, 0); // Green color
-	// Center text across full page width
-	doc.text('PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT', pageCenterX, y, { align: 'center' });
+	// Next header in green color (from config)
+	if (headerSettings.subtitle) {
+		doc.setFontSize(12);
+		doc.setFont('helvetica', 'bold');
+		doc.setTextColor(0, 128, 0); // Green color
+		// Center text across full page width
+		doc.text(headerSettings.subtitle, pageCenterX, y, { align: 'center' });
+		y += 6;
+	}
 
 	y += 6;
 	doc.setDrawColor(0, 51, 102);

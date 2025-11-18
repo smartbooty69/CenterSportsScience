@@ -113,6 +113,7 @@ function escapeHtml(unsafe: any) {
 /* --------------------------------------------------------
 	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
+<<<<<<< Updated upstream
 function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 	const taxableValue = Number(bill.amount || 0);
 	const taxRate = 5; // 5% CGST + 5% SGST = 10% total
@@ -131,6 +132,36 @@ function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 	
 	// Get the base URL for the logo (works in both dev and production)
 	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+=======
+async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
+	const amount = Number(bill.amount || 0).toFixed(2);
+	const words = numberToWords(Number(bill.amount || 0));
+	const showDate = bill.date || new Date().toLocaleDateString();
+
+	// Show last 5 digits of UTR if payment mode is UPI / Online
+	let paymentModeDisplay = bill.paymentMode || '';
+	const modeLower = paymentModeDisplay.toLowerCase();
+
+	if ((modeLower.includes('upi') || modeLower.includes('online')) && bill.utr) {
+		const lastFive = bill.utr.slice(-5);
+		paymentModeDisplay += ` (...${lastFive})`;
+	}
+>>>>>>> Stashed changes
+
+	// Load billing header configuration
+	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
+	const headerConfig = await getHeaderConfig('billing');
+	const defaultConfig = getDefaultHeaderConfig('billing');
+	
+	// Use configured values or fall back to defaults
+	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
+	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
+	const contactInfo = headerConfig?.contactInfo || defaultConfig.contactInfo || 'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
+	
+	// Split contact info for display
+	const contactParts = contactInfo.split('|').map(s => s.trim());
+	const addressPart = contactParts.find(p => p.toLowerCase().includes('stadium') || p.toLowerCase().includes('address') || p.toLowerCase().includes('bangalore')) || contactParts[0] || '';
+	const phonePart = contactParts.find(p => p.toLowerCase().includes('phone')) || contactParts[1] || '';
 
 	return `
 		<!DOCTYPE html>
@@ -186,6 +217,7 @@ function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 		<div class="container">
 			<div class="text-center bold" style="border-bottom: 1px solid #000; padding: 5px; font-size: 14px;">TAX INVOICE</div>
 
+<<<<<<< Updated upstream
 			<table>
 				<tr>
 					<td class="header-left">
@@ -235,6 +267,15 @@ function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 						</table>
 					</td>
 				</tr>
+=======
+				<div style="display:flex;justify-content:space-between;">
+					<div>
+						<div style="font-size:20px;font-weight:700;">${escapeHtml(mainTitle)}</div>
+						${subtitle ? `<div style="font-size:12px;">${escapeHtml(subtitle)}</div>` : ''}
+						${addressPart ? `<div style="font-size:12px;">${escapeHtml(addressPart)}</div>` : ''}
+						${phonePart ? `<div style="font-size:12px;">${escapeHtml(phonePart)}</div>` : ''}
+					</div>
+>>>>>>> Stashed changes
 
 				<tr>
 					<td colspan="2">
@@ -310,9 +351,31 @@ function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 				</tbody>
 			</table>
 
+<<<<<<< Updated upstream
 			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
 				<strong>Amount Chargeable (in words):</strong><br>
 				${escapeHtml(words.toUpperCase())} ONLY
+=======
+				<div style="font-size:12px;margin-top:8px;">
+					<b>Amount in words:</b> ${escapeHtml(words)}
+				</div>
+
+				<div style="border:1px solid #666;padding:12px;margin-top:10px;">
+					<b>For:</b> ${escapeHtml(bill.appointmentId || '')}<br/>
+					${bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}<br/>` : ''}
+					${paymentModeDisplay ? `Payment Mode: ${escapeHtml(paymentModeDisplay)}<br/>` : ''}
+
+					<div style="margin-top:18px;text-align:center;font-weight:700;">
+						Digitally Signed
+					</div>
+				</div>
+
+				<div style="text-align:right;margin-top:20px;">
+					For ${escapeHtml(mainTitle)}
+				</div>
+
+				<div style="font-size:10px;margin-top:12px;">Computer generated receipt.</div>
+>>>>>>> Stashed changes
 			</div>
 
 			<table class="text-center" style="border-top: none;">
@@ -590,7 +653,7 @@ async function handleGenerateInvoice(bill: BillingRecord) {
 	try {
 		const invoiceNo = bill.invoiceNo || bill.billingId || `INV-${bill.id?.slice(0, 8) || 'NA'}`;
 
-		const html = generateInvoiceHtml(bill, invoiceNo);
+		const html = await generateInvoiceHtml(bill, invoiceNo);
 		const printWindow = window.open('', '_blank');
 
 		if (!printWindow) {
