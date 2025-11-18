@@ -113,8 +113,6 @@ function escapeHtml(unsafe: any) {
 /* --------------------------------------------------------
 	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 async function generateInvoiceHtml(
 	bill: BillingRecord, 
 	invoiceNo: string,
@@ -136,14 +134,6 @@ async function generateInvoiceHtml(
 	const words = numberToWords(grandTotal);
 	const taxWords = numberToWords(cgstAmount + sgstAmount);
 	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
-=======
-=======
->>>>>>> Stashed changes
-async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
-	const amount = Number(bill.amount || 0).toFixed(2);
-	const words = numberToWords(Number(bill.amount || 0));
-	const showDate = bill.date || new Date().toLocaleDateString();
->>>>>>> Stashed changes
 
 	// Show last 5 digits of UTR if payment mode is UPI / Online
 	let paymentModeDisplay = bill.paymentMode || 'Cash';
@@ -153,37 +143,16 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 		paymentModeDisplay += ` (...${lastFive})`;
 	}
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 	const buyerName = escapeHtml(options?.patientName || bill.patient);
 	const buyerAddress = options?.patientAddress || `Patient ID: ${escapeHtml(bill.patientId)}`;
 	const buyerCity = options?.patientCity || (bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '');
 	const description = options?.description || 'Physiotherapy / Strength & Conditioning Sessions';
 	const hsnSac = options?.hsnSac || '9993';
-=======
-	// Load billing header configuration
-	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
-	const headerConfig = await getHeaderConfig('billing');
-	const defaultConfig = getDefaultHeaderConfig('billing');
-	
-	// Use configured values or fall back to defaults
-	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
-	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
-	const contactInfo = headerConfig?.contactInfo || defaultConfig.contactInfo || 'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
-	
-	// Split contact info for display
-	const contactParts = contactInfo.split('|').map(s => s.trim());
-	const addressPart = contactParts.find(p => p.toLowerCase().includes('stadium') || p.toLowerCase().includes('address') || p.toLowerCase().includes('bangalore')) || contactParts[0] || '';
-	const phonePart = contactParts.find(p => p.toLowerCase().includes('phone')) || contactParts[1] || '';
-
-	return `
-		<div style="font-family:Arial;width:820px;margin:0 auto;padding:16px;color:#000;">
-			<div style="border:1px solid #222;padding:18px;">
->>>>>>> Stashed changes
 
 	// Get the base URL for the logo (works in both dev and production)
 	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
 
+	// Load billing header configuration
 	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
 	const headerConfig = await getHeaderConfig('billing');
 	const defaultConfig = getDefaultHeaderConfig('billing');
@@ -211,23 +180,6 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 		.filter(Boolean)
 		.join('<br>');
 
-=======
-	// Load billing header configuration
-	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
-	const headerConfig = await getHeaderConfig('billing');
-	const defaultConfig = getDefaultHeaderConfig('billing');
-	
-	// Use configured values or fall back to defaults
-	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
-	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
-	const contactInfo = headerConfig?.contactInfo || defaultConfig.contactInfo || 'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
-	
-	// Split contact info for display
-	const contactParts = contactInfo.split('|').map(s => s.trim());
-	const addressPart = contactParts.find(p => p.toLowerCase().includes('stadium') || p.toLowerCase().includes('address') || p.toLowerCase().includes('bangalore')) || contactParts[0] || '';
-	const phonePart = contactParts.find(p => p.toLowerCase().includes('phone')) || contactParts[1] || '';
-
->>>>>>> Stashed changes
 	return `
 		<!DOCTYPE html>
 		<html lang="en">
@@ -338,16 +290,6 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 						${buyerAddress}
 					</td>
 				</tr>
-=======
-				<div style="display:flex;justify-content:space-between;">
-					<div>
-						<div style="font-size:20px;font-weight:700;">${escapeHtml(mainTitle)}</div>
-						${subtitle ? `<div style="font-size:12px;">${escapeHtml(subtitle)}</div>` : ''}
-						${addressPart ? `<div style="font-size:12px;">${escapeHtml(addressPart)}</div>` : ''}
-						${phonePart ? `<div style="font-size:12px;">${escapeHtml(phonePart)}</div>` : ''}
-					</div>
->>>>>>> Stashed changes
-
 				<tr>
 					<td colspan="2">
 						<strong>Buyer (Bill to)</strong><br>
@@ -414,37 +356,9 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 				</tbody>
 			</table>
 
-<<<<<<< Updated upstream
 			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
 				<strong>Amount Chargeable (in words):</strong><br>
 				${escapeHtml(words.toUpperCase())} ONLY
-=======
-					<div style="text-align:right;">
-						<div style="font-size:12px;">Amount</div>
-						<div style="font-size:18px;font-weight:700;">Rs. ${amount}</div>
-					</div>
-				</div>
-
-				<div style="font-size:12px;margin-top:8px;">
-					<b>Amount in words:</b> ${escapeHtml(words)}
-				</div>
-
-				<div style="border:1px solid #666;padding:12px;margin-top:10px;">
-					<b>For:</b> ${escapeHtml(bill.appointmentId || '')}<br/>
-					${bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}<br/>` : ''}
-					${paymentModeDisplay ? `Payment Mode: ${escapeHtml(paymentModeDisplay)}<br/>` : ''}
-
-					<div style="margin-top:18px;text-align:center;font-weight:700;">
-						Digitally Signed
-					</div>
-				</div>
-
-				<div style="text-align:right;margin-top:20px;">
-					For ${escapeHtml(mainTitle)}
-				</div>
-
-				<div style="font-size:10px;margin-top:12px;">Computer generated receipt.</div>
->>>>>>> Stashed changes
 			</div>
 
 			<table class="text-center" style="border-top: none;">
@@ -527,8 +441,6 @@ function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 	const paymentModeDisplay = bill.paymentMode || 'Cash';
 	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 	return `
 		<!DOCTYPE html>
 		<html lang="en">
@@ -715,32 +627,6 @@ function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 		</body>
 		</html>
 	`;
-=======
-=======
->>>>>>> Stashed changes
-		const html = await generateInvoiceHtml(bill, invoiceNo);
-		const printWindow = window.open('', '_blank');
-
-		if (!printWindow) {
-			alert('Please allow pop-ups to generate the invoice.');
-			return;
-		}
-
-		printWindow.document.write(`<html><body>${html}</body></html>`);
-		printWindow.document.close();
-		printWindow.print();
-
-		if (bill.id) {
-			await updateDoc(doc(db, 'billing', bill.id), {
-				invoiceNo,
-				invoiceGeneratedAt: new Date().toISOString(),
-			});
-		}
-	} catch (error) {
-		console.error('Invoice generation error:', error);
-		alert('Failed to generate invoice. Please try again.');
-	}
->>>>>>> Stashed changes
 }
 
 export default function Billing() {
