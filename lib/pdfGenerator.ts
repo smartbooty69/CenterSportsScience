@@ -148,9 +148,24 @@ const headStyles = {
 	textColor: [255, 255, 255] as [number, number, number],
 };
 
+export type ReportSection = 
+	| 'patientInformation'
+	| 'assessmentOverview'
+	| 'painAssessment'
+	| 'onObservation'
+	| 'onPalpation'
+	| 'rom'
+	| 'mmt'
+	| 'advancedAssessment'
+	| 'physiotherapyManagement'
+	| 'followUpVisits'
+	| 'currentStatus'
+	| 'nextFollowUp'
+	| 'signature';
+
 export async function generatePhysiotherapyReportPDF(
 	data: PatientReportData,
-	options?: { forPrint?: boolean }
+	options?: { forPrint?: boolean; sections?: ReportSection[] }
 ): Promise<string | void> {
 	const [{ default: jsPDF }, autoTableModule] = await Promise.all([
 		import('jspdf'),
@@ -160,8 +175,25 @@ export async function generatePhysiotherapyReportPDF(
 	// jspdf-autotable v5 exports the function as default
 	const autoTable = (autoTableModule as any).default || autoTableModule;
 
+	// If sections are specified, only include those sections. Otherwise, include all.
+	const includeSection = (section: ReportSection): boolean => {
+		if (!options?.sections) return true; // Include all if no sections specified
+		if (!Array.isArray(options.sections)) return true; // Include all if sections is not an array
+		return options.sections.includes(section);
+	};
+
 	const doc = new jsPDF('p', 'mm', 'a4');
-	let y = 10; // Initial Y position for logos
+	const pageWidth = 210; // A4 width in mm
+	const pageMargin = 10; // Left and right margin
+	const logoWidth = 35;
+	const logoHeight = 18;
+	const leftLogoX = pageMargin; // Left logo aligned to left margin
+	const rightLogoX = pageWidth - pageMargin - logoWidth; // Right logo aligned to right margin
+	const pageCenterX = pageWidth / 2; // Center of full page width (105mm)
+
+	// All elements (logo, text, logo) aligned in single row at same height
+	const headerY = 10; // Starting Y position - same for all elements
+	const headerEndY = headerY + logoHeight; // Ending Y position - same for all elements
 
 	// Load and add Center Sports Science logo at left top corner
 	try {
@@ -173,8 +205,8 @@ export async function generatePhysiotherapyReportPDF(
 				reader.onloadend = () => resolve(reader.result as string);
 				reader.readAsDataURL(centerLogoBlob);
 			});
-			// Left top corner logo - increased size to match header, positioned at (10mm, 10mm) with 35mm width, 18mm height
-			doc.addImage(centerLogoDataUrl, 'JPEG', 10, y, 35, 18);
+			// Left logo - aligned to left margin, starting at headerY
+			doc.addImage(centerLogoDataUrl, 'JPEG', leftLogoX, headerY, logoWidth, logoHeight);
 		} else {
 			console.warn('Center Sports Science logo not found at /CenterSportsScience_logo.jpg');
 		}
@@ -201,8 +233,8 @@ export async function generatePhysiotherapyReportPDF(
 				reader.onloadend = () => resolve(reader.result as string);
 				reader.readAsDataURL(rightLogoBlob);
 			});
-			// Right top corner logo - increased size to match header, 35mm width, 18mm height
-			doc.addImage(rightLogoDataUrl, 'JPEG', 165, y, 35, 18);
+			// Right logo - aligned to right margin, starting at headerY
+			doc.addImage(rightLogoDataUrl, 'JPEG', rightLogoX, headerY, logoWidth, logoHeight);
 		} else {
 			console.warn(`${rightLogoName} logo not found at ${rightLogoPath}`);
 		}
@@ -210,35 +242,42 @@ export async function generatePhysiotherapyReportPDF(
 		console.warn(`Could not load ${rightLogoName} logo:`, error);
 	}
 
-	// Title - Bigger font size
-	y = 30; // Adjusted Y position after logos
+	// Title - Centered vertically within the same row as logos
+	// Text baseline positioned to center vertically within logo height
 	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(20); // Increased from 16 to 20
+	doc.setFontSize(20);
 	doc.setTextColor(0, 51, 102);
-	doc.text('CENTRE FOR SPORTS SCIENCE', 105, y, { align: 'center' });
+	// Calculate text baseline to center it vertically within the logo height
+	// headerY + (logoHeight / 2) centers the text baseline in the middle of the logo
+	const textBaselineY = headerY + (logoHeight / 2);
+	// Center text across full page width (flexbox-like behavior: text centered in full width)
+	doc.text('CENTRE FOR SPORTS SCIENCE', pageCenterX, textBaselineY, { align: 'center' });
+
+	// Address - positioned just below "CENTRE FOR SPORTS SCIENCE"
+	let y = headerEndY + 4; // Start address just below the header row with minimal spacing
 
 	// Add contact information for PAID, VIP, GETHNA patients, or DYES association text for DYES patients
 	if (isDYES) {
 		// DYES association text
-		y += 7;
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(9);
 		doc.setTextColor(0, 0, 0);
-		doc.text('(In association with Department of Youth Empowerment and Sports-Govt of Karnataka)', 105, y, { align: 'center' });
+		// Center text across full page width
+		doc.text('(In association with Department of Youth Empowerment and Sports-Govt of Karnataka)', pageCenterX, y, { align: 'center' });
 		y += 4;
 		doc.setFontSize(8);
-		doc.text('GOVT ORDER: YU SE KRIE/VI/68/2016-17', 105, y, { align: 'center' });
+		doc.text('GOVT ORDER: YU SE KRIE/VI/68/2016-17', pageCenterX, y, { align: 'center' });
 		y += 6; // One line space
 	} else {
 		// For all non-DYES patients (PAID, VIP, GETHNA, or any other type), show phone and address in one line, smaller font
-		y += 7;
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(7); // Smaller font size
 		doc.setTextColor(0, 0, 0);
-		// Phone and address in one line - use splitTextToSize to handle wrapping if needed
-		const contactText = 'Phone No: +91 9731128396 | Address: Sree Kanteerava Stadium Gate 8 and 10, Sampangiram Nagar, Bengaluru, Karnataka 560027, India';
+		// Phone and address in one line - removed "Karnataka" and "India" from address
+		const contactText = 'Phone No: +91 9731128396 | Address: Sree Kanteerava Stadium Gate 8 and 10, Sampangiram Nagar, Bengaluru 560027';
 		const contactLines = doc.splitTextToSize(contactText, 180);
-		doc.text(contactLines, 105, y, { align: 'center' });
+		// Center text across full page width - positioned just below "CENTRE FOR SPORTS SCIENCE"
+		doc.text(contactLines, pageCenterX, y, { align: 'center' });
 		y += contactLines.length * 3.5; // Adjust spacing based on number of lines
 		y += 2.5; // Additional spacing to make it one line space total
 	}
@@ -247,7 +286,8 @@ export async function generatePhysiotherapyReportPDF(
 	doc.setFontSize(12);
 	doc.setFont('helvetica', 'bold');
 	doc.setTextColor(0, 128, 0); // Green color
-	doc.text('PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT', 105, y, { align: 'center' });
+	// Center text across full page width
+	doc.text('PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT', pageCenterX, y, { align: 'center' });
 
 	y += 6;
 	doc.setDrawColor(0, 51, 102);
@@ -279,22 +319,24 @@ export async function generatePhysiotherapyReportPDF(
 		['Remaining Sessions', data.remainingSessions != null ? String(data.remainingSessions) : '']
 	);
 
-	autoTable(doc, {
-		startY: y,
-		theme: 'grid',
-		head: [['PATIENT INFORMATION', '']],
-		body: patientInfoBody,
-		headStyles,
-		styles: baseStyles,
-		columnStyles: { 0: { cellWidth: 60 } },
-	});
+	if (includeSection('patientInformation')) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['PATIENT INFORMATION', '']],
+			body: patientInfoBody,
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 60 } },
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
 
-	y = (doc as any).lastAutoTable.finalY + 6;
-
-	autoTable(doc, {
-		startY: y,
-		theme: 'grid',
-		head: [['ASSESSMENT OVERVIEW', '']],
+	if (includeSection('assessmentOverview')) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['ASSESSMENT OVERVIEW', '']],
 		body: [
 			['Complaints', data.complaints || ''],
 			['Present History', data.presentHistory || ''],
@@ -308,14 +350,15 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
-	});
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
 
-	y = (doc as any).lastAutoTable.finalY + 6;
-
-	autoTable(doc, {
-		startY: y,
-		theme: 'grid',
-		head: [['PAIN ASSESSMENT', '']],
+	if (includeSection('painAssessment')) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['PAIN ASSESSMENT', '']],
 		body: [
 			['Site and Side', data.siteSide || ''],
 			['Onset', data.onset || ''],
@@ -330,14 +373,15 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
-	});
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
 
-	y = (doc as any).lastAutoTable.finalY + 6;
-
-	autoTable(doc, {
-		startY: y,
-		theme: 'grid',
-		head: [['ON OBSERVATION', '']],
+	if (includeSection('onObservation')) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['ON OBSERVATION', '']],
 		body: [
 			['Built', data.built || ''],
 			['Posture', `${data.posture || ''}${data.postureManualNotes ? ` | Notes: ${data.postureManualNotes}` : ''}`],
@@ -352,14 +396,15 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
-	});
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
 
-	y = (doc as any).lastAutoTable.finalY + 6;
-
-	autoTable(doc, {
-		startY: y,
-		theme: 'grid',
-		head: [['ON PALPATION', '']],
+	if (includeSection('onPalpation')) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['ON PALPATION', '']],
 		body: [
 			['Tenderness', data.tenderness || ''],
 			['Warmth', data.warmth || ''],
@@ -370,12 +415,13 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
-	});
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
 
-	y = (doc as any).lastAutoTable.finalY + 6;
-
-	const romRows = formatJointData(data.rom);
-	if (romRows.length) {
+	if (includeSection('rom')) {
+		const romRows = formatJointData(data.rom);
+		if (romRows.length) {
 		autoTable(doc, {
 			startY: y,
 			theme: 'grid',
@@ -386,10 +432,12 @@ export async function generatePhysiotherapyReportPDF(
 			columnStyles: { 0: { cellWidth: 60 } },
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
+		}
 	}
 
-	const mmtRows = formatJointData(data.mmt);
-	if (mmtRows.length) {
+	if (includeSection('mmt')) {
+		const mmtRows = formatJointData(data.mmt);
+		if (mmtRows.length) {
 		autoTable(doc, {
 			startY: y,
 			theme: 'grid',
@@ -400,13 +448,15 @@ export async function generatePhysiotherapyReportPDF(
 			columnStyles: { 0: { cellWidth: 80 } },
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
+		}
 	}
 
-	const advancedRows: string[][] = [];
-	if (data.specialTest) advancedRows.push(['Special Tests', data.specialTest]);
-	if (data.differentialDiagnosis) advancedRows.push(['Differential Diagnosis', data.differentialDiagnosis]);
-	if (data.finalDiagnosis) advancedRows.push(['Diagnosis', data.finalDiagnosis]);
-	if (advancedRows.length) {
+	if (includeSection('advancedAssessment')) {
+		const advancedRows: string[][] = [];
+		if (data.specialTest) advancedRows.push(['Special Tests', data.specialTest]);
+		if (data.differentialDiagnosis) advancedRows.push(['Differential Diagnosis', data.differentialDiagnosis]);
+		if (data.finalDiagnosis) advancedRows.push(['Diagnosis', data.finalDiagnosis]);
+		if (advancedRows.length) {
 		autoTable(doc, {
 			startY: y,
 			theme: 'grid',
@@ -417,12 +467,16 @@ export async function generatePhysiotherapyReportPDF(
 			columnStyles: { 0: { cellWidth: 60 } },
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
+		}
 	}
 
-	doc.addPage();
-	y = 12;
+	if (includeSection('physiotherapyManagement') || includeSection('followUpVisits') || includeSection('currentStatus') || includeSection('nextFollowUp') || includeSection('signature')) {
+		doc.addPage();
+		y = 12;
+	}
 
-	const managementRows: string[][] = [];
+	if (includeSection('physiotherapyManagement')) {
+		const managementRows: string[][] = [];
 	if (data.shortTermGoals) managementRows.push(['i) Short Term Goals', data.shortTermGoals]);
 	if (data.longTermGoals) managementRows.push(['ii) Long Term Goals', data.longTermGoals]);
 	if (data.rehabProtocol) managementRows.push(['iii) Rehab Protocol', data.rehabProtocol]);
@@ -439,9 +493,10 @@ export async function generatePhysiotherapyReportPDF(
 			columnStyles: { 0: { cellWidth: 60 } },
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
+		}
 	}
 
-	if (data.followUpVisits?.length) {
+	if (includeSection('followUpVisits') && data.followUpVisits?.length) {
 		autoTable(doc, {
 			startY: y,
 			theme: 'grid',
@@ -458,18 +513,19 @@ export async function generatePhysiotherapyReportPDF(
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
 
-	autoTable(doc, {
-		startY: y,
-		theme: 'grid',
-		head: [['CURRENT STATUS']],
+	if (includeSection('currentStatus')) {
+		autoTable(doc, {
+			startY: y,
+			theme: 'grid',
+			head: [['CURRENT STATUS']],
 		body: [[buildCurrentStatus(data)]],
 		headStyles,
 		styles: { ...baseStyles, cellPadding: 3 },
-	});
+		});
+		y = (doc as any).lastAutoTable.finalY + 6;
+	}
 
-	y = (doc as any).lastAutoTable.finalY + 6;
-
-	if (data.nextFollowUpDate || data.nextFollowUpTime) {
+	if (includeSection('nextFollowUp') && (data.nextFollowUpDate || data.nextFollowUpTime)) {
 		autoTable(doc, {
 			startY: y,
 			theme: 'grid',
@@ -483,20 +539,22 @@ export async function generatePhysiotherapyReportPDF(
 			columnStyles: { 0: { cellWidth: 60 } },
 		});
 		y = (doc as any).lastAutoTable.finalY + 10;
-	} else {
+	} else if (includeSection('nextFollowUp')) {
 		y += 10;
 	}
 
-	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(10);
-	doc.text('Physiotherapist Signature:', 12, y);
-	doc.setFont('helvetica', 'normal');
-	doc.text(data.physioName || '', 65, y);
+	if (includeSection('signature')) {
+		doc.setFont('helvetica', 'bold');
+		doc.setFontSize(10);
+		doc.text('Physiotherapist Signature:', 12, y);
+		doc.setFont('helvetica', 'normal');
+		doc.text(data.physioName || '', 65, y);
 
-	doc.setFont('helvetica', 'bold');
-	doc.text('Reg. No:', 150, y);
-	doc.setFont('helvetica', 'normal');
-	doc.text(data.physioRegNo || '', 170, y);
+		doc.setFont('helvetica', 'bold');
+		doc.text('Reg. No:', 150, y);
+		doc.setFont('helvetica', 'normal');
+		doc.text(data.physioRegNo || '', 170, y);
+	}
 
 	if (options?.forPrint) {
 		// Generate PDF blob and open print window

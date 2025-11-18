@@ -365,7 +365,8 @@ export default function Appointments() {
 					)
 					.filter(a => a.patientId === patientId && a.status === 'completed').length;
 
-				const newRemaining = Math.max(0, patientDetails.totalSessionsRequired - completedAfter);
+				// remainingSessions starts at totalSessionsRequired - 1 and decreases with each completed appointment
+				const newRemaining = Math.max(0, patientDetails.totalSessionsRequired - 1 - completedAfter);
 				const patientRef = doc(db, 'patients', patientDetails.id);
 				await updateDoc(patientRef, {
 					remainingSessions: newRemaining,
@@ -646,7 +647,8 @@ export default function Appointments() {
 				const completedCount = appointments.filter(
 					a => a.patientId === bookingForm.patientId && a.status === 'completed'
 				).length;
-				const newRemaining = Math.max(0, selectedPatient.totalSessionsRequired - completedCount);
+				// remainingSessions starts at totalSessionsRequired - 1 and decreases with each completed appointment
+				const newRemaining = Math.max(0, selectedPatient.totalSessionsRequired - 1 - completedCount);
 
 				const patientRef = doc(db, 'patients', selectedPatient.id);
 				await updateDoc(patientRef, {
