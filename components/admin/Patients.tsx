@@ -172,6 +172,12 @@ export default function Patients() {
 		complaint: '',
 		status: 'pending',
 	});
+	const [isBackupOpen, setIsBackupOpen] = useState(false);
+	const [isRestoreOpen, setIsRestoreOpen] = useState(false);
+	const [restoreFile, setRestoreFile] = useState<File | null>(null);
+	const [isBackingUp, setIsBackingUp] = useState(false);
+	const [isRestoring, setIsRestoring] = useState(false);
+	const restoreFileInputRef = useRef<HTMLInputElement>(null);
 
 	// Load patients from Firestore
 	useEffect(() => {
@@ -798,6 +804,235 @@ export default function Patients() {
 		URL.revokeObjectURL(url);
 	};
 
+	// Backup all patient data as CSV
+	const handleBackup = async () => {
+		if (!patients.length) {
+			alert('No patients found to backup.');
+			return;
+		}
+
+		setIsBackingUp(true);
+		try {
+			const headers = [
+				'id',
+				'patientId',
+				'name',
+				'dob',
+				'gender',
+				'phone',
+				'email',
+				'address',
+				'complaint',
+				'status',
+				'registeredAt',
+				'assignedDoctor',
+				'noteCount',
+				'attachmentCount',
+				'historyCount',
+				'notesPreview',
+				'historyPreview',
+			] as const;
+
+			const rows: string[] = [];
+
+			for (const patient of patients) {
+				const patientId = (patient as AdminPatientRecord & { id?: string }).id;
+				if (!patientId) continue;
+
+				try {
+					const [notesSnap, attachmentsSnap, historySnap] = await Promise.all([
+						getDocs(collection(db, 'patients', patientId, 'notes')),
+						getDocs(collection(db, 'patients', patientId, 'attachments')),
+						getDocs(collection(db, 'patients', patientId, 'history')),
+					]);
+
+					const notes = notesSnap.docs.map(d => (d.data().content || '').replace(/[\r\n]+/g, ' ').trim());
+					const attachments = attachmentsSnap.docs;
+					const history = historySnap.docs.map(d => (d.data().text || '').replace(/[\r\n]+/g, ' ').trim());
+
+					const safe = (value: unknown) => {
+						const str = value ?? '';
+						return `"${String(str).replace(/"/g, '""')}"`;
+					};
+
+					rows.push(
+						headers
+							.map(key => {
+								switch (key) {
+									case 'id':
+										return safe(patientId);
+									case 'assignedDoctor':
+										return safe((patient as { assignedDoctor?: string }).assignedDoctor ?? '');
+									case 'noteCount':
+										return notes.length.toString();
+									case 'attachmentCount':
+										return attachments.length.toString();
+									case 'historyCount':
+										return history.length.toString();
+									case 'notesPreview':
+										return safe(notes.slice(0, 3).join(' | '));
+									case 'historyPreview':
+										return safe(history.slice(0, 3).join(' | '));
+									default:
+										return safe(patient[key] ?? '');
+								}
+							})
+							.join(',')
+					);
+				} catch (error) {
+					console.error(`Failed to include patient ${patientId} in backup`, error);
+				}
+			}
+
+			const csvContent = [headers.join(','), ...rows].join('\n');
+			const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+			const url = URL.createObjectURL(blob);
+
+			const link = document.createElement('a');
+			link.href = url;
+			link.setAttribute('download', `patients-backup-${new Date().toISOString().slice(0, 10)}.csv`);
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+
+			alert(`Backup created for ${rows.length} patient(s).`);
+			setIsBackupOpen(false);
+		} catch (error) {
+			console.error('Backup failed', error);
+			alert('Failed to create CSV backup. Please try again.');
+		} finally {
+			setIsBackingUp(false);
+		}
+	};
+
+	// Restore patient data from backup
+	const handleRestoreFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+		const file = event.target.files?.[0];
+		if (!file) return;
+
+		if (!file.name.endsWith('.json')) {
+			alert('Please select a valid JSON backup file.');
+			return;
+		}
+
+		setRestoreFile(file);
+	};
+
+	const handleRestore = async () => {
+		if (!restoreFile) {
+			alert('Please select a backup file to restore.');
+			return;
+		}
+
+		const confirmed = window.confirm(
+			'WARNING: Restoring will overwrite existing patient data. This action cannot be undone. Are you sure you want to continue?'
+		);
+		if (!confirmed) return;
+
+		setIsRestoring(true);
+		try {
+			const fileText = await restoreFile.text();
+			const backupData = JSON.parse(fileText);
+
+			if (!backupData.patients || !Array.isArray(backupData.patients)) {
+				throw new Error('Invalid backup file format.');
+			}
+
+			let restoredCount = 0;
+			let errorCount = 0;
+
+			// Process patients in batches
+			const batchSize = 100;
+			for (let i = 0; i < backupData.patients.length; i += batchSize) {
+				const batch = writeBatch(db);
+				const patientBatch = backupData.patients.slice(i, i + batchSize);
+
+				for (const patientBackup of patientBatch) {
+					try {
+						const patientRef = doc(db, 'patients', patientBackup.id);
+						batch.set(patientRef, {
+							...patientBackup.data,
+							registeredAt: patientBackup.data.registeredAt || serverTimestamp(),
+						}, { merge: true });
+
+						restoredCount++;
+					} catch (error) {
+						console.error(`Failed to restore patient ${patientBackup.id}:`, error);
+						errorCount++;
+					}
+				}
+
+				await batch.commit();
+			}
+
+			// Restore subcollections (notes, attachments, history)
+			for (const patientBackup of backupData.patients) {
+				try {
+					const patientId = patientBackup.id;
+
+					// Restore notes
+					if (patientBackup.notes && patientBackup.notes.length > 0) {
+						const notesBatch = writeBatch(db);
+						for (const note of patientBackup.notes) {
+							const noteRef = doc(collection(db, 'patients', patientId, 'notes'), note.id);
+							notesBatch.set(noteRef, {
+								content: note.content,
+								createdAt: note.createdAt ? new Date(note.createdAt) : serverTimestamp(),
+							}, { merge: true });
+						}
+						await notesBatch.commit();
+					}
+
+					// Restore attachments
+					if (patientBackup.attachments && patientBackup.attachments.length > 0) {
+						const attachmentsBatch = writeBatch(db);
+						for (const attachment of patientBackup.attachments) {
+							const attachmentRef = doc(collection(db, 'patients', patientId, 'attachments'), attachment.id);
+							attachmentsBatch.set(attachmentRef, {
+								fileName: attachment.fileName,
+								sizeLabel: attachment.sizeLabel,
+								url: attachment.url,
+								createdAt: attachment.createdAt ? new Date(attachment.createdAt) : serverTimestamp(),
+							}, { merge: true });
+						}
+						await attachmentsBatch.commit();
+					}
+
+					// Restore history
+					if (patientBackup.history && patientBackup.history.length > 0) {
+						const historyBatch = writeBatch(db);
+						for (const historyItem of patientBackup.history) {
+							const historyRef = doc(collection(db, 'patients', patientId, 'history'), historyItem.id);
+							historyBatch.set(historyRef, {
+								text: historyItem.text,
+								createdAt: historyItem.createdAt ? new Date(historyItem.createdAt) : serverTimestamp(),
+							}, { merge: true });
+						}
+						await historyBatch.commit();
+					}
+				} catch (error) {
+					console.error(`Failed to restore subcollections for patient ${patientBackup.id}:`, error);
+					errorCount++;
+				}
+			}
+
+			alert(
+				`Restore completed. ${restoredCount} patient(s) restored successfully.${errorCount > 0 ? ` ${errorCount} error(s) occurred.` : ''}`
+			);
+			setIsRestoreOpen(false);
+			setRestoreFile(null);
+			if (restoreFileInputRef.current) {
+				restoreFileInputRef.current.value = '';
+			}
+		} catch (error) {
+			console.error('Restore failed', error);
+			alert(`Failed to restore backup: ${error instanceof Error ? error.message : 'Unknown error'}. Please check the backup file and try again.`);
+		} finally {
+			setIsRestoring(false);
+		}
+	};
+
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
@@ -883,6 +1118,22 @@ export default function Patients() {
 							<button type="button" onClick={handleExportCsv} className="btn-tertiary">
 								<i className="fas fa-file-export text-xs" aria-hidden="true" />
 								Export CSV
+							</button>
+							<button
+								type="button"
+								onClick={() => setIsBackupOpen(true)}
+								className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-purple-500 focus-visible:bg-purple-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600"
+							>
+								<i className="fas fa-database text-xs" aria-hidden="true" />
+								Backup Data
+							</button>
+							<button
+								type="button"
+								onClick={() => setIsRestoreOpen(true)}
+								className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus-visible:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+							>
+								<i className="fas fa-upload text-xs" aria-hidden="true" />
+								Restore Data
 							</button>
 							<button
 								type="button"
@@ -1529,6 +1780,181 @@ export default function Patients() {
 									className="btn-primary"
 								>
 									Import {importPreview.length > 0 ? `${importPreview.length} patients` : 'CSV'}
+								</button>
+							</footer>
+						</div>
+					</div>
+				)}
+
+				{/* Backup Modal */}
+				{isBackupOpen && (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6"
+						onClick={() => setIsBackupOpen(false)}
+						role="dialog"
+						aria-modal="true"
+					>
+						<div
+							className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl"
+							onClick={e => e.stopPropagation()}
+						>
+							<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+								<h2 className="text-lg font-semibold text-slate-900">Backup Patient Data</h2>
+								<button
+									type="button"
+									onClick={() => setIsBackupOpen(false)}
+									className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+									aria-label="Close"
+								>
+									<i className="fas fa-times" aria-hidden="true" />
+								</button>
+							</header>
+
+							<div className="px-6 py-6">
+								<div className="space-y-4">
+									<p className="text-sm text-slate-600">
+										This will download a CSV backup of patient records including summary info for notes, attachments, and history.
+									</p>
+									<ul className="list-disc list-inside space-y-1 text-sm text-slate-600 ml-4">
+										<li>Patient records</li>
+										<li>Notes</li>
+										<li>Attachments</li>
+										<li>History</li>
+									</ul>
+									<p className="text-sm font-medium text-slate-700">
+										Total patients: {patients.length}
+									</p>
+								</div>
+							</div>
+
+							<footer className="flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
+								<button
+									type="button"
+									onClick={() => setIsBackupOpen(false)}
+									className="btn-secondary"
+									disabled={isBackingUp}
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									onClick={handleBackup}
+									disabled={isBackingUp || patients.length === 0}
+									className="btn-primary"
+								>
+									{isBackingUp ? (
+										<>
+											<div className="loading-spinner h-4 w-4" aria-hidden="true" />
+											Backing up...
+										</>
+									) : (
+										<>
+											<i className="fas fa-download text-xs" aria-hidden="true" />
+											Create Backup
+										</>
+									)}
+								</button>
+							</footer>
+						</div>
+					</div>
+				)}
+
+				{/* Restore Modal */}
+				{isRestoreOpen && (
+					<div
+						className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6"
+						onClick={() => {
+							setIsRestoreOpen(false);
+							setRestoreFile(null);
+							if (restoreFileInputRef.current) {
+								restoreFileInputRef.current.value = '';
+							}
+						}}
+						role="dialog"
+						aria-modal="true"
+					>
+						<div
+							className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl"
+							onClick={e => e.stopPropagation()}
+						>
+							<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+								<h2 className="text-lg font-semibold text-slate-900">Restore Patient Data</h2>
+								<button
+									type="button"
+									onClick={() => {
+										setIsRestoreOpen(false);
+										setRestoreFile(null);
+										if (restoreFileInputRef.current) {
+											restoreFileInputRef.current.value = '';
+										}
+									}}
+									className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+									aria-label="Close"
+								>
+									<i className="fas fa-times" aria-hidden="true" />
+								</button>
+							</header>
+
+							<div className="px-6 py-6">
+								<div className="space-y-4">
+									<div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+										<p className="text-sm font-semibold text-amber-800 mb-2">⚠️ Warning</p>
+										<p className="text-sm text-amber-700">
+											Restoring will overwrite existing patient data. This action cannot be undone. Please ensure you have a current backup before proceeding.
+										</p>
+									</div>
+									<div>
+										<label className="block text-sm font-medium text-slate-700 mb-2">
+											Select backup file (JSON)
+										</label>
+										<input
+											ref={restoreFileInputRef}
+											type="file"
+											accept=".json"
+											onChange={handleRestoreFileSelect}
+											className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
+										/>
+										{restoreFile && (
+											<p className="mt-2 text-xs text-slate-600">
+												Selected: {restoreFile.name}
+											</p>
+										)}
+									</div>
+								</div>
+							</div>
+
+							<footer className="flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
+								<button
+									type="button"
+									onClick={() => {
+										setIsRestoreOpen(false);
+										setRestoreFile(null);
+										if (restoreFileInputRef.current) {
+											restoreFileInputRef.current.value = '';
+										}
+									}}
+									className="btn-secondary"
+									disabled={isRestoring}
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									onClick={handleRestore}
+									disabled={isRestoring || !restoreFile}
+									className="btn-primary"
+								>
+									{isRestoring ? (
+										<>
+											<div className="loading-spinner h-4 w-4" aria-hidden="true" />
+											Restoring...
+										</>
+									) : (
+										<>
+											<i className="fas fa-upload text-xs" aria-hidden="true" />
+											Restore Backup
+										</>
+									)}
 								</button>
 							</footer>
 						</div>
