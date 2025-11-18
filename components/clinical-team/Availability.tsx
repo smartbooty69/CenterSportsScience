@@ -8,6 +8,7 @@ import { db } from '@/lib/firebase';
 interface TimeSlot {
 	start: string;
 	end: string;
+	isNew?: boolean;
 }
 
 interface DayAvailability {
@@ -183,8 +184,11 @@ export default function Availability() {
 	};
 
 	// Check if a time slot has appointments
-	const hasAppointmentsInSlot = (slot: TimeSlot, date: string): boolean => {
-		return appointmentsForDate.some(apt => {
+const hasAppointmentsInSlot = (slot: TimeSlot, date: string): boolean => {
+	if (!slot.start || !slot.end) {
+		return false;
+	}
+	return appointmentsForDate.some(apt => {
 			if (apt.status === 'cancelled') return false;
 			
 			const [aptHours, aptMinutes] = apt.time.split(':').map(Number);
@@ -242,10 +246,13 @@ export default function Availability() {
 	}, [selectedDate, currentStaffUserName]);
 
 	// Imperative loader for appointments on a specific date (used before destructive actions)
-	const loadAppointmentsForDate = async (date: string) => {
+const loadAppointmentsForDate = async (
+	date: string,
+	includeCancelled = false
+): Promise<Array<{ id: string; date: string; time: string; status: string }>> => {
 		if (!currentStaffUserName) {
 			setAppointmentsForDate([]);
-			return;
+			return [];
 		}
 		setLoadingAppointments(true);
 		try {
@@ -256,14 +263,17 @@ export default function Availability() {
 			);
 			const snapshot = await getDocs(appointmentsQuery);
 			const appointments = snapshot.docs.map(doc => ({
+				id: doc.id,
 				time: doc.data().time as string,
 				patient: doc.data().patient as string,
 				status: doc.data().status as string,
 			}));
 			setAppointmentsForDate(appointments);
+			return includeCancelled ? appointments : appointments.filter(apt => apt.status !== 'cancelled');
 		} catch (error) {
 			console.error('Failed to load appointments for date', error);
 			setAppointmentsForDate([]);
+			return [];
 		} finally {
 			setLoadingAppointments(false);
 		}
@@ -282,19 +292,30 @@ export default function Availability() {
 	const saveDateSchedule = async () => {
 		if (!selectedDate || !editingDateSchedule || !staffDocId) return;
 
-		// Check if any slots have appointments
-		const slotsWithAppointments = editingDateSchedule.slots.filter(slot => 
-			hasAppointmentsInSlot(slot, selectedDate)
-		);
-
-		if (slotsWithAppointments.length > 0) {
-			alert('Cannot modify availability for time slots that have appointments assigned. Please transfer or cancel appointments first.');
+		const hasIncompleteSlots = editingDateSchedule.slots.some(slot => !slot.start || !slot.end);
+		if (hasIncompleteSlots) {
+			alert('Please set a start and end time for each slot before saving.');
 			return;
 		}
 
+		// Check if any slots have appointments
 		const updatedSchedule = {
 			...dateSpecific,
-			[selectedDate]: editingDateSchedule,
+			[selectedDate]: {
+				...editingDateSchedule,
+				slots: editingDateSchedule.slots.map(slot => {
+					const baseSlot: TimeSlot = {
+						start: slot.start,
+						end: slot.end,
+					};
+
+					if (slot.isNew && hasAppointmentsInSlot(slot, selectedDate)) {
+						baseSlot.isNew = true;
+					}
+
+					return baseSlot;
+				}),
+			},
 		};
 
 		// Update local state immediately for better UX
@@ -334,14 +355,11 @@ export default function Availability() {
 		if (!window.confirm('Remove schedule for this date?') || !staffDocId) return;
 
 		// Load appointments for this date to check
-		await loadAppointmentsForDate(date);
-		
-		// Check if any slots have appointments
-		const schedule = getDateSchedule(date);
-		const hasAppointments = schedule.slots.some(slot => hasAppointmentsInSlot(slot, date));
-		
-		if (hasAppointments) {
-			alert('Cannot remove schedule for this date because it has appointments assigned. Please transfer or cancel appointments first.');
+		const appointments = await loadAppointmentsForDate(date);
+		const activeAppointments = appointments.filter(apt => apt.status !== 'cancelled');
+
+		if (activeAppointments.length > 0) {
+			alert('You have patients booked on this date. Please transfer or cancel those appointments before removing your availability.');
 			return;
 		}
 
@@ -389,7 +407,7 @@ export default function Availability() {
 
 		// Check if this slot has appointments
 		const currentSlot = editingDateSchedule.slots[slotIndex];
-		if (hasAppointmentsInSlot(currentSlot, selectedDate)) {
+		if (hasAppointmentsInSlot(currentSlot, selectedDate) && !currentSlot.isNew) {
 			alert('Cannot modify this time slot because it has appointments assigned. Please transfer or cancel appointments first.');
 			return;
 		}
@@ -420,11 +438,11 @@ export default function Availability() {
 		});
 	};
 
-	const handleDateAddSlot = () => {
+const handleDateAddSlot = () => {
 		if (!editingDateSchedule) return;
 		setEditingDateSchedule({
 			...editingDateSchedule,
-			slots: [...editingDateSchedule.slots, { start: '09:00', end: '17:00' }],
+		slots: [...editingDateSchedule.slots, { start: '', end: '', isNew: true }],
 		});
 	};
 
@@ -433,7 +451,7 @@ export default function Availability() {
 
 		// Check if this slot has appointments
 		const slotToRemove = editingDateSchedule.slots[slotIndex];
-		if (hasAppointmentsInSlot(slotToRemove, selectedDate)) {
+		if (hasAppointmentsInSlot(slotToRemove, selectedDate) && !slotToRemove.isNew) {
 			alert('Cannot remove this time slot because it has appointments assigned. Please transfer or cancel appointments first.');
 			return;
 		}
@@ -546,6 +564,7 @@ export default function Availability() {
 	};
 
 	const monthDates = useMemo(() => getMonthDates(selectedMonth), [selectedMonth]);
+	const todayKey = formatDateKey(new Date());
 	
 	const getMonthName = (dateString: string) => {
 		const date = new Date(dateString + 'T00:00:00');
@@ -662,9 +681,10 @@ export default function Availability() {
 							const dateSchedule = getDateSchedule(date);
 							const hasSchedule = !!dateSpecific[date];
 							const today = new Date();
-							const todayKey = formatDateKey(today);
 							const isToday = date === todayKey;
 							const isCurrentMonthDay = isCurrentMonth(date);
+							const isPastDay = date < todayKey;
+							const isInactivePastDay = isPastDay && isCurrentMonthDay && !isToday;
 							
 							return (
 								<div
@@ -677,6 +697,8 @@ export default function Availability() {
 											: hasSchedule
 											? 'border-emerald-300 bg-emerald-50'
 											: 'border-slate-200 bg-white'
+									} ${
+										isInactivePastDay ? 'opacity-60 bg-slate-100 cursor-not-allowed' : ''
 									}`}
 								>
 									<div className="mb-2 flex items-center justify-between">
@@ -692,7 +714,8 @@ export default function Availability() {
 											<button
 												type="button"
 												onClick={() => removeDateSchedule(date)}
-												className="text-xs text-rose-600 hover:text-rose-700"
+												className={`text-xs text-rose-600 hover:text-rose-700 ${isInactivePastDay ? 'cursor-not-allowed opacity-40' : ''}`}
+												disabled={isInactivePastDay}
 												title="Remove schedule"
 											>
 												<i className="fas fa-times" aria-hidden="true" />
@@ -723,15 +746,21 @@ export default function Availability() {
 												<button
 													type="button"
 													onClick={() => handleDateClick(date)}
-													className="flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+													className={`flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 ${
+														isInactivePastDay ? 'cursor-not-allowed opacity-50 hover:border-slate-300 hover:bg-white hover:text-slate-700' : ''
+													}`}
+													disabled={isInactivePastDay}
 												>
-													{hasSchedule ? 'Edit' : 'Set'}
+													{isInactivePastDay ? 'Past date' : hasSchedule ? 'Edit' : 'Set'}
 												</button>
 												{hasSchedule && (
 													<button
 														type="button"
 														onClick={() => copyDayToMonth(date)}
-														className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+														className={`rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 ${
+															isInactivePastDay ? 'cursor-not-allowed opacity-50 hover:border-slate-300 hover:bg-white hover:text-slate-700' : ''
+														}`}
+														disabled={isInactivePastDay}
 														title="Copy to all days in month"
 													>
 														<i className="fas fa-copy" aria-hidden="true" />
@@ -778,8 +807,10 @@ export default function Availability() {
 									</div>
 								)}
 								<div className="space-y-3">
-									{editingDateSchedule.slots.map((slot, slotIndex) => {
-										const hasAppointments = selectedDate ? hasAppointmentsInSlot(slot, selectedDate) : false;
+											{editingDateSchedule.slots.map((slot, slotIndex) => {
+												const hasAppointments = selectedDate ? hasAppointmentsInSlot(slot, selectedDate) : false;
+												const isLocked = hasAppointments && !slot.isNew;
+												const hasConflictButEditable = hasAppointments && slot.isNew;
 										const slotAppointments = selectedDate ? appointmentsForDate.filter(apt => {
 											if (apt.status === 'cancelled') return false;
 											const [aptHours, aptMinutes] = apt.time.split(':').map(Number);
@@ -796,22 +827,25 @@ export default function Availability() {
 											<div 
 												key={slotIndex} 
 												className={`flex items-center gap-3 rounded-lg border p-3 ${
-													hasAppointments 
-														? 'border-amber-300 bg-amber-50' 
-														: 'border-slate-200 bg-slate-50'
+													isLocked
+														? 'border-amber-300 bg-amber-50'
+														: hasConflictButEditable
+															? 'border-amber-200 bg-amber-50'
+															: 'border-slate-200 bg-slate-50'
 												}`}
 											>
 												<div className="flex-1">
 													<label className="block text-xs font-medium text-slate-500">
 														Start Time
-														{hasAppointments && <span className="ml-1 text-amber-600">(Has appointments)</span>}
+														{isLocked && <span className="ml-1 text-amber-600">(Has appointments)</span>}
+														{hasConflictButEditable && <span className="ml-1 text-amber-600">(Conflicts with existing appointments)</span>}
 													</label>
 													<input
 														type="time"
 														value={slot.start}
 														onChange={e => handleDateSlotChange(slotIndex, 'start', e.target.value)}
 														className="input-base"
-														disabled={hasAppointments}
+														disabled={isLocked}
 													/>
 													{hasAppointments && slotAppointments.length > 0 && (
 														<div className="mt-1 text-xs text-amber-700">
@@ -830,7 +864,7 @@ export default function Availability() {
 														value={slot.end}
 														onChange={e => handleDateSlotChange(slotIndex, 'end', e.target.value)}
 														className="input-base"
-														disabled={hasAppointments}
+														disabled={isLocked}
 													/>
 												</div>
 												<div className="flex items-end">
@@ -839,8 +873,8 @@ export default function Availability() {
 															type="button"
 															onClick={() => handleDateRemoveSlot(slotIndex)}
 															className={BUTTON_DANGER}
-															disabled={hasAppointments}
-															title={hasAppointments ? 'Cannot remove slot with appointments' : 'Remove slot'}
+															disabled={isLocked}
+															title={isLocked ? 'Cannot remove slot with appointments' : 'Remove slot'}
 														>
 															<span className="text-lg leading-none" aria-hidden="true">-</span>
 														</button>
@@ -862,7 +896,7 @@ export default function Availability() {
 								<div className="mt-6 border-t border-slate-200 pt-4">
 									{(() => {
 										const hasAnyAppointments = selectedDate && editingDateSchedule.slots.some(slot => 
-											hasAppointmentsInSlot(slot, selectedDate)
+											hasAppointmentsInSlot(slot, selectedDate) && !slot.isNew
 										);
 										return (
 											<label className="flex items-center gap-3">

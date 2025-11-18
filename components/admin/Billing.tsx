@@ -70,7 +70,7 @@ const isWithinDays = (value: string | undefined, window: DateFilter) => {
 
 export default function Billing() {
 	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string; amount?: number })[]>([]);
-	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string })[]>([]);
+	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string; patientType?: string; sessionAllowance?: SessionAllowance })[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 
 	const [doctorFilter, setDoctorFilter] = useState<'all' | string>('all');
@@ -324,7 +324,7 @@ export default function Billing() {
 	}, [appointments.length, patients.length, loading]);
 
 	const patientLookup = useMemo(() => {
-		const map = new Map<string, AdminPatientRecord>();
+		const map = new Map<string, AdminPatientRecord & { id?: string; patientType?: string; sessionAllowance?: SessionAllowance }>();
 		for (const patient of patients) {
 			map.set(patient.patientId, patient);
 		}

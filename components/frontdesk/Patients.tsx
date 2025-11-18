@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, deleteDoc, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, deleteDoc, query, where, getDocs, writeBatch, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import {
 	type AdminGenderOption,
@@ -265,14 +265,54 @@ export default function Patients() {
 		if (!patient) return;
 
 		const confirmed = window.confirm(
-			`Delete patient "${patient.name}" (ID: ${patient.patientId})? This action cannot be undone.`
+			`Delete patient "${patient.name}" (ID: ${patient.patientId})? This will also delete all appointments for this patient. This action cannot be undone.`
 		);
 		if (!confirmed) return;
 
 		setDeletingId(id);
 		try {
+			// First, delete all appointments for this patient (query by patientId)
+			const appointmentsQuery = query(
+				collection(db, 'appointments'),
+				where('patientId', '==', patient.patientId)
+			);
+			const appointmentsSnapshot = await getDocs(appointmentsQuery);
+			
+			// Also check for appointments by patient name (fallback)
+			const appointmentsByNameQuery = query(
+				collection(db, 'appointments'),
+				where('patient', '==', patient.name)
+			);
+			const appointmentsByNameSnapshot = await getDocs(appointmentsByNameQuery);
+			
+			// Combine and deduplicate appointment references
+			const allAppointmentRefs = new Set<string>();
+			appointmentsSnapshot.docs.forEach(doc => allAppointmentRefs.add(doc.id));
+			appointmentsByNameSnapshot.docs.forEach(doc => allAppointmentRefs.add(doc.id));
+			
+			if (allAppointmentRefs.size > 0) {
+				// Use batch write for better performance and atomicity
+				// Firestore batch limit is 500, so we may need multiple batches
+				const appointmentIds = Array.from(allAppointmentRefs);
+				const batchSize = 500;
+				
+				for (let i = 0; i < appointmentIds.length; i += batchSize) {
+					const batch = writeBatch(db);
+					const batchIds = appointmentIds.slice(i, i + batchSize);
+					
+					batchIds.forEach(appointmentId => {
+						batch.delete(doc(db, 'appointments', appointmentId));
+					});
+					
+					await batch.commit();
+				}
+				
+				console.log(`Deleted ${allAppointmentRefs.size} appointment(s) for patient ${patient.patientId} (${patient.name})`);
+			}
+
+			// Then delete the patient
 			await deleteDoc(doc(db, 'patients', id));
-			alert(`Patient "${patient.name}" has been deleted successfully.`);
+			alert(`Patient "${patient.name}" and all associated appointments have been deleted successfully.`);
 		} catch (error) {
 			console.error('Failed to delete patient', error);
 			alert(`Failed to delete patient: ${error instanceof Error ? error.message : 'Unknown error'}`);
