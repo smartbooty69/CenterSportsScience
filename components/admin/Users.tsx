@@ -184,6 +184,7 @@ export default function Users() {
 		setIsDialogOpen(false);
 		setEditingEmployee(null);
 		setFormState(INITIAL_FORM);
+		// Don't close the view profile when closing edit dialog
 	};
 
 	const handleDelete = async (employee: Employee) => {
@@ -691,7 +692,6 @@ export default function Users() {
 										<button
 											type="button"
 											onClick={() => {
-												setSelectedEmployee(null);
 												openEditDialog(selectedEmployee);
 											}}
 											className="btn-tertiary w-full justify-start"
@@ -728,9 +728,13 @@ export default function Users() {
 				<div
 					role="dialog"
 					aria-modal="true"
-					className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6"
+					className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 px-4 py-6"
+					onClick={closeDialog}
 				>
-					<div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+					<div 
+						className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
+						onClick={event => event.stopPropagation()}
+					>
 						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
 							<h2 className="text-lg font-semibold text-slate-900">
 								{editingEmployee ? 'Edit Employee' : 'Add Employee'}
