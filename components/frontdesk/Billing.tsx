@@ -860,8 +860,9 @@ export default function Billing() {
 	const completed = useMemo(() => filteredBilling.filter(b => b.status === 'Completed'), [filteredBilling]);
 
 	// Calculate cycle summary based on selected cycle
+	type CycleRange = ReturnType<typeof getCurrentBillingCycle>;
 	const cycleSummary = useMemo(() => {
-		let selectedCycle: BillingCycle | null = null;
+		let selectedCycle: BillingCycle | CycleRange | null = null;
 
 		if (selectedCycleId === 'current') {
 			selectedCycle = currentCycle;
