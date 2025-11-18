@@ -113,9 +113,20 @@ function escapeHtml(unsafe: any) {
 /* --------------------------------------------------------
 	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
-function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
+function generateInvoiceHtml(
+	bill: BillingRecord, 
+	invoiceNo: string,
+	options?: {
+		patientName?: string;
+		patientAddress?: string;
+		patientCity?: string;
+		description?: string;
+		hsnSac?: string;
+		taxRate?: number;
+	}
+) {
 	const taxableValue = Number(bill.amount || 0);
-	const taxRate = 5; // 5% CGST + 5% SGST = 10% total
+	const taxRate = options?.taxRate || 5; // 5% CGST + 5% SGST = 10% total
 	const cgstAmount = Number((taxableValue * (taxRate / 100)).toFixed(2));
 	const sgstAmount = cgstAmount;
 	const grandTotal = Number((taxableValue + cgstAmount + sgstAmount).toFixed(2));
@@ -125,9 +136,11 @@ function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
 	
 	const paymentModeDisplay = bill.paymentMode || 'Cash';
-	const buyerName = escapeHtml(bill.patient);
-	const buyerAddress = `Patient ID: ${escapeHtml(bill.patientId)}`;
-	const buyerCity = bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '';
+	const buyerName = escapeHtml(options?.patientName || bill.patient);
+	const buyerAddress = options?.patientAddress || `Patient ID: ${escapeHtml(bill.patientId)}`;
+	const buyerCity = options?.patientCity || (bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '');
+	const description = options?.description || 'Physiotherapy / Strength & Conditioning Sessions';
+	const hsnSac = options?.hsnSac || '9993';
 	
 	// Get the base URL for the logo (works in both dev and production)
 	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
@@ -269,8 +282,8 @@ function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 				<tbody>
 					<tr>
 						<td class="text-center">1</td>
-						<td>Physiotherapy / Strength & Conditioning Sessions</td>
-						<td>9993</td>
+						<td>${escapeHtml(description)}</td>
+						<td>${escapeHtml(hsnSac)}</td>
 						<td>1</td>
 						<td>${taxableValue.toFixed(2)}</td>
 						<td>Session</td>
@@ -330,7 +343,7 @@ function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 					<td>Amount</td>
 				</tr>
 				<tr>
-					<td>9993</td>
+					<td>${escapeHtml(hsnSac)}</td>
 					<td>${taxableValue.toFixed(2)}</td>
 					<td>${taxRate}%</td>
 					<td>${cgstAmount.toFixed(2)}</td>
@@ -583,37 +596,6 @@ function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 	`;
 }
 
-/* --------------------------------------------------------
-	GENERATE INVOICE & UPDATE FIRESTORE
----------------------------------------------------------- */
-async function handleGenerateInvoice(bill: BillingRecord) {
-	try {
-		const invoiceNo = bill.invoiceNo || bill.billingId || `INV-${bill.id?.slice(0, 8) || 'NA'}`;
-
-		const html = generateInvoiceHtml(bill, invoiceNo);
-		const printWindow = window.open('', '_blank');
-
-		if (!printWindow) {
-			alert('Please allow pop-ups to generate the invoice.');
-			return;
-		}
-
-		// Write the complete HTML document directly (it already includes <html>, <head>, <body>)
-		printWindow.document.write(html);
-		printWindow.document.close();
-		printWindow.print();
-
-		if (bill.id) {
-			await updateDoc(doc(db, 'billing', bill.id), {
-				invoiceNo,
-				invoiceGeneratedAt: new Date().toISOString(),
-			});
-		}
-	} catch (error) {
-		console.error('Invoice generation error:', error);
-		alert('Failed to generate invoice. Please try again.');
-	}
-}
 
 export default function Billing() {
 	const [billing, setBilling] = useState<BillingRecord[]>([]);
@@ -632,6 +614,20 @@ export default function Billing() {
 	const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
 	const [patients, setPatients] = useState<any[]>([]);
 	const [selectedCycleId, setSelectedCycleId] = useState<string>('current');
+	const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+	const [editableInvoice, setEditableInvoice] = useState<{
+		invoiceNo: string;
+		invoiceDate: string;
+		patientName: string;
+		patientAddress: string;
+		patientCity: string;
+		amount: number;
+		description: string;
+		paymentMode: string;
+		referenceNo: string;
+		hsnSac: string;
+		taxRate: number;
+	} | null>(null);
 
 	// Load billing records from Firestore (ordered by createdAt desc)
 	useEffect(() => {
@@ -1130,6 +1126,113 @@ export default function Billing() {
 		}
 	};
 
+	// Show invoice preview with editable fields
+	const handleShowInvoicePreview = (bill: BillingRecord) => {
+		const patient = patients.find(p => p.patientId === bill.patientId);
+		const invoiceNo = bill.invoiceNo || bill.billingId || `INV-${bill.id?.slice(0, 8) || 'NA'}`;
+		const invoiceDate = bill.date || new Date().toISOString().split('T')[0];
+		
+		setEditableInvoice({
+			invoiceNo,
+			invoiceDate,
+			patientName: bill.patient || '',
+			patientAddress: patient?.address || `Patient ID: ${bill.patientId}`,
+			patientCity: patient?.address?.split(',').pop()?.trim() || 'Bangalore',
+			amount: bill.amount || 0,
+			description: 'Physiotherapy / Strength & Conditioning Sessions',
+			paymentMode: bill.paymentMode || 'Cash',
+			referenceNo: bill.appointmentId || '',
+			hsnSac: '9993',
+			taxRate: 5, // Default 5% CGST/SGST
+		});
+		setSelectedBill(bill);
+		setShowInvoicePreview(true);
+	};
+
+	// Generate invoice from edited preview data
+	const handleGenerateInvoiceFromPreview = async () => {
+		if (!editableInvoice || !selectedBill) return;
+
+		try {
+			// Create a modified bill with edited values
+			const modifiedBill: BillingRecord = {
+				...selectedBill,
+				patient: editableInvoice.patientName,
+				amount: editableInvoice.amount,
+				date: editableInvoice.invoiceDate,
+				paymentMode: editableInvoice.paymentMode,
+				appointmentId: editableInvoice.referenceNo || selectedBill.appointmentId,
+			};
+
+			const html = generateInvoiceHtml(modifiedBill, editableInvoice.invoiceNo, {
+				patientName: editableInvoice.patientName,
+				patientAddress: editableInvoice.patientAddress,
+				patientCity: editableInvoice.patientCity,
+				description: editableInvoice.description,
+				hsnSac: editableInvoice.hsnSac,
+				taxRate: editableInvoice.taxRate,
+			});
+			
+			const printWindow = window.open('', '_blank');
+
+			if (!printWindow) {
+				alert('Please allow pop-ups to generate the invoice.');
+				return;
+			}
+
+			printWindow.document.write(html);
+			printWindow.document.close();
+			printWindow.focus();
+			printWindow.print();
+
+			// Update Firestore with invoice details
+			if (selectedBill.id) {
+				await updateDoc(doc(db, 'billing', selectedBill.id), {
+					invoiceNo: editableInvoice.invoiceNo,
+					invoiceGeneratedAt: new Date().toISOString(),
+				});
+			}
+
+			// Close preview
+			setShowInvoicePreview(false);
+			setEditableInvoice(null);
+			setSelectedBill(null);
+		} catch (error) {
+			console.error('Invoice generation error:', error);
+			alert('Failed to generate invoice. Please try again.');
+		}
+	};
+
+	// Generate preview HTML for iframe (memoized to update when editableInvoice changes)
+	const [previewHtml, setPreviewHtml] = useState('');
+
+	useEffect(() => {
+		if (!editableInvoice || !selectedBill) {
+			setPreviewHtml('');
+			return;
+		}
+
+		const modifiedBill: BillingRecord = {
+			...selectedBill,
+			patient: editableInvoice.patientName,
+			amount: editableInvoice.amount,
+			date: editableInvoice.invoiceDate,
+			paymentMode: editableInvoice.paymentMode,
+			appointmentId: editableInvoice.referenceNo || selectedBill.appointmentId,
+		};
+
+		const html = generateInvoiceHtml(modifiedBill, editableInvoice.invoiceNo, {
+			patientName: editableInvoice.patientName,
+			patientAddress: editableInvoice.patientAddress,
+			patientCity: editableInvoice.patientCity,
+			description: editableInvoice.description,
+			hsnSac: editableInvoice.hsnSac,
+			taxRate: editableInvoice.taxRate,
+		});
+
+		setPreviewHtml(html);
+	}, [editableInvoice, selectedBill]);
+
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
@@ -1434,7 +1537,7 @@ export default function Billing() {
 																	</button>
 																	<button
 																		type="button"
-																		onClick={() => handleGenerateInvoice(bill)}
+																		onClick={() => handleShowInvoicePreview(bill)}
 																		className="inline-flex items-center rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
 																	>
 																		Invoice
@@ -1538,6 +1641,187 @@ export default function Billing() {
 									className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
 								>
 									Submit Payment
+								</button>
+							</footer>
+						</div>
+					</div>
+				)}
+
+				{/* Invoice Preview Modal */}
+				{showInvoicePreview && editableInvoice && selectedBill && (
+					<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6 overflow-y-auto">
+						<div className="w-full max-w-7xl rounded-2xl border border-slate-200 bg-white shadow-2xl my-8">
+							<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+								<h2 className="text-lg font-semibold text-slate-900">Invoice Preview & Edit</h2>
+								<button
+									type="button"
+									onClick={() => {
+										setShowInvoicePreview(false);
+										setEditableInvoice(null);
+										setSelectedBill(null);
+									}}
+									className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
+									aria-label="Close"
+								>
+									<i className="fas fa-times" aria-hidden="true" />
+								</button>
+							</header>
+							<div className="p-6">
+								<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+									{/* Editable Fields */}
+									<div className="space-y-4">
+										<h3 className="text-md font-semibold text-slate-900 mb-4">Edit Invoice Details</h3>
+										
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Invoice Number</label>
+											<input
+												type="text"
+												value={editableInvoice.invoiceNo}
+												onChange={e => setEditableInvoice({ ...editableInvoice, invoiceNo: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Invoice Date</label>
+											<input
+												type="date"
+												value={editableInvoice.invoiceDate}
+												onChange={e => setEditableInvoice({ ...editableInvoice, invoiceDate: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Patient Name</label>
+											<input
+												type="text"
+												value={editableInvoice.patientName}
+												onChange={e => setEditableInvoice({ ...editableInvoice, patientName: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Patient Address</label>
+											<textarea
+												value={editableInvoice.patientAddress}
+												onChange={e => setEditableInvoice({ ...editableInvoice, patientAddress: e.target.value })}
+												rows={3}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">City</label>
+											<input
+												type="text"
+												value={editableInvoice.patientCity}
+												onChange={e => setEditableInvoice({ ...editableInvoice, patientCity: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Amount (Taxable Value)</label>
+											<input
+												type="number"
+												step="0.01"
+												value={editableInvoice.amount}
+												onChange={e => setEditableInvoice({ ...editableInvoice, amount: parseFloat(e.target.value) || 0 })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+											<input
+												type="text"
+												value={editableInvoice.description}
+												onChange={e => setEditableInvoice({ ...editableInvoice, description: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div className="grid grid-cols-2 gap-4">
+											<div>
+												<label className="block text-sm font-medium text-slate-700 mb-1">HSN/SAC</label>
+												<input
+													type="text"
+													value={editableInvoice.hsnSac}
+													onChange={e => setEditableInvoice({ ...editableInvoice, hsnSac: e.target.value })}
+													className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+												/>
+											</div>
+											<div>
+												<label className="block text-sm font-medium text-slate-700 mb-1">Tax Rate (%)</label>
+												<input
+													type="number"
+													step="0.01"
+													value={editableInvoice.taxRate}
+													onChange={e => setEditableInvoice({ ...editableInvoice, taxRate: parseFloat(e.target.value) || 5 })}
+													className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+												/>
+											</div>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Payment Mode</label>
+											<select
+												value={editableInvoice.paymentMode}
+												onChange={e => setEditableInvoice({ ...editableInvoice, paymentMode: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											>
+												<option value="Cash">Cash</option>
+												<option value="UPI/Card">UPI/Card</option>
+											</select>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Reference Number</label>
+											<input
+												type="text"
+												value={editableInvoice.referenceNo}
+												onChange={e => setEditableInvoice({ ...editableInvoice, referenceNo: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+									</div>
+
+									{/* Preview */}
+									<div className="space-y-4">
+										<h3 className="text-md font-semibold text-slate-900 mb-4">Invoice Preview</h3>
+										<div className="border border-slate-300 rounded-lg overflow-hidden bg-white" style={{ height: '800px' }}>
+											<iframe
+												title="Invoice Preview"
+												srcDoc={previewHtml}
+												key={previewHtml} // Force re-render when HTML changes
+												className="w-full h-full border-0"
+												style={{ transform: 'scale(0.8)', transformOrigin: 'top left', width: '125%', height: '125%' }}
+											/>
+										</div>
+									</div>
+								</div>
+							</div>
+							<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+								<button
+									type="button"
+									onClick={() => {
+										setShowInvoicePreview(false);
+										setEditableInvoice(null);
+										setSelectedBill(null);
+									}}
+									className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									onClick={handleGenerateInvoiceFromPreview}
+									className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
+								>
+									<i className="fas fa-print mr-2 text-sm" aria-hidden="true" />
+									Generate & Print Invoice
 								</button>
 							</footer>
 						</div>
