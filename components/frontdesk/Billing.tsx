@@ -111,77 +111,475 @@ function escapeHtml(unsafe: any) {
 }
 
 /* --------------------------------------------------------
-	GENERATE PRINTABLE INVOICE HTML
+	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
 function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
-	const amount = Number(bill.amount || 0).toFixed(2);
-	const words = numberToWords(Number(bill.amount || 0));
-	const showDate = bill.date || new Date().toLocaleDateString();
-
-	// Show last 5 digits of UTR if payment mode is UPI / Online
-	let paymentModeDisplay = bill.paymentMode || '';
-	const modeLower = paymentModeDisplay.toLowerCase();
-
-	if ((modeLower.includes('upi') || modeLower.includes('online')) && bill.utr) {
-		const lastFive = bill.utr.slice(-5);
-		paymentModeDisplay += ` (...${lastFive})`;
-	}
+	const taxableValue = Number(bill.amount || 0);
+	const taxRate = 5; // 5% CGST + 5% SGST = 10% total
+	const cgstAmount = Number((taxableValue * (taxRate / 100)).toFixed(2));
+	const sgstAmount = cgstAmount;
+	const grandTotal = Number((taxableValue + cgstAmount + sgstAmount).toFixed(2));
+	
+	const words = numberToWords(grandTotal);
+	const taxWords = numberToWords(cgstAmount + sgstAmount);
+	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
+	
+	const paymentModeDisplay = bill.paymentMode || 'Cash';
+	const buyerName = escapeHtml(bill.patient);
+	const buyerAddress = `Patient ID: ${escapeHtml(bill.patientId)}`;
+	const buyerCity = bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '';
+	
+	// Get the base URL for the logo (works in both dev and production)
+	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
 
 	return `
-		<div style="font-family:Arial;width:820px;margin:0 auto;padding:16px;color:#000;">
-			<div style="border:1px solid #222;padding:18px;">
+		<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Tax Invoice</title>
+			<style>
+				@page { size: A4; margin: 0; }
+				body {
+					font-family: Arial, sans-serif;
+					font-size: 12px;
+					margin: 0;
+					padding: 20px;
+					background: #fff;
+				}
+				.container {
+					width: 210mm;
+					max-width: 100%;
+					margin: 0 auto;
+					border: 1px solid #000;
+				}
+				.text-right { text-align: right; }
+				.text-center { text-align: center; }
+				.bold { font-weight: bold; }
+				.uppercase { text-transform: uppercase; }
+				table {
+					width: 100%;
+					border-collapse: collapse;
+				}
+				td, th {
+					border: 1px solid #000;
+					padding: 4px;
+					vertical-align: top;
+				}
+				.header-left { width: 50%; }
+				.header-right { width: 50%; padding: 0; }
+				.nested-table td {
+					border-top: none;
+					border-left: none;
+					border-right: none;
+					border-bottom: 1px solid #000;
+				}
+				.nested-table tr:last-child td { border-bottom: none; }
+				.items-table th { background-color: #f0f0f0; text-align: center; }
+				.items-table td { height: 20px; }
+				.spacer-row td { height: 100px; border-bottom: none; border-top: none; }
+				.footer-table td { border: 1px solid #000; }
+			</style>
+		</head>
+		<body>
+		<div class="container">
+			<div class="text-center bold" style="border-bottom: 1px solid #000; padding: 5px; font-size: 14px;">TAX INVOICE</div>
 
-				<div style="display:flex;justify-content:space-between;">
-					<div>
-						<div style="font-size:20px;font-weight:700;">CENTRE FOR SPORTS SCIENCE</div>
-						<div style="font-size:12px;">Sports Business Solutions Pvt. Ltd.</div>
-						<div style="font-size:12px;">Sri Kanteerava Outdoor Stadium, Bangalore</div>
-						<div style="font-size:12px;">Phone: +91 97311 28396</div>
-					</div>
+			<table>
+				<tr>
+					<td class="header-left">
+						<div style="display: flex; gap: 10px; align-items: flex-start;">
+							<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto; flex-shrink: 0;">
+							<div>
+								<span class="bold" style="font-size: 14px;">SIXS SPORTS AND BUSINESS SOLUTIONS INC</span><br>
+								Blr: No.503, 5th Floor Donata Marvel Apartment,<br>
+								Gokula Extension, Mattikere, Bangalore-560054<br>
+								<strong>Del:</strong> 1st Floor, No.99 Block S/F, Bharat Road, Darya Ganja, New Delhi-110002<br>
+								<strong>GSTIN/UIN:</strong> 07ADZFS3168H1ZC<br>
+								State Name: Karnataka, Code: 29<br>
+								Contact: +91-9731128398 / 9916509206<br>
+								E-Mail: sportsixs2019@gmail.com
+							</div>
+						</div>
+					</td>
+					<td class="header-right">
+						<table class="nested-table">
+							<tr>
+								<td width="50%"><strong>Invoice No.</strong><br>${escapeHtml(invoiceNo)}</td>
+								<td width="50%"><strong>Dated</strong><br>${escapeHtml(showDate)}</td>
+							</tr>
+							<tr>
+								<td><strong>Delivery Note</strong><br>&nbsp;</td>
+								<td><strong>Mode/Terms of Payment</strong><br>${escapeHtml(paymentModeDisplay)}</td>
+							</tr>
+							<tr>
+								<td><strong>Reference No. & Date</strong><br>${escapeHtml(bill.appointmentId || '')}</td>
+								<td><strong>Other References</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td><strong>Buyer's Order No.</strong><br>&nbsp;</td>
+								<td><strong>Dated</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td><strong>Dispatch Doc No.</strong><br>&nbsp;</td>
+								<td><strong>Delivery Note Date</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td><strong>Dispatched through</strong><br>&nbsp;</td>
+								<td><strong>Destination</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td colspan="2" style="height: 30px;"><strong>Terms of Delivery</strong><br>&nbsp;</td>
+							</tr>
+						</table>
+					</td>
+				</tr>
 
-					<div style="text-align:right;">
-						<div style="font-size:18px;font-weight:700;">RECEIPT</div>
-						<div style="font-size:12px;">Receipt No: <b>${invoiceNo}</b></div>
-						<div style="font-size:12px;">Date: <b>${showDate}</b></div>
-					</div>
-				</div>
+				<tr>
+					<td colspan="2">
+						<strong>Consignee (Ship to)</strong><br>
+						${buyerName}<br>
+						${buyerAddress}
+					</td>
+				</tr>
 
-				<hr/>
+				<tr>
+					<td colspan="2">
+						<strong>Buyer (Bill to)</strong><br>
+						${buyerName}<br>
+						${buyerAddress}<br>
+						${buyerCity}
+					</td>
+				</tr>
+			</table>
 
-				<div style="display:flex;justify-content:space-between;margin-top:8px;">
-					<div>
-						<div style="font-size:13px;">Received from:</div>
-						<div style="font-size:16px;font-weight:700;">${escapeHtml(bill.patient)}</div>
-						<div style="font-size:12px;">Patient ID: ${escapeHtml(bill.patientId)}</div>
-					</div>
+			<table class="items-table" style="border-top: none;">
+				<thead>
+					<tr>
+						<th width="5%">SI No.</th>
+						<th width="40%">Description of Services</th>
+						<th width="10%">HSN/SAC</th>
+						<th width="10%">Quantity</th>
+						<th width="10%">Rate</th>
+						<th width="5%">per</th>
+						<th width="20%">Amount</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td class="text-center">1</td>
+						<td>Physiotherapy / Strength & Conditioning Sessions</td>
+						<td>9993</td>
+						<td>1</td>
+						<td>${taxableValue.toFixed(2)}</td>
+						<td>Session</td>
+						<td class="text-right">${taxableValue.toFixed(2)}</td>
+					</tr>
 
-					<div style="text-align:right;">
-						<div style="font-size:12px;">Amount</div>
-						<div style="font-size:18px;font-weight:700;">Rs. ${amount}</div>
-					</div>
-				</div>
+					<tr class="spacer-row">
+						<td style="border-bottom: 1px solid #000;"></td>
+						<td style="border-bottom: 1px solid #000;">
+							<br><br>
+							<div class="text-right" style="padding-right: 10px;">
+								CGST @ ${taxRate}%<br>
+								SGST @ ${taxRate}%
+							</div>
+						</td>
+						<td style="border-bottom: 1px solid #000;"></td>
+						<td style="border-bottom: 1px solid #000;"></td>
+						<td style="border-bottom: 1px solid #000;">
+							<br><br><br>
+							<div class="text-center">${taxRate}%<br>${taxRate}%</div>
+						</td>
+						<td style="border-bottom: 1px solid #000;">
+							<br><br><br>
+							<div class="text-center">%<br>%</div>
+						</td>
+						<td style="border-bottom: 1px solid #000;" class="text-right">
+							<br><br>
+							${cgstAmount.toFixed(2)}<br>
+							${sgstAmount.toFixed(2)}
+						</td>
+					</tr>
+					
+					<tr class="bold">
+						<td colspan="6" class="text-right">Total</td>
+						<td class="text-right">${grandTotal.toFixed(2)}</td>
+					</tr>
+				</tbody>
+			</table>
 
-				<div style="font-size:12px;margin-top:8px;">
-					<b>Amount in words:</b> ${escapeHtml(words)}
-				</div>
-
-				<div style="border:1px solid #666;padding:12px;margin-top:10px;">
-					<b>For:</b> ${escapeHtml(bill.appointmentId || '')}<br/>
-					${bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}<br/>` : ''}
-					${paymentModeDisplay ? `Payment Mode: ${escapeHtml(paymentModeDisplay)}<br/>` : ''}
-
-					<div style="margin-top:18px;text-align:center;font-weight:700;">
-						Digitally Signed
-					</div>
-				</div>
-
-				<div style="text-align:right;margin-top:20px;">
-					For CENTRE FOR SPORTS SCIENCE
-				</div>
-
-				<div style="font-size:10px;margin-top:12px;">Computer generated receipt.</div>
+			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
+				<strong>Amount Chargeable (in words):</strong><br>
+				${escapeHtml(words.toUpperCase())} ONLY
 			</div>
+
+			<table class="text-center" style="border-top: none;">
+				<tr>
+					<td rowspan="2">HSN/SAC</td>
+					<td rowspan="2">Taxable Value</td>
+					<td colspan="2">CGST</td>
+					<td colspan="2">SGST</td>
+					<td rowspan="2">Total Tax Amount</td>
+				</tr>
+				<tr>
+					<td>Rate</td>
+					<td>Amount</td>
+					<td>Rate</td>
+					<td>Amount</td>
+				</tr>
+				<tr>
+					<td>9993</td>
+					<td>${taxableValue.toFixed(2)}</td>
+					<td>${taxRate}%</td>
+					<td>${cgstAmount.toFixed(2)}</td>
+					<td>${taxRate}%</td>
+					<td>${sgstAmount.toFixed(2)}</td>
+					<td>${(cgstAmount + sgstAmount).toFixed(2)}</td>
+				</tr>
+				<tr class="bold">
+					<td class="text-right">Total</td>
+					<td>${taxableValue.toFixed(2)}</td>
+					<td></td>
+					<td>${cgstAmount.toFixed(2)}</td>
+					<td></td>
+					<td>${sgstAmount.toFixed(2)}</td>
+					<td>${(cgstAmount + sgstAmount).toFixed(2)}</td>
+				</tr>
+			</table>
+
+			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
+				<strong>Tax Amount (In words):</strong> ${escapeHtml(taxWords.toUpperCase())} ONLY
+			</div>
+
+			<table style="border-top: none;">
+				<tr>
+					<td width="50%" style="border-right: 1px solid #000;">
+						Company's PAN: <strong>ADZF83168H</strong><br><br>
+						<span class="bold" style="text-decoration: underline;">Declaration</span><br>
+						We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.<br><br>
+						
+						<div style="margin-top: 20px; border: 1px solid #ccc; padding: 10px; display: inline-block;">
+							Customer's Seal and Signature
+						</div>
+					</td>
+					<td width="50%">
+						<strong>Company's Bank Details</strong><br>
+						A/c Holder's Name: Six Sports & Business Solutions INC<br>
+						Bank Name: Canara Bank<br>
+						A/c No.: 0284201007444<br>
+						Branch & IFS Code: CNRB0000444<br><br>
+						
+						<div class="text-right" style="margin-top: 20px;">
+							for <strong>SIXS SPORTS AND BUSINESS SOLUTIONS INC</strong><br><br><br>
+							Authorised Signatory
+						</div>
+					</td>
+				</tr>
+			</table>
 		</div>
+		</body>
+		</html>
+	`;
+}
+
+/* --------------------------------------------------------
+	GENERATE RECEIPT HTML (MATCHING RECEIPT IMAGE FORMAT)
+---------------------------------------------------------- */
+function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
+	const amount = Number(bill.amount || 0).toFixed(2);
+	const words = numberToWords(Number(bill.amount || 0));
+	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
+	
+	const paymentModeDisplay = bill.paymentMode || 'Cash';
+	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+
+	return `
+		<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Receipt</title>
+			<style>
+				body {
+					font-family: 'Arial', sans-serif;
+					background-color: #f5f5f5;
+					display: flex;
+					justify-content: center;
+					padding-top: 40px;
+					margin: 0;
+				}
+				.receipt-box {
+					width: 800px;
+					background: white;
+					border: 1px solid #333;
+					padding: 20px 30px;
+					box-sizing: border-box;
+					position: relative;
+				}
+				.header {
+					display: flex;
+					justify-content: space-between;
+					align-items: flex-start;
+					margin-bottom: 10px;
+				}
+				.header-left {
+					display: flex;
+					align-items: flex-start;
+					gap: 15px;
+				}
+				.company-info h2 {
+					margin: 0;
+					font-size: 22px;
+					text-transform: uppercase;
+					color: #000;
+					font-weight: bold;
+				}
+				.company-info p {
+					margin: 2px 0;
+					font-size: 12px;
+					color: #000;
+				}
+				.header-right {
+					text-align: right;
+				}
+				.header-right h2 {
+					margin: 0 0 5px 0;
+					font-size: 20px;
+					text-transform: uppercase;
+					font-weight: bold;
+					color: #000;
+				}
+				.header-right p {
+					margin: 2px 0;
+					font-size: 12px;
+					font-weight: bold;
+					color: #000;
+				}
+				hr {
+					border: 0;
+					border-top: 1px solid #000;
+					margin: 15px 0;
+				}
+				.info-section {
+					display: flex;
+					justify-content: space-between;
+					margin-bottom: 15px;
+				}
+				.info-left {
+					font-size: 14px;
+					color: #000;
+				}
+				.info-left strong {
+					font-size: 18px;
+					display: block;
+					margin-top: 5px;
+					color: #000;
+				}
+				.info-left .id-text {
+					font-size: 12px;
+					color: #000;
+					margin-top: 2px;
+				}
+				.amount-right {
+					text-align: right;
+				}
+				.amount-right span {
+					font-size: 12px;
+					display: block;
+					color: #000;
+				}
+				.amount-right strong {
+					font-size: 24px;
+					color: #000;
+				}
+				.words-row {
+					font-size: 14px;
+					margin-bottom: 20px;
+					font-weight: bold;
+					color: #000;
+				}
+				.details-box {
+					border: 1px solid #000;
+					padding: 15px;
+					height: 120px;
+					position: relative;
+					font-size: 14px;
+					line-height: 1.5;
+					color: #000;
+				}
+				.details-box strong {
+					display: block;
+					margin-bottom: 5px;
+					color: #000;
+				}
+				.digitally-signed {
+					position: absolute;
+					bottom: 10px;
+					left: 0;
+					right: 0;
+					text-align: center;
+					font-weight: bold;
+					font-size: 12px;
+					color: #000;
+				}
+				.footer {
+					margin-top: 15px;
+					display: flex;
+					justify-content: space-between;
+					font-size: 10px;
+					color: #000;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="receipt-box">
+				<div class="header">
+					<div class="header-left">
+						<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto;">
+						<div class="company-info">
+							<h2>Centre For Sports Science</h2>
+							<p>Sports & Business Solutions Pvt. Ltd.</p>
+							<p>Sri Kanteerava Outdoor Stadium · Bangalore · +91 97311 28396</p>
+						</div>
+					</div>
+					<div class="header-right">
+						<h2>Receipt</h2>
+						<p>Receipt No: ${escapeHtml(receiptNo)}</p>
+						<p>Date: ${escapeHtml(showDate)}</p>
+					</div>
+				</div>
+				<hr>
+				<div class="info-section">
+					<div class="info-left">
+						Received from:
+						<strong>${escapeHtml(bill.patient)}</strong>
+						<div class="id-text">ID: ${escapeHtml(bill.patientId)}</div>
+					</div>
+					<div class="amount-right">
+						<span>Amount</span>
+						<strong>Rs. ${amount}</strong>
+					</div>
+				</div>
+				<div class="words-row">
+					Amount in words: <span style="font-weight: normal;">${escapeHtml(words)}</span>
+				</div>
+				<div class="details-box">
+					<strong>For</strong>
+					${escapeHtml(bill.appointmentId || '')}<br>
+					${bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}<br>` : ''}
+					Payment Mode: ${escapeHtml(paymentModeDisplay)}
+					<div class="digitally-signed">Digitally Signed</div>
+				</div>
+				<div class="footer">
+					<div>Computer generated receipt.</div>
+					<div style="text-transform: uppercase;">For Centre For Sports Science</div>
+				</div>
+			</div>
+		</body>
+		</html>
 	`;
 }
 
@@ -200,7 +598,8 @@ async function handleGenerateInvoice(bill: BillingRecord) {
 			return;
 		}
 
-		printWindow.document.write(`<html><body>${html}</body></html>`);
+		// Write the complete HTML document directly (it already includes <html>, <head>, <body>)
+		printWindow.document.write(html);
 		printWindow.document.close();
 		printWindow.print();
 
@@ -223,17 +622,16 @@ export default function Billing() {
 	const [filterRange, setFilterRange] = useState<string>('30');
 	const [selectedBill, setSelectedBill] = useState<BillingRecord | null>(null);
 	const [showPayModal, setShowPayModal] = useState(false);
-	const [showReportModal, setShowReportModal] = useState(false);
 	const [showPaymentSlipModal, setShowPaymentSlipModal] = useState(false);
 	const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI/Card'>('Cash');
 	const [utr, setUtr] = useState('');
-	const [selectedPatientId, setSelectedPatientId] = useState<string>('');
 	const [syncing, setSyncing] = useState(false);
 	const [resettingCycle, setResettingCycle] = useState(false);
 	const [sendingNotifications, setSendingNotifications] = useState(false);
 	const [currentCycle, setCurrentCycle] = useState(() => getCurrentBillingCycle());
 	const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
 	const [patients, setPatients] = useState<any[]>([]);
+	const [selectedCycleId, setSelectedCycleId] = useState<string>('current');
 
 	// Load billing records from Firestore (ordered by createdAt desc)
 	useEffect(() => {
@@ -461,6 +859,46 @@ export default function Billing() {
 	const pending = useMemo(() => filteredBilling.filter(b => b.status === 'Pending'), [filteredBilling]);
 	const completed = useMemo(() => filteredBilling.filter(b => b.status === 'Completed'), [filteredBilling]);
 
+	// Calculate cycle summary based on selected cycle
+	const cycleSummary = useMemo(() => {
+		let selectedCycle: BillingCycle | null = null;
+
+		if (selectedCycleId === 'current') {
+			selectedCycle = currentCycle;
+		} else {
+			selectedCycle = billingCycles.find(c => c.id === selectedCycleId) || null;
+		}
+
+		if (!selectedCycle) {
+			return {
+				pending: 0,
+				completed: 0,
+				collections: 0,
+			};
+		}
+
+		const startDate = new Date(selectedCycle.startDate);
+		const endDate = new Date(selectedCycle.endDate);
+		endDate.setHours(23, 59, 59, 999); // Include the entire end date
+
+		const cycleBills = billing.filter(bill => {
+			const billDate = new Date(bill.date);
+			return billDate >= startDate && billDate <= endDate;
+		});
+
+		const pendingCount = cycleBills.filter(b => b.status === 'Pending').length;
+		const completedCount = cycleBills.filter(b => b.status === 'Completed').length;
+		const collections = cycleBills
+			.filter(b => b.status === 'Completed')
+			.reduce((sum, bill) => sum + (bill.amount || 0), 0);
+
+		return {
+			pending: pendingCount,
+			completed: completedCount,
+			collections,
+		};
+	}, [selectedCycleId, currentCycle, billingCycles, billing]);
+
 	const handlePay = (bill: BillingRecord) => {
 		setSelectedBill(bill);
 		setPaymentMode('Cash');
@@ -489,54 +927,28 @@ export default function Billing() {
 		}
 	};
 
-	const handleViewReport = (patientId: string) => {
-		setSelectedPatientId(patientId);
-		setShowReportModal(true);
-	};
-
 	const handleViewPaymentSlip = (bill: BillingRecord) => {
 		setSelectedBill(bill);
 		setShowPaymentSlipModal(true);
 	};
 
-	const handlePrintReport = () => {
-		const reportCard = document.getElementById('reportCard');
-		if (!reportCard) return;
-		const printWindow = window.open('', '', 'width=800,height=600');
-		if (!printWindow) return;
-		printWindow.document.write(`
-			<html>
-				<head>
-					<title>Print Report</title>
-					<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
-				</head>
-				<body>${reportCard.innerHTML}</body>
-			</html>
-		`);
-		printWindow.document.close();
-		printWindow.focus();
-		printWindow.print();
-		printWindow.close();
-	};
-
 	const handlePrintPaymentSlip = () => {
-		const slipCard = document.getElementById('paymentSlipCard');
-		if (!slipCard) return;
-		const printWindow = window.open('', '', 'width=600,height=700');
-		if (!printWindow) return;
-		printWindow.document.write(`
-			<html>
-				<head>
-					<title>Payment Slip</title>
-					<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
-				</head>
-				<body style="padding:24px;">${slipCard.innerHTML}</body>
-			</html>
-		`);
+		if (!selectedBill) return;
+		
+		const receiptNo = selectedBill.billingId || `BILL-${selectedBill.id?.slice(0, 8) || 'NA'}`;
+		const html = generateReceiptHtml(selectedBill, receiptNo);
+		const printWindow = window.open('', '_blank');
+
+		if (!printWindow) {
+			alert('Please allow pop-ups to generate the receipt.');
+			return;
+		}
+
+		// Write the complete HTML document directly
+		printWindow.document.write(html);
 		printWindow.document.close();
 		printWindow.focus();
 		printWindow.print();
-		printWindow.close();
 	};
 
 	// Load patients from Firestore
@@ -572,10 +984,6 @@ export default function Billing() {
 
 		return () => unsubscribe();
 	}, []);
-
-	const selectedPatient = useMemo(() => {
-		return patients.find((p: any) => p.patientId === selectedPatientId);
-	}, [patients, selectedPatientId]);
 
 	const handleExportBilling = (format: 'csv' | 'excel' = 'csv') => {
 		if (!filteredBilling.length) {
@@ -806,6 +1214,59 @@ export default function Billing() {
 					)}
 				</section>
 
+				{/* Cycle Reports */}
+				<section className="rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
+					<div className="mb-4 flex items-center justify-between">
+						<div>
+							<h3 className="text-lg font-semibold text-slate-900">Cycle Reports</h3>
+							<p className="text-sm text-slate-600">
+								Summary of pending and collections within a selected billing cycle.
+							</p>
+						</div>
+						<div className="flex items-center gap-3">
+							<label htmlFor="cycleSelect" className="text-sm font-medium text-slate-700">
+								Select Cycle:
+							</label>
+							<select
+								id="cycleSelect"
+								value={selectedCycleId}
+								onChange={e => setSelectedCycleId(e.target.value)}
+								className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+							>
+								<option value="current">
+									Current ({getMonthName(currentCycle.month)} {currentCycle.year})
+								</option>
+								{billingCycles
+									.sort((a, b) => {
+										if (a.year !== b.year) return b.year - a.year;
+										return b.month - a.month;
+									})
+									.map(cycle => (
+										<option key={cycle.id} value={cycle.id}>
+											{getMonthName(cycle.month)} {cycle.year}
+										</option>
+									))}
+							</select>
+						</div>
+					</div>
+					<div className="grid gap-4 sm:grid-cols-3">
+						<div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+							<div className="text-sm font-medium text-amber-700">PENDING (IN CYCLE)</div>
+							<div className="mt-2 text-2xl font-bold text-amber-900">{cycleSummary.pending}</div>
+						</div>
+						<div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+							<div className="text-sm font-medium text-blue-700">BILLS COMPLETED (IN CYCLE)</div>
+							<div className="mt-2 text-2xl font-bold text-blue-900">{cycleSummary.completed}</div>
+						</div>
+						<div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+							<div className="text-sm font-medium text-emerald-700">COLLECTIONS (IN CYCLE)</div>
+							<div className="mt-2 text-2xl font-bold text-emerald-900">
+								Rs. {cycleSummary.collections.toFixed(2)}
+							</div>
+						</div>
+					</div>
+				</section>
+
 				<section className="section-card">
 					<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 						<div>
@@ -965,15 +1426,6 @@ export default function Billing() {
 																	<button
 																		type="button"
 																		onClick={() =>
-																			handleViewReport(bill.patientId)
-																		}
-																		className="inline-flex items-center rounded-lg border border-sky-200 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-300 hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
-																	>
-																		View Report
-																	</button>
-																	<button
-																		type="button"
-																		onClick={() =>
 																			handleViewPaymentSlip(bill)
 																		}
 																		className="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
@@ -1092,151 +1544,6 @@ export default function Billing() {
 					</div>
 				)}
 
-				{/* Report Modal */}
-				{showReportModal && selectedPatient && (
-					<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
-						<div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
-							<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-								<h2 className="text-lg font-semibold text-slate-900">Physiotherapy Report</h2>
-								<button
-									type="button"
-									onClick={() => setShowReportModal(false)}
-									className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
-									aria-label="Close"
-								>
-									<i className="fas fa-times" aria-hidden="true" />
-								</button>
-							</header>
-							<div className="max-h-[600px] overflow-y-auto px-6 py-6">
-								<div id="reportCard" className="section-card">
-									<div className="mb-6 flex items-start justify-between border-b border-slate-200 pb-4">
-										<h3 className="text-xl font-bold text-sky-600">
-											Physiotherapy Report
-										</h3>
-										<div className="text-right text-sm text-slate-600">
-											<div>
-												<b>Clinic:</b> Centre For Sports Science, Kanteerava Stadium
-											</div>
-											<div>
-												<b>Date:</b> {new Date().toLocaleDateString()}
-											</div>
-										</div>
-									</div>
-									<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-										<div>
-											<label className="block text-xs font-medium text-slate-500">
-												Patient Name
-											</label>
-											<input
-												type="text"
-												value={selectedPatient.name || ''}
-												readOnly
-												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-											/>
-										</div>
-										<div>
-											<label className="block text-xs font-medium text-slate-500">
-												Patient ID
-											</label>
-											<input
-												type="text"
-												value={selectedPatient.patientId || ''}
-												readOnly
-												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-											/>
-										</div>
-										<div>
-											<label className="block text-xs font-medium text-slate-500">
-												Date of Birth
-											</label>
-											<input
-												type="date"
-												value={selectedPatient.dob || ''}
-												readOnly
-												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-											/>
-										</div>
-										<div>
-											<label className="block text-xs font-medium text-slate-500">
-												Assigned Doctor
-											</label>
-											<input
-												type="text"
-												value={selectedPatient.assignedDoctor || ''}
-												readOnly
-												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-											/>
-										</div>
-									</div>
-									<div className="mt-6">
-										<p className="text-sm font-semibold text-sky-600">Assessment</p>
-										<div className="mt-2 grid gap-4 sm:grid-cols-2">
-											<div>
-												<label className="block text-xs font-medium text-slate-500">
-													Presenting Complaint
-												</label>
-												<input
-													type="text"
-													value={selectedPatient.complaint || ''}
-													readOnly
-													className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-												/>
-											</div>
-											<div>
-												<label className="block text-xs font-medium text-slate-500">
-													Diagnosis
-												</label>
-												<input
-													type="text"
-													value={selectedPatient.diagnosis || ''}
-													readOnly
-													className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-												/>
-											</div>
-										</div>
-									</div>
-									<div className="mt-6">
-										<p className="text-sm font-semibold text-sky-600">
-											Treatment Provided
-										</p>
-										<textarea
-											value={selectedPatient.treatmentProvided || ''}
-											readOnly
-											rows={3}
-											className="mt-2 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-										/>
-									</div>
-									<div className="mt-6">
-										<p className="text-sm font-semibold text-sky-600">Progress Notes</p>
-										<textarea
-											value={selectedPatient.progressNotes || ''}
-											readOnly
-											rows={3}
-											className="mt-2 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-										/>
-									</div>
-								</div>
-							</div>
-							<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-								<button
-									type="button"
-									onClick={handlePrintReport}
-									className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
-								>
-									Download/Print
-								</button>
-								<button
-									type="button"
-									onClick={() => setShowReportModal(false)}
-									className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
-								>
-									Close
-								</button>
-							</footer>
-						</div>
-					</div>
-				)}
-
 				{/* Payment Slip Modal */}
 				{showPaymentSlipModal && selectedBill && (
 					<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
@@ -1257,51 +1564,81 @@ export default function Billing() {
 							<div className="px-6 py-6">
 								<div
 									id="paymentSlipCard"
-									className="rounded-lg border-2 border-amber-400 bg-white p-6"
+									className="bg-white border border-gray-800 p-6"
+									style={{ width: '800px', maxWidth: '100%' }}
 								>
-									<div className="text-center">
-										<div className="text-lg font-bold text-sky-600">
-											CENTRE FOR SPORTS SCIENCE
-										</div>
-										<div className="text-sm">
-											SPORTS BUSINESS SOLUTIONS PVT. LTD.
-										</div>
-									</div>
-									<div className="mt-4 mb-3 grid grid-cols-2 gap-4 text-sm">
-										<div>
-											<b>Receipt No:</b>{' '}
-											<span>{selectedBill.billingId}</span>
+									<div className="flex justify-between items-start mb-4">
+										<div className="flex items-start gap-4">
+											<img
+												src="/logo.jpg"
+												alt="Company Logo"
+												className="w-24 h-auto"
+											/>
+											<div>
+												<h2 className="text-xl font-bold uppercase mb-1 text-black">
+													Centre For Sports Science
+												</h2>
+												<p className="text-xs text-black mb-0.5">
+													Sports & Business Solutions Pvt. Ltd.
+												</p>
+												<p className="text-xs text-black">
+													Sri Kanteerava Outdoor Stadium · Bangalore · +91 97311 28396
+												</p>
+											</div>
 										</div>
 										<div className="text-right">
-											<b>Date:</b> <span>{selectedBill.date}</span>
+											<h2 className="text-lg font-bold uppercase mb-1 text-black">Receipt</h2>
+											<p className="text-xs font-bold text-black">
+												Receipt No: {selectedBill.billingId}
+											</p>
+											<p className="text-xs font-bold text-black">Date: {selectedBill.date}</p>
 										</div>
 									</div>
-									<hr className="my-3" />
-									<div className="space-y-2 text-sm">
+									<hr className="border-t border-black my-4" />
+									<div className="flex justify-between mb-4">
 										<div>
-											<b>Received with thanks from:</b>{' '}
-											<span>{selectedBill.patient}</span>
+											<div className="text-sm text-black">Received from:</div>
+											<div className="text-lg font-bold mt-1 text-black">{selectedBill.patient}</div>
+											<div className="text-xs text-black mt-1">
+												ID: {selectedBill.patientId}
+											</div>
 										</div>
-										<div>
-											<b>The sum of Rupees:</b> Rs.
-											<span>{selectedBill.amount}</span>{' '}
-											(
-											<span className="italic">
-												{numberToWords(selectedBill.amount)} only
-											</span>
-											)
-										</div>
-										<div>
-											<b>Towards:</b> <span>Inter Clinic</span>
-										</div>
-										<div>
-											<b>Mode of Payment:</b>{' '}
-											<span>{selectedBill.paymentMode || 'Cash'}</span>
+										<div className="text-right">
+											<div className="text-xs text-black">Amount</div>
+											<div className="text-2xl font-bold mt-1 text-black">
+												Rs. {selectedBill.amount.toFixed(2)}
+											</div>
 										</div>
 									</div>
-									<div className="mt-8 text-right text-sm">
-										<div>For CENTRE FOR SPORTS SCIENCE</div>
-										<div className="italic">(Signature)</div>
+									<div className="text-sm font-bold mb-5 text-black">
+										Amount in words:{' '}
+										<span className="font-normal text-black">
+											{numberToWords(selectedBill.amount)}
+										</span>
+									</div>
+									<div
+										className="border border-black p-4 relative"
+										style={{ height: '120px' }}
+									>
+										<div className="font-bold mb-2 text-black">For</div>
+										<div className="text-sm text-black">
+											{selectedBill.appointmentId || ''}
+											{selectedBill.doctor && (
+												<>
+													<br />
+													Doctor: {selectedBill.doctor}
+												</>
+											)}
+											<br />
+											Payment Mode: {selectedBill.paymentMode || 'Cash'}
+										</div>
+										<div className="absolute bottom-3 left-0 right-0 text-center text-xs font-bold text-black">
+											Digitally Signed
+										</div>
+									</div>
+									<div className="flex justify-between mt-4 text-xs text-black">
+										<div>Computer generated receipt.</div>
+										<div className="uppercase">For Centre For Sports Science</div>
 									</div>
 								</div>
 							</div>

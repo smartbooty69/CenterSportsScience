@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, query, where, getDocs, addDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, query, where, getDocs, addDoc, serverTimestamp, orderBy, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 
 import {
@@ -41,6 +41,24 @@ interface InvoiceDetails {
 	amount: string;
 }
 
+interface BillingRecord {
+	id?: string;
+	billingId: string;
+	appointmentId?: string;
+	patient: string;
+	patientId: string;
+	doctor?: string;
+	amount: number;
+	date: string;
+	status: 'Pending' | 'Completed';
+	paymentMode?: string;
+	utr?: string;
+	createdAt?: string | Timestamp;
+	updatedAt?: string | Timestamp;
+	invoiceNo?: string;
+	invoiceGeneratedAt?: string;
+}
+
 const dateOptions: Array<{ label: string; value: DateFilter }> = [
 	{ value: 'all', label: 'All Time' },
 	{ value: '15', label: 'Last 15 Days' },
@@ -68,6 +86,538 @@ const isWithinDays = (value: string | undefined, window: DateFilter) => {
 	return target >= past && target <= now;
 };
 
+/* --------------------------------------------------------
+	NEW NUMBER -> WORDS (INDIAN SYSTEM, RUPEES + PAISE)
+---------------------------------------------------------- */
+function numberToWords(num: number): string {
+	const a = [
+		'',
+		'One',
+		'Two',
+		'Three',
+		'Four',
+		'Five',
+		'Six',
+		'Seven',
+		'Eight',
+		'Nine',
+		'Ten',
+		'Eleven',
+		'Twelve',
+		'Thirteen',
+		'Fourteen',
+		'Fifteen',
+		'Sixteen',
+		'Seventeen',
+		'Eighteen',
+		'Nineteen',
+	];
+	const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+	function inWords(n: number): string {
+		if (n < 20) return a[n];
+		if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? ' ' + a[n % 10] : '');
+		if (n < 1000) return a[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + inWords(n % 100) : '');
+		if (n < 100000)
+			return inWords(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + inWords(n % 1000) : '');
+		if (n < 10000000)
+			return inWords(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + inWords(n % 100000) : '');
+		return inWords(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + inWords(n % 10000000) : '');
+	}
+
+	const rupees = Math.floor(num);
+	const paise = Math.round((num - rupees) * 100);
+
+	const rupeesWords = rupees ? inWords(rupees) + ' Rupees' : '';
+	const paiseWords = paise ? (rupees ? ' and ' : '') + inWords(paise) + ' Paise' : '';
+
+	const result = (rupeesWords + paiseWords).trim();
+	return result || 'Zero Rupees';
+}
+
+/* --------------------------------------------------------
+	ESCAPE HTML FOR SAFE INJECTION INTO INVOICE HTML
+---------------------------------------------------------- */
+function escapeHtml(unsafe: any) {
+	return String(unsafe || '')
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;');
+}
+
+/* --------------------------------------------------------
+	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
+---------------------------------------------------------- */
+function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
+	const taxableValue = Number(bill.amount || 0);
+	const taxRate = 5; // 5% CGST + 5% SGST = 10% total
+	const cgstAmount = Number((taxableValue * (taxRate / 100)).toFixed(2));
+	const sgstAmount = cgstAmount;
+	const grandTotal = Number((taxableValue + cgstAmount + sgstAmount).toFixed(2));
+	
+	const words = numberToWords(grandTotal);
+	const taxWords = numberToWords(cgstAmount + sgstAmount);
+	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
+	
+	const paymentModeDisplay = bill.paymentMode || 'Cash';
+	const buyerName = escapeHtml(bill.patient);
+	const buyerAddress = `Patient ID: ${escapeHtml(bill.patientId)}`;
+	const buyerCity = bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '';
+	
+	// Get the base URL for the logo (works in both dev and production)
+	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+
+	return `
+		<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Tax Invoice</title>
+			<style>
+				@page { size: A4; margin: 0; }
+				body {
+					font-family: Arial, sans-serif;
+					font-size: 12px;
+					margin: 0;
+					padding: 20px;
+					background: #fff;
+				}
+				.container {
+					width: 210mm;
+					max-width: 100%;
+					margin: 0 auto;
+					border: 1px solid #000;
+				}
+				.text-right { text-align: right; }
+				.text-center { text-align: center; }
+				.bold { font-weight: bold; }
+				.uppercase { text-transform: uppercase; }
+				table {
+					width: 100%;
+					border-collapse: collapse;
+				}
+				td, th {
+					border: 1px solid #000;
+					padding: 4px;
+					vertical-align: top;
+				}
+				.header-left { width: 50%; }
+				.header-right { width: 50%; padding: 0; }
+				.nested-table td {
+					border-top: none;
+					border-left: none;
+					border-right: none;
+					border-bottom: 1px solid #000;
+				}
+				.nested-table tr:last-child td { border-bottom: none; }
+				.items-table th { background-color: #f0f0f0; text-align: center; }
+				.items-table td { height: 20px; }
+				.spacer-row td { height: 100px; border-bottom: none; border-top: none; }
+				.footer-table td { border: 1px solid #000; }
+			</style>
+		</head>
+		<body>
+		<div class="container">
+			<div class="text-center bold" style="border-bottom: 1px solid #000; padding: 5px; font-size: 14px;">TAX INVOICE</div>
+
+			<table>
+				<tr>
+					<td class="header-left">
+						<div style="display: flex; gap: 10px; align-items: flex-start;">
+							<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto; flex-shrink: 0;">
+							<div>
+								<span class="bold" style="font-size: 14px;">SIXS SPORTS AND BUSINESS SOLUTIONS INC</span><br>
+								Blr: No.503, 5th Floor Donata Marvel Apartment,<br>
+								Gokula Extension, Mattikere, Bangalore-560054<br>
+								<strong>Del:</strong> 1st Floor, No.99 Block S/F, Bharat Road, Darya Ganja, New Delhi-110002<br>
+								<strong>GSTIN/UIN:</strong> 07ADZFS3168H1ZC<br>
+								State Name: Karnataka, Code: 29<br>
+								Contact: +91-9731128398 / 9916509206<br>
+								E-Mail: sportsixs2019@gmail.com
+							</div>
+						</div>
+					</td>
+					<td class="header-right">
+						<table class="nested-table">
+							<tr>
+								<td width="50%"><strong>Invoice No.</strong><br>${escapeHtml(invoiceNo)}</td>
+								<td width="50%"><strong>Dated</strong><br>${escapeHtml(showDate)}</td>
+							</tr>
+							<tr>
+								<td><strong>Delivery Note</strong><br>&nbsp;</td>
+								<td><strong>Mode/Terms of Payment</strong><br>${escapeHtml(paymentModeDisplay)}</td>
+							</tr>
+							<tr>
+								<td><strong>Reference No. & Date</strong><br>${escapeHtml(bill.appointmentId || '')}</td>
+								<td><strong>Other References</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td><strong>Buyer's Order No.</strong><br>&nbsp;</td>
+								<td><strong>Dated</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td><strong>Dispatch Doc No.</strong><br>&nbsp;</td>
+								<td><strong>Delivery Note Date</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td><strong>Dispatched through</strong><br>&nbsp;</td>
+								<td><strong>Destination</strong><br>&nbsp;</td>
+							</tr>
+							<tr>
+								<td colspan="2" style="height: 30px;"><strong>Terms of Delivery</strong><br>&nbsp;</td>
+							</tr>
+						</table>
+					</td>
+				</tr>
+
+				<tr>
+					<td colspan="2">
+						<strong>Consignee (Ship to)</strong><br>
+						${buyerName}<br>
+						${buyerAddress}
+					</td>
+				</tr>
+
+				<tr>
+					<td colspan="2">
+						<strong>Buyer (Bill to)</strong><br>
+						${buyerName}<br>
+						${buyerAddress}<br>
+						${buyerCity}
+					</td>
+				</tr>
+			</table>
+
+			<table class="items-table" style="border-top: none;">
+				<thead>
+					<tr>
+						<th width="5%">SI No.</th>
+						<th width="40%">Description of Services</th>
+						<th width="10%">HSN/SAC</th>
+						<th width="10%">Quantity</th>
+						<th width="10%">Rate</th>
+						<th width="5%">per</th>
+						<th width="20%">Amount</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td class="text-center">1</td>
+						<td>Physiotherapy / Strength & Conditioning Sessions</td>
+						<td>9993</td>
+						<td>1</td>
+						<td>${taxableValue.toFixed(2)}</td>
+						<td>Session</td>
+						<td class="text-right">${taxableValue.toFixed(2)}</td>
+					</tr>
+
+					<tr class="spacer-row">
+						<td style="border-bottom: 1px solid #000;"></td>
+						<td style="border-bottom: 1px solid #000;">
+							<br><br>
+							<div class="text-right" style="padding-right: 10px;">
+								CGST @ ${taxRate}%<br>
+								SGST @ ${taxRate}%
+							</div>
+						</td>
+						<td style="border-bottom: 1px solid #000;"></td>
+						<td style="border-bottom: 1px solid #000;"></td>
+						<td style="border-bottom: 1px solid #000;">
+							<br><br><br>
+							<div class="text-center">${taxRate}%<br>${taxRate}%</div>
+						</td>
+						<td style="border-bottom: 1px solid #000;">
+							<br><br><br>
+							<div class="text-center">%<br>%</div>
+						</td>
+						<td style="border-bottom: 1px solid #000;" class="text-right">
+							<br><br>
+							${cgstAmount.toFixed(2)}<br>
+							${sgstAmount.toFixed(2)}
+						</td>
+					</tr>
+					
+					<tr class="bold">
+						<td colspan="6" class="text-right">Total</td>
+						<td class="text-right">${grandTotal.toFixed(2)}</td>
+					</tr>
+				</tbody>
+			</table>
+
+			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
+				<strong>Amount Chargeable (in words):</strong><br>
+				${escapeHtml(words.toUpperCase())} ONLY
+			</div>
+
+			<table class="text-center" style="border-top: none;">
+				<tr>
+					<td rowspan="2">HSN/SAC</td>
+					<td rowspan="2">Taxable Value</td>
+					<td colspan="2">CGST</td>
+					<td colspan="2">SGST</td>
+					<td rowspan="2">Total Tax Amount</td>
+				</tr>
+				<tr>
+					<td>Rate</td>
+					<td>Amount</td>
+					<td>Rate</td>
+					<td>Amount</td>
+				</tr>
+				<tr>
+					<td>9993</td>
+					<td>${taxableValue.toFixed(2)}</td>
+					<td>${taxRate}%</td>
+					<td>${cgstAmount.toFixed(2)}</td>
+					<td>${taxRate}%</td>
+					<td>${sgstAmount.toFixed(2)}</td>
+					<td>${(cgstAmount + sgstAmount).toFixed(2)}</td>
+				</tr>
+				<tr class="bold">
+					<td class="text-right">Total</td>
+					<td>${taxableValue.toFixed(2)}</td>
+					<td></td>
+					<td>${cgstAmount.toFixed(2)}</td>
+					<td></td>
+					<td>${sgstAmount.toFixed(2)}</td>
+					<td>${(cgstAmount + sgstAmount).toFixed(2)}</td>
+				</tr>
+			</table>
+
+			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
+				<strong>Tax Amount (In words):</strong> ${escapeHtml(taxWords.toUpperCase())} ONLY
+			</div>
+
+			<table style="border-top: none;">
+				<tr>
+					<td width="50%" style="border-right: 1px solid #000;">
+						Company's PAN: <strong>ADZF83168H</strong><br><br>
+						<span class="bold" style="text-decoration: underline;">Declaration</span><br>
+						We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.<br><br>
+						
+						<div style="margin-top: 20px; border: 1px solid #ccc; padding: 10px; display: inline-block;">
+							Customer's Seal and Signature
+						</div>
+					</td>
+					<td width="50%">
+						<strong>Company's Bank Details</strong><br>
+						A/c Holder's Name: Six Sports & Business Solutions INC<br>
+						Bank Name: Canara Bank<br>
+						A/c No.: 0284201007444<br>
+						Branch & IFS Code: CNRB0000444<br><br>
+						
+						<div class="text-right" style="margin-top: 20px;">
+							for <strong>SIXS SPORTS AND BUSINESS SOLUTIONS INC</strong><br><br><br>
+							Authorised Signatory
+						</div>
+					</td>
+				</tr>
+			</table>
+		</div>
+		</body>
+		</html>
+	`;
+}
+
+/* --------------------------------------------------------
+	GENERATE RECEIPT HTML (MATCHING RECEIPT IMAGE FORMAT)
+---------------------------------------------------------- */
+function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
+	const amount = Number(bill.amount || 0).toFixed(2);
+	const words = numberToWords(Number(bill.amount || 0));
+	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
+	
+	const paymentModeDisplay = bill.paymentMode || 'Cash';
+	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+
+	return `
+		<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Receipt</title>
+			<style>
+				body {
+					font-family: 'Arial', sans-serif;
+					background-color: #f5f5f5;
+					display: flex;
+					justify-content: center;
+					padding-top: 40px;
+					margin: 0;
+				}
+				.receipt-box {
+					width: 800px;
+					background: white;
+					border: 1px solid #333;
+					padding: 20px 30px;
+					box-sizing: border-box;
+					position: relative;
+				}
+				.header {
+					display: flex;
+					justify-content: space-between;
+					align-items: flex-start;
+					margin-bottom: 10px;
+				}
+				.header-left {
+					display: flex;
+					align-items: flex-start;
+					gap: 15px;
+				}
+				.company-info h2 {
+					margin: 0;
+					font-size: 22px;
+					text-transform: uppercase;
+					color: #000;
+					font-weight: bold;
+				}
+				.company-info p {
+					margin: 2px 0;
+					font-size: 12px;
+					color: #000;
+				}
+				.header-right {
+					text-align: right;
+				}
+				.header-right h2 {
+					margin: 0 0 5px 0;
+					font-size: 20px;
+					text-transform: uppercase;
+					font-weight: bold;
+					color: #000;
+				}
+				.header-right p {
+					margin: 2px 0;
+					font-size: 12px;
+					font-weight: bold;
+					color: #000;
+				}
+				hr {
+					border: 0;
+					border-top: 1px solid #000;
+					margin: 15px 0;
+				}
+				.info-section {
+					display: flex;
+					justify-content: space-between;
+					margin-bottom: 15px;
+				}
+				.info-left {
+					font-size: 14px;
+					color: #000;
+				}
+				.info-left strong {
+					font-size: 18px;
+					display: block;
+					margin-top: 5px;
+					color: #000;
+				}
+				.info-left .id-text {
+					font-size: 12px;
+					color: #000;
+					margin-top: 2px;
+				}
+				.amount-right {
+					text-align: right;
+				}
+				.amount-right span {
+					font-size: 12px;
+					display: block;
+					color: #000;
+				}
+				.amount-right strong {
+					font-size: 24px;
+					color: #000;
+				}
+				.words-row {
+					font-size: 14px;
+					margin-bottom: 20px;
+					font-weight: bold;
+					color: #000;
+				}
+				.details-box {
+					border: 1px solid #000;
+					padding: 15px;
+					height: 120px;
+					position: relative;
+					font-size: 14px;
+					line-height: 1.5;
+					color: #000;
+				}
+				.details-box strong {
+					display: block;
+					margin-bottom: 5px;
+					color: #000;
+				}
+				.digitally-signed {
+					position: absolute;
+					bottom: 10px;
+					left: 0;
+					right: 0;
+					text-align: center;
+					font-weight: bold;
+					font-size: 12px;
+					color: #000;
+				}
+				.footer {
+					margin-top: 15px;
+					display: flex;
+					justify-content: space-between;
+					font-size: 10px;
+					color: #000;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="receipt-box">
+				<div class="header">
+					<div class="header-left">
+						<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto;">
+						<div class="company-info">
+							<h2>Centre For Sports Science</h2>
+							<p>Sports & Business Solutions Pvt. Ltd.</p>
+							<p>Sri Kanteerava Outdoor Stadium · Bangalore · +91 97311 28396</p>
+						</div>
+					</div>
+					<div class="header-right">
+						<h2>Receipt</h2>
+						<p>Receipt No: ${escapeHtml(receiptNo)}</p>
+						<p>Date: ${escapeHtml(showDate)}</p>
+					</div>
+				</div>
+				<hr>
+				<div class="info-section">
+					<div class="info-left">
+						Received from:
+						<strong>${escapeHtml(bill.patient)}</strong>
+						<div class="id-text">ID: ${escapeHtml(bill.patientId)}</div>
+					</div>
+					<div class="amount-right">
+						<span>Amount</span>
+						<strong>Rs. ${amount}</strong>
+					</div>
+				</div>
+				<div class="words-row">
+					Amount in words: <span style="font-weight: normal;">${escapeHtml(words)}</span>
+				</div>
+				<div class="details-box">
+					<strong>For</strong>
+					${escapeHtml(bill.appointmentId || '')}<br>
+					${bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}<br>` : ''}
+					Payment Mode: ${escapeHtml(paymentModeDisplay)}
+					<div class="digitally-signed">Digitally Signed</div>
+				</div>
+				<div class="footer">
+					<div>Computer generated receipt.</div>
+					<div style="text-transform: uppercase;">For Centre For Sports Science</div>
+				</div>
+			</div>
+		</body>
+		</html>
+	`;
+}
+
 export default function Billing() {
 	const [appointments, setAppointments] = useState<(AdminAppointmentRecord & { id: string; amount?: number })[]>([]);
 	const [patients, setPatients] = useState<(AdminPatientRecord & { id?: string; patientType?: string; sessionAllowance?: SessionAllowance })[]>([]);
@@ -89,6 +639,15 @@ export default function Billing() {
 	const [currentCycle, setCurrentCycle] = useState(() => getCurrentBillingCycle());
 	const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
 	const [selectedCycleId, setSelectedCycleId] = useState<string | 'current'>('current');
+	
+	// Billing collection state
+	const [billing, setBilling] = useState<BillingRecord[]>([]);
+	const [selectedBill, setSelectedBill] = useState<BillingRecord | null>(null);
+	const [showPayModal, setShowPayModal] = useState(false);
+	const [showPaymentSlipModal, setShowPaymentSlipModal] = useState(false);
+	const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI/Card'>('Cash');
+	const [utr, setUtr] = useState('');
+	const [filterRange, setFilterRange] = useState<string>('30');
 
 	// Load appointments from Firestore
 	useEffect(() => {
@@ -219,6 +778,47 @@ export default function Billing() {
 		return () => unsubscribe();
 	}, []);
 
+	// Load billing records from Firestore (ordered by createdAt desc)
+	useEffect(() => {
+		const q = query(collection(db, 'billing'), orderBy('createdAt', 'desc'));
+
+		const unsubscribe = onSnapshot(
+			q,
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data() as Record<string, unknown>;
+					const created = (data.createdAt as Timestamp | undefined)?.toDate?.();
+					const updated = (data.updatedAt as Timestamp | undefined)?.toDate?.();
+
+					return {
+						id: docSnap.id,
+						billingId: data.billingId ? String(data.billingId) : '',
+						appointmentId: data.appointmentId ? String(data.appointmentId) : undefined,
+						patient: data.patient ? String(data.patient) : '',
+						patientId: data.patientId ? String(data.patientId) : '',
+						doctor: data.doctor ? String(data.doctor) : undefined,
+						amount: data.amount ? Number(data.amount) : 0,
+						date: data.date ? String(data.date) : '',
+						status: (data.status as 'Pending' | 'Completed') || 'Pending',
+						paymentMode: data.paymentMode ? String(data.paymentMode) : undefined,
+						utr: data.utr ? String(data.utr) : undefined,
+						createdAt: created ? created.toISOString() : undefined,
+						updatedAt: updated ? updated.toISOString() : undefined,
+						invoiceNo: data.invoiceNo ? String(data.invoiceNo) : undefined,
+						invoiceGeneratedAt: data.invoiceGeneratedAt ? String(data.invoiceGeneratedAt) : undefined,
+					} as BillingRecord;
+				});
+				setBilling(mapped);
+			},
+			error => {
+				console.error('Failed to load billing', error);
+				setBilling([]);
+			}
+		);
+
+		return () => unsubscribe();
+	}, []);
+
 	// Sync completed appointments to billing
 	useEffect(() => {
 		if (loading || syncing || appointments.length === 0 || patients.length === 0) return;
@@ -302,8 +902,32 @@ export default function Billing() {
 						billAmount = standardAmount;
 					}
 
-					// Update appointment with billing info if rules allow
+					// Create billing record if rules allow
 					if (shouldCreateBill) {
+						// Check if billing record already exists
+						const existingQuery = query(collection(db, 'billing'), where('appointmentId', '==', appt.appointmentId));
+						const existingSnapshot = await getDocs(existingQuery);
+						if (!existingSnapshot.empty) continue;
+
+						const billingId = 'BILL-' + (appt.appointmentId || Date.now().toString());
+						
+						// Create billing record in billing collection
+						await addDoc(collection(db, 'billing'), {
+							billingId,
+							appointmentId: appt.appointmentId,
+							patient: appt.patient || '',
+							patientId: appt.patientId || '',
+							doctor: appt.doctor || '',
+							amount: billAmount,
+							date: appt.date || defaultBillingDate,
+							status: 'Pending',
+							paymentMode: null,
+							utr: null,
+							createdAt: serverTimestamp(),
+							updatedAt: serverTimestamp(),
+						});
+
+						// Also update appointment with billing info
 						await updateDoc(doc(db, 'appointments', appt.id), {
 							billing: {
 								amount: billAmount.toFixed(2),
@@ -436,6 +1060,7 @@ export default function Billing() {
 		let sessionUsageResult: RecordSessionUsageResult | null = null;
 
 		try {
+			// Update appointment
 			await updateDoc(doc(db, 'appointments', appointmentId), {
 				status: 'completed',
 				billing: {
@@ -443,6 +1068,33 @@ export default function Billing() {
 					date: draft.date,
 				},
 			});
+
+			// Update or create billing record
+			const billingQuery = query(collection(db, 'billing'), where('appointmentId', '==', appointment.appointmentId));
+			const billingSnapshot = await getDocs(billingQuery);
+			if (!billingSnapshot.empty) {
+				await updateDoc(doc(db, 'billing', billingSnapshot.docs[0].id), {
+					amount: amountValue,
+					date: draft.date,
+					updatedAt: serverTimestamp(),
+				});
+			} else {
+				const billingId = 'BILL-' + (appointment.appointmentId || Date.now().toString());
+				await addDoc(collection(db, 'billing'), {
+					billingId,
+					appointmentId: appointment.appointmentId,
+					patient: appointment.patient || '',
+					patientId: appointment.patientId || '',
+					doctor: appointment.doctor || '',
+					amount: amountValue,
+					date: draft.date,
+					status: 'Pending',
+					paymentMode: null,
+					utr: null,
+					createdAt: serverTimestamp(),
+					updatedAt: serverTimestamp(),
+				});
+			}
 
 			// Send notifications only if status changed from non-completed to completed
 			if (!wasAlreadyCompleted) {
@@ -588,7 +1240,7 @@ export default function Billing() {
 			<tr><td><strong>Appointment ID:</strong></td><td>${invoiceDetails.appointmentId}</td></tr>
 			<tr><td><strong>Clinician:</strong></td><td>${invoiceDetails.doctor}</td></tr>
 			<tr><td><strong>Billing Date:</strong></td><td>${invoiceDetails.billingDate}</td></tr>
-			<tr><td><strong>Amount:</strong></td><td>${rupee(Number(invoiceDetails.amount))}</td></tr>
+			<tr><td><strong>Amount:</strong></td><td>Rs. ${Number(invoiceDetails.amount).toFixed(2)}</td></tr>
 		</table>
 		<hr />
 		<p>Thank you for your payment!</p>
@@ -596,6 +1248,88 @@ export default function Billing() {
 		win.document.close();
 		win.focus();
 		win.print();
+	};
+
+	const handlePay = (bill: BillingRecord) => {
+		setSelectedBill(bill);
+		setShowPayModal(true);
+		setPaymentMode('Cash');
+		setUtr('');
+	};
+
+	const handleSubmitPayment = async () => {
+		if (!selectedBill) return;
+		if (paymentMode === 'UPI/Card' && !utr.trim()) {
+			alert('Please enter UTR/Transaction ID for UPI/Card payment.');
+			return;
+		}
+
+		try {
+			await updateDoc(doc(db, 'billing', selectedBill.id!), {
+				status: 'Completed',
+				paymentMode: paymentMode,
+				utr: paymentMode === 'UPI/Card' ? utr.trim() : null,
+				updatedAt: serverTimestamp(),
+			});
+
+			// Also update appointment billing status if linked
+			if (selectedBill.appointmentId) {
+				const appointmentQuery = query(collection(db, 'appointments'), where('appointmentId', '==', selectedBill.appointmentId));
+				const appointmentSnapshot = await getDocs(appointmentQuery);
+				if (!appointmentSnapshot.empty) {
+					await updateDoc(doc(db, 'appointments', appointmentSnapshot.docs[0].id), {
+						'billing.status': 'Completed',
+						'billing.paymentMode': paymentMode,
+						'billing.utr': paymentMode === 'UPI/Card' ? utr.trim() : null,
+					});
+				}
+			}
+
+			setShowPayModal(false);
+			setSelectedBill(null);
+			setPaymentMode('Cash');
+			setUtr('');
+		} catch (error) {
+			console.error('Failed to update payment', error);
+			alert(`Failed to process payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		}
+	};
+
+	const handleViewPaymentSlip = (bill: BillingRecord) => {
+		setSelectedBill(bill);
+		setShowPaymentSlipModal(true);
+	};
+
+	const handlePrintPaymentSlip = () => {
+		if (!selectedBill) return;
+		
+		const receiptNo = selectedBill.billingId || `BILL-${selectedBill.id?.slice(0, 8) || 'NA'}`;
+		const html = generateReceiptHtml(selectedBill, receiptNo);
+		const printWindow = window.open('', '_blank');
+		if (!printWindow) return;
+		printWindow.document.write(html);
+		printWindow.document.close();
+		printWindow.focus();
+		printWindow.print();
+	};
+
+	const handleGenerateInvoice = (bill: BillingRecord) => {
+		const invoiceNo = bill.invoiceNo || `INV-${bill.billingId || bill.id?.slice(0, 8) || Date.now().toString()}`;
+		const html = generateInvoiceHtml(bill, invoiceNo);
+		const printWindow = window.open('', '_blank');
+		if (!printWindow) return;
+		printWindow.document.write(html);
+		printWindow.document.close();
+		printWindow.focus();
+		printWindow.print();
+
+		// Update invoice number if not set
+		if (!bill.invoiceNo && bill.id) {
+			updateDoc(doc(db, 'billing', bill.id), {
+				invoiceNo: invoiceNo,
+				invoiceGeneratedAt: new Date().toISOString(),
+			}).catch(err => console.error('Failed to update invoice number', err));
+		}
 	};
 
 	const handleExportHistory = (format: 'csv' | 'excel' = 'csv') => {
@@ -806,19 +1540,19 @@ export default function Billing() {
 		let collectedAmount = 0;
 		const byClinicianMap = new Map<string, number>();
 
-		for (const appt of appointments) {
-			// Pending within cycle = completed appointment with no billing, visit date within cycle
-			if (appt.status === 'completed' && !appt.billing && isWithinCycle(appt.date, cycle)) {
-				pendingCount += 1;
-			}
-			// Collections within cycle = billing date within cycle
-			const billDate = appt.billing?.date;
-			const billAmount = Number(appt.billing?.amount ?? 0);
+		// Use billing collection for cycle summary
+		for (const bill of billing) {
+			const billDate = bill.date;
+			const billAmount = Number(bill.amount ?? 0);
 			if (billDate && isWithinCycle(billDate, cycle)) {
-				completedCount += 1;
-				collectedAmount += Number.isFinite(billAmount) ? billAmount : 0;
-				const key = appt.doctor || 'Unassigned';
-				byClinicianMap.set(key, (byClinicianMap.get(key) || 0) + (Number.isFinite(billAmount) ? billAmount : 0));
+				if (bill.status === 'Pending') {
+					pendingCount += 1;
+				} else if (bill.status === 'Completed') {
+					completedCount += 1;
+					collectedAmount += Number.isFinite(billAmount) ? billAmount : 0;
+					const key = bill.doctor || 'Unassigned';
+					byClinicianMap.set(key, (byClinicianMap.get(key) || 0) + (Number.isFinite(billAmount) ? billAmount : 0));
+				}
 			}
 		}
 
@@ -827,7 +1561,17 @@ export default function Billing() {
 			.sort((a, b) => b.amount - a.amount);
 
 		return { pendingCount, completedCount, collectedAmount, byClinician };
-	}, [appointments, selectedCycle]);
+	}, [billing, selectedCycle]);
+
+	// Pending payments from billing collection
+	const pending = useMemo(() => {
+		return billing.filter(b => b.status === 'Pending');
+	}, [billing]);
+
+	// Completed payments from billing collection
+	const completed = useMemo(() => {
+		return billing.filter(b => b.status === 'Completed');
+	}, [billing]);
 
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -1263,6 +2007,248 @@ export default function Billing() {
 								type="button"
 								onClick={closeInvoice}
 								className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:border-slate-300 focus-visible:text-slate-800 focus-visible:outline-none"
+							>
+								Close
+							</button>
+						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Pending Payments Section */}
+			<section className="mx-auto mt-6 grid max-w-6xl gap-6">
+				<article className="rounded-2xl bg-white shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
+					<header className="flex items-center justify-between rounded-t-2xl bg-amber-100 px-5 py-4 text-amber-900">
+						<div>
+							<h2 className="text-lg font-semibold">Pending Payments</h2>
+							<p className="text-xs text-amber-800/80">
+								Bills awaiting payment confirmation.
+							</p>
+						</div>
+						<span className="inline-flex h-7 min-w-8 items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-semibold text-white">
+							{pending.length}
+						</span>
+					</header>
+					<div className="overflow-x-auto px-5 pb-5 pt-3">
+						<table className="min-w-full divide-y divide-amber-200 text-left text-sm text-slate-700">
+							<thead className="bg-amber-50 text-xs uppercase tracking-wide text-amber-700">
+								<tr>
+									<th className="px-3 py-2 font-semibold">Patient</th>
+									<th className="px-3 py-2 font-semibold">Patient ID</th>
+									<th className="px-3 py-2 font-semibold">Doctor</th>
+									<th className="px-3 py-2 font-semibold">Amount (₹)</th>
+									<th className="px-3 py-2 font-semibold">Date</th>
+									<th className="px-3 py-2 font-semibold text-right">Action</th>
+								</tr>
+							</thead>
+							<tbody className="divide-y divide-amber-100">
+								{pending.length === 0 ? (
+									<tr>
+										<td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+											No pending payments.
+										</td>
+									</tr>
+								) : (
+									pending.map(bill => (
+										<tr key={bill.id}>
+											<td className="px-3 py-3 font-medium text-slate-800">{bill.patient}</td>
+											<td className="px-3 py-3 text-slate-600">{bill.patientId}</td>
+											<td className="px-3 py-3 text-slate-600">{bill.doctor || '—'}</td>
+											<td className="px-3 py-3 text-slate-700">Rs. {bill.amount.toFixed(2)}</td>
+											<td className="px-3 py-3 text-slate-600">{bill.date || '—'}</td>
+											<td className="px-3 py-3 text-right">
+												<button
+													type="button"
+													onClick={() => handlePay(bill)}
+													className="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+												>
+													Pay
+												</button>
+											</td>
+										</tr>
+									))
+								)}
+							</tbody>
+						</table>
+					</div>
+				</article>
+			</section>
+
+			{/* Completed Payments Section */}
+			<section className="mx-auto mt-6 grid max-w-6xl gap-6">
+				<article className="rounded-2xl bg-white shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
+					<header className="flex items-center justify-between rounded-t-2xl bg-emerald-100 px-5 py-4 text-emerald-900">
+						<div>
+							<h2 className="text-lg font-semibold">Completed Payments</h2>
+							<p className="text-xs text-emerald-800/80">
+								Payments that have been completed.
+							</p>
+						</div>
+						<span className="inline-flex h-7 min-w-8 items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-semibold text-white">
+							{completed.length}
+						</span>
+					</header>
+					<div className="overflow-x-auto px-5 pb-5 pt-3">
+						<table className="min-w-full divide-y divide-emerald-200 text-left text-sm text-slate-700">
+							<thead className="bg-emerald-50 text-xs uppercase tracking-wide text-emerald-700">
+								<tr>
+									<th className="px-3 py-2 font-semibold">Patient</th>
+									<th className="px-3 py-2 font-semibold">Patient ID</th>
+									<th className="px-3 py-2 font-semibold">Doctor</th>
+									<th className="px-3 py-2 font-semibold">Amount (₹)</th>
+									<th className="px-3 py-2 font-semibold">Payment Mode</th>
+									<th className="px-3 py-2 font-semibold text-right">Actions</th>
+								</tr>
+							</thead>
+							<tbody className="divide-y divide-emerald-100">
+								{completed.length === 0 ? (
+									<tr>
+										<td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+											No completed payments.
+										</td>
+									</tr>
+								) : (
+									completed.map(bill => (
+										<tr key={bill.id}>
+											<td className="px-3 py-3 font-medium text-slate-800">{bill.patient}</td>
+											<td className="px-3 py-3 text-slate-600">{bill.patientId}</td>
+											<td className="px-3 py-3 text-slate-600">{bill.doctor || '—'}</td>
+											<td className="px-3 py-3 text-slate-700">Rs. {bill.amount.toFixed(2)}</td>
+											<td className="px-3 py-3 text-slate-600">{bill.paymentMode || '—'}</td>
+											<td className="px-3 py-3">
+												<div className="flex items-center justify-end gap-2">
+													<button
+														type="button"
+														onClick={() => handleViewPaymentSlip(bill)}
+														className="inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+													>
+														Receipt
+													</button>
+													<button
+														type="button"
+														onClick={() => handleGenerateInvoice(bill)}
+														className="inline-flex items-center rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+													>
+														Invoice
+													</button>
+												</div>
+											</td>
+										</tr>
+									))
+								)}
+							</tbody>
+						</table>
+					</div>
+				</article>
+			</section>
+
+			{/* Payment Modal */}
+			{showPayModal && selectedBill && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<h2 className="text-lg font-semibold text-slate-900">Mark Payment as Completed</h2>
+							<button
+								type="button"
+								onClick={() => {
+									setShowPayModal(false);
+									setSelectedBill(null);
+								}}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
+								aria-label="Close"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="px-6 py-6">
+							<div className="mb-4">
+								<label className="block text-sm font-medium text-slate-700 mb-2">Payment Mode</label>
+								<select
+									value={paymentMode}
+									onChange={e => setPaymentMode(e.target.value as 'Cash' | 'UPI/Card')}
+									className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+								>
+									<option value="Cash">Cash</option>
+									<option value="UPI/Card">UPI/Card</option>
+								</select>
+							</div>
+							{paymentMode === 'UPI/Card' && (
+								<div className="mb-4">
+									<label className="block text-sm font-medium text-slate-700 mb-2">UTR/Transaction ID</label>
+									<input
+										type="text"
+										value={utr}
+										onChange={e => setUtr(e.target.value)}
+										placeholder="Enter UTR/Transaction ID"
+										className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+									/>
+								</div>
+							)}
+							<div className="rounded-lg bg-slate-50 p-4">
+								<p className="text-sm text-slate-600">Patient: <span className="font-medium text-slate-900">{selectedBill.patient}</span></p>
+								<p className="text-sm text-slate-600 mt-1">Amount: <span className="font-medium text-slate-900">Rs. {selectedBill.amount.toFixed(2)}</span></p>
+							</div>
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={() => {
+									setShowPayModal(false);
+									setSelectedBill(null);
+								}}
+								className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleSubmitPayment}
+								className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+							>
+								Confirm Payment
+							</button>
+						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Payment Slip Modal */}
+			{showPaymentSlipModal && selectedBill && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<h2 className="text-lg font-semibold text-slate-900">Payment Receipt</h2>
+							<button
+								type="button"
+								onClick={() => {
+									setShowPaymentSlipModal(false);
+									setSelectedBill(null);
+								}}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
+								aria-label="Close"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="px-6 py-6">
+							<div dangerouslySetInnerHTML={{ __html: generateReceiptHtml(selectedBill, selectedBill.billingId || `BILL-${selectedBill.id?.slice(0, 8) || 'NA'}`) }} />
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={handlePrintPaymentSlip}
+								className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+							>
+								<i className="fas fa-print mr-2 text-sm" aria-hidden="true" />
+								Print
+							</button>
+							<button
+								type="button"
+								onClick={() => {
+									setShowPaymentSlipModal(false);
+									setSelectedBill(null);
+								}}
+								className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
 							>
 								Close
 							</button>
