@@ -8,10 +8,11 @@ import Calendar from '@/components/clinical-team/Calendar';
 import EditReport from '@/components/clinical-team/EditReport';
 import Availability from '@/components/clinical-team/Availability';
 import Transfer from '@/components/clinical-team/Transfer';
+import SessionTransfer from '@/components/clinical-team/SessionTransfer';
 import Appointments from '@/components/clinical-team/Appointments';
 import { useAuth } from '@/contexts/AuthContext';
 
-type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer' | 'appointments';
+type ClinicalTeamPage = 'dashboard' | 'calendar' | 'edit-report' | 'availability' | 'transfer' | 'session-transfer' | 'appointments';
 
 const clinicalTeamLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-dumbbell' },
@@ -20,6 +21,7 @@ const clinicalTeamLinks: SidebarLink[] = [
 	{ href: '#edit-report', label: 'View/Edit Reports', icon: 'fas fa-notes-medical' },
 	{ href: '#availability', label: 'My Availability', icon: 'fas fa-calendar-check' },
 	{ href: '#transfer', label: 'Transfer Patients', icon: 'fas fa-exchange-alt' },
+	{ href: '#session-transfer', label: 'Transfer Sessions', icon: 'fas fa-share-alt' },
 ];
 
 export default function ClinicalTeamLayout({ children }: { children: React.ReactNode }) {
@@ -74,6 +76,8 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 			setActivePage('availability');
 		} else if (pathname?.includes('/transfer')) {
 			setActivePage('transfer');
+		} else if (pathname?.includes('/session-transfer')) {
+			setActivePage('session-transfer');
 		}
 		// Don't set to dashboard when on base route - let hash navigation handle it
 	}, [pathname]);
@@ -111,6 +115,8 @@ export default function ClinicalTeamLayout({ children }: { children: React.React
 				return <Availability />;
 			case 'transfer':
 				return <Transfer />;
+			case 'session-transfer':
+				return <SessionTransfer />;
 			default:
 				return <Dashboard onNavigate={handleLinkClick} />;
 		}

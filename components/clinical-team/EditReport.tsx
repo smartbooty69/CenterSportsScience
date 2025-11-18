@@ -290,6 +290,7 @@ export default function EditReport() {
 	const [loadingVersions, setLoadingVersions] = useState(false);
 	const [viewingVersion, setViewingVersion] = useState<typeof versionHistory[0] | null>(null);
 	const [showCrispReportModal, setShowCrispReportModal] = useState(false);
+	const [showAllPatients, setShowAllPatients] = useState(false);
 	const [selectedSections, setSelectedSections] = useState<ReportSection[]>([
 		'patientInformation',
 		'assessmentOverview',
@@ -355,6 +356,7 @@ export default function EditReport() {
 									? Number(data.remainingSessions)
 									: undefined,
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
+						reportAccessDoctors: data.reportAccessDoctors ? (data.reportAccessDoctors as string[]) : undefined,
 						complaints: data.complaints ? String(data.complaints) : undefined,
 						presentHistory: data.presentHistory ? String(data.presentHistory) : undefined,
 						pastHistory: data.pastHistory ? String(data.pastHistory) : undefined,
@@ -471,10 +473,27 @@ export default function EditReport() {
 			});
 		}
 
-		// Only show patients assigned to the current clinician
+		// Show all patients or only assigned patients based on toggle
 		let assignedPatients: PatientRecordFull[] = [];
-		if (clinicianName) {
-			assignedPatients = patients.filter(patient => normalize(patient.assignedDoctor) === clinicianName);
+		if (showAllPatients) {
+			// Show all patients when "View All Patients" is enabled
+			assignedPatients = patients;
+		} else if (clinicianName) {
+			// Only show patients assigned to the current clinician OR have report access
+			assignedPatients = patients.filter(patient => {
+				// Check if assigned to current clinician
+				if (normalize(patient.assignedDoctor) === clinicianName) {
+					return true;
+				}
+				
+				// Check if current clinician has report access
+				const reportAccessDoctors = (patient as any).reportAccessDoctors || [];
+				if (Array.isArray(reportAccessDoctors)) {
+					return reportAccessDoctors.some((doctor: string) => normalize(doctor) === clinicianName);
+				}
+				
+				return false;
+			});
 		}
 
 		// Then filter by search term
@@ -488,7 +507,7 @@ export default function EditReport() {
 				(patient.phone || '').toLowerCase().includes(query)
 			);
 		});
-	}, [patients, searchTerm, clinicianName, user?.displayName]);
+	}, [patients, searchTerm, clinicianName, user?.displayName, showAllPatients]);
 
 	const handleSelectPatient = (patient: PatientRecordFull) => {
 		setSelectedPatient(patient);
@@ -1407,16 +1426,36 @@ export default function EditReport() {
 					</header>
 
 					<section className="section-card">
-						<div className="mb-4">
-							<label className="block text-sm font-medium text-slate-700">Search patients</label>
-							<input
-								type="search"
-								value={searchTerm}
-								onChange={e => setSearchTerm(e.target.value)}
-								className="input-base mt-2"
-								placeholder="Search by name, ID, or phone"
-							/>
+						<div className="mb-4 flex items-end gap-4">
+							<div className="flex-1">
+								<label className="block text-sm font-medium text-slate-700">Search patients</label>
+								<input
+									type="search"
+									value={searchTerm}
+									onChange={e => setSearchTerm(e.target.value)}
+									className="input-base mt-2"
+									placeholder="Search by name, ID, or phone"
+								/>
+							</div>
+							<button
+								type="button"
+								onClick={() => setShowAllPatients(!showAllPatients)}
+								className={`inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+									showAllPatients
+										? 'bg-sky-600 text-white hover:bg-sky-700 focus:ring-sky-500'
+										: 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus:ring-sky-200'
+								}`}
+							>
+								<i className={`fas ${showAllPatients ? 'fa-users' : 'fa-user'} mr-2`} aria-hidden="true" />
+								{showAllPatients ? 'View My Patients' : 'View All Patients'}
+							</button>
 						</div>
+						{showAllPatients && (
+							<div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+								<i className="fas fa-info-circle mr-2" aria-hidden="true" />
+								<strong>Viewing all patients:</strong> You can now see and access reports for all patients in the system.
+							</div>
+						)}
 
 						{loading ? (
 							<div className="py-12 text-center text-sm text-slate-500">
