@@ -113,55 +113,56 @@ function escapeHtml(unsafe: any) {
 /* --------------------------------------------------------
 	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
-<<<<<<< Updated upstream
-function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
+async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 	const taxableValue = Number(bill.amount || 0);
 	const taxRate = 5; // 5% CGST + 5% SGST = 10% total
 	const cgstAmount = Number((taxableValue * (taxRate / 100)).toFixed(2));
 	const sgstAmount = cgstAmount;
 	const grandTotal = Number((taxableValue + cgstAmount + sgstAmount).toFixed(2));
-	
+
 	const words = numberToWords(grandTotal);
 	const taxWords = numberToWords(cgstAmount + sgstAmount);
 	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
-	
-	const paymentModeDisplay = bill.paymentMode || 'Cash';
-	const buyerName = escapeHtml(bill.patient);
-	const buyerAddress = `Patient ID: ${escapeHtml(bill.patientId)}`;
-	const buyerCity = bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '';
-	
-	// Get the base URL for the logo (works in both dev and production)
-	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
-=======
-async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
-	const amount = Number(bill.amount || 0).toFixed(2);
-	const words = numberToWords(Number(bill.amount || 0));
-	const showDate = bill.date || new Date().toLocaleDateString();
 
-	// Show last 5 digits of UTR if payment mode is UPI / Online
-	let paymentModeDisplay = bill.paymentMode || '';
-	const modeLower = paymentModeDisplay.toLowerCase();
-
-	if ((modeLower.includes('upi') || modeLower.includes('online')) && bill.utr) {
+	let paymentModeDisplay = bill.paymentMode || 'Cash';
+	const normalizedMode = paymentModeDisplay.toLowerCase();
+	if ((normalizedMode.includes('upi') || normalizedMode.includes('online')) && bill.utr) {
 		const lastFive = bill.utr.slice(-5);
 		paymentModeDisplay += ` (...${lastFive})`;
 	}
->>>>>>> Stashed changes
 
-	// Load billing header configuration
+	const buyerName = escapeHtml(bill.patient);
+	const buyerAddress = `Patient ID: ${escapeHtml(bill.patientId)}`;
+	const buyerCity = bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '';
+
+	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+
 	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
 	const headerConfig = await getHeaderConfig('billing');
 	const defaultConfig = getDefaultHeaderConfig('billing');
-	
-	// Use configured values or fall back to defaults
+
 	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
 	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
-	const contactInfo = headerConfig?.contactInfo || defaultConfig.contactInfo || 'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
-	
-	// Split contact info for display
+	const contactInfo =
+		headerConfig?.contactInfo ||
+		defaultConfig.contactInfo ||
+		'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
+
 	const contactParts = contactInfo.split('|').map(s => s.trim());
-	const addressPart = contactParts.find(p => p.toLowerCase().includes('stadium') || p.toLowerCase().includes('address') || p.toLowerCase().includes('bangalore')) || contactParts[0] || '';
+	const addressPart =
+		contactParts.find(
+			p => p.toLowerCase().includes('stadium') || p.toLowerCase().includes('address') || p.toLowerCase().includes('bangalore')
+		) || contactParts[0] || '';
 	const phonePart = contactParts.find(p => p.toLowerCase().includes('phone')) || contactParts[1] || '';
+
+	const headerLines = [
+		mainTitle ? `<span class="bold" style="font-size: 14px;">${escapeHtml(mainTitle)}</span>` : '',
+		subtitle ? escapeHtml(subtitle) : '',
+		addressPart ? escapeHtml(addressPart) : '',
+		phonePart ? escapeHtml(phonePart) : '',
+	]
+		.filter(Boolean)
+		.join('<br>');
 
 	return `
 		<!DOCTYPE html>
@@ -217,21 +218,19 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 		<div class="container">
 			<div class="text-center bold" style="border-bottom: 1px solid #000; padding: 5px; font-size: 14px;">TAX INVOICE</div>
 
-<<<<<<< Updated upstream
 			<table>
 				<tr>
 					<td class="header-left">
 						<div style="display: flex; gap: 10px; align-items: flex-start;">
 							<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto; flex-shrink: 0;">
 							<div>
-								<span class="bold" style="font-size: 14px;">SIXS SPORTS AND BUSINESS SOLUTIONS INC</span><br>
-								Blr: No.503, 5th Floor Donata Marvel Apartment,<br>
-								Gokula Extension, Mattikere, Bangalore-560054<br>
-								<strong>Del:</strong> 1st Floor, No.99 Block S/F, Bharat Road, Darya Ganja, New Delhi-110002<br>
-								<strong>GSTIN/UIN:</strong> 07ADZFS3168H1ZC<br>
-								State Name: Karnataka, Code: 29<br>
-								Contact: +91-9731128398 / 9916509206<br>
-								E-Mail: sportsixs2019@gmail.com
+								${headerLines ||
+									`<span class="bold" style="font-size: 14px;">SIXS SPORTS AND BUSINESS SOLUTIONS INC</span><br>
+									Blr: No.503, 5th Floor Donata Marvel Apartment,<br>
+									Gokula Extension, Mattikere, Bangalore-560054<br>
+									<strong>GSTIN/UIN:</strong> 07ADZFS3168H1ZC<br>
+									Contact: +91-9731128398 / 9916509206<br>
+									E-Mail: sportsixs2019@gmail.com`}
 							</div>
 						</div>
 					</td>
@@ -267,16 +266,6 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 						</table>
 					</td>
 				</tr>
-=======
-				<div style="display:flex;justify-content:space-between;">
-					<div>
-						<div style="font-size:20px;font-weight:700;">${escapeHtml(mainTitle)}</div>
-						${subtitle ? `<div style="font-size:12px;">${escapeHtml(subtitle)}</div>` : ''}
-						${addressPart ? `<div style="font-size:12px;">${escapeHtml(addressPart)}</div>` : ''}
-						${phonePart ? `<div style="font-size:12px;">${escapeHtml(phonePart)}</div>` : ''}
-					</div>
->>>>>>> Stashed changes
-
 				<tr>
 					<td colspan="2">
 						<strong>Consignee (Ship to)</strong><br>
@@ -351,11 +340,9 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 				</tbody>
 			</table>
 
-<<<<<<< Updated upstream
 			<div style="border: 1px solid #000; border-top: none; padding: 5px;">
 				<strong>Amount Chargeable (in words):</strong><br>
 				${escapeHtml(words.toUpperCase())} ONLY
-=======
 				<div style="font-size:12px;margin-top:8px;">
 					<b>Amount in words:</b> ${escapeHtml(words)}
 				</div>
@@ -375,7 +362,6 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 				</div>
 
 				<div style="font-size:10px;margin-top:12px;">Computer generated receipt.</div>
->>>>>>> Stashed changes
 			</div>
 
 			<table class="text-center" style="border-top: none;">
