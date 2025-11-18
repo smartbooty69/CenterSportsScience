@@ -102,6 +102,7 @@ export default function Reports() {
 	const [modalContext, setModalContext] = useState<{ patient: AdminPatientRecord; doctors: string[] } | null>(
 		null
 	);
+	const [selectedPhysician, setSelectedPhysician] = useState<string>('');
 
 	// Load patients from Firestore
 	useEffect(() => {
@@ -122,6 +123,7 @@ export default function Reports() {
 						address: data.address ? String(data.address) : '',
 						complaint: data.complaint ? String(data.complaint) : '',
 						status: (data.status as AdminPatientStatus) ?? 'pending',
+						patientType: data.patientType ? String(data.patientType) : '',
 						totalSessionsRequired:
 							typeof data.totalSessionsRequired === 'number'
 								? data.totalSessionsRequired
@@ -135,7 +137,7 @@ export default function Reports() {
 									? Number(data.remainingSessions)
 									: undefined,
 						registeredAt: created ? created.toISOString() : (data.registeredAt as string | undefined) || new Date().toISOString(),
-					} as AdminPatientRecord & { id: string };
+					} as AdminPatientRecord & { id: string; patientType?: string };
 				});
 				setPatients(mapped);
 			},
@@ -217,6 +219,63 @@ export default function Reports() {
 		});
 		return Array.from(set).sort((a, b) => a.localeCompare(b));
 	}, [staff, appointments]);
+
+	// Clinician Performance Analytics
+	const clinicianAnalytics = useMemo(() => {
+		if (!selectedPhysician) {
+			return {
+				vipCount: 0,
+				dyesCount: 0,
+				othersCount: 0,
+				totalPatients: 0,
+				totalRevenue: 0,
+			};
+		}
+
+		// Get all appointments for selected physician
+		const physicianAppointments = appointments.filter(
+			apt => apt.doctor?.toLowerCase() === selectedPhysician.toLowerCase()
+		);
+
+		// Get unique patient IDs for this physician
+		const uniquePatientIds = new Set(physicianAppointments.map(apt => apt.patientId).filter(Boolean));
+
+		// Get patients attended by this physician
+		const physicianPatients = patients.filter(p => uniquePatientIds.has(p.patientId));
+
+		// Count by patient type
+		let vipCount = 0;
+		let dyesCount = 0;
+		let othersCount = 0;
+
+		physicianPatients.forEach(patient => {
+			const patientType = (patient as { patientType?: string }).patientType?.toUpperCase() || '';
+			if (patientType === 'VIP') {
+				vipCount++;
+			} else if (patientType === 'DYES') {
+				dyesCount++;
+			} else {
+				othersCount++;
+			}
+		});
+
+		// Calculate total revenue from appointments with billing
+		const totalRevenue = physicianAppointments.reduce((sum, apt) => {
+			if (apt.billing?.amount) {
+				const amount = Number(apt.billing.amount);
+				return sum + (Number.isFinite(amount) ? amount : 0);
+			}
+			return sum;
+		}, 0);
+
+		return {
+			vipCount,
+			dyesCount,
+			othersCount,
+			totalPatients: uniquePatientIds.size,
+			totalRevenue,
+		};
+	}, [selectedPhysician, appointments, patients]);
 
 	const appointmentMap = useMemo(() => {
 		const map = new Map<string, AdminAppointmentRecord[]>();
@@ -522,6 +581,98 @@ export default function Reports() {
 		URL.revokeObjectURL(url);
 	};
 
+	const handleExportClinicianAnalytics = () => {
+		if (!doctorOptions.length) {
+			alert('No physicians found to export analytics.');
+			return;
+		}
+
+		const safe = (value: unknown) => {
+			const str = value ?? '';
+			return `"${String(str).replace(/"/g, '""')}"`;
+		};
+
+		// Build CSV content
+		const rows: string[] = [];
+
+		// Header row
+		rows.push(
+			[
+				'Physician Name',
+				'VIP Patients',
+				'DYES Patients',
+				'Other Patients',
+				'Total Patients',
+				'Total Revenue',
+			].map(safe).join(',')
+		);
+
+		// Calculate analytics for each physician
+		doctorOptions.forEach(physician => {
+			// Get all appointments for this physician
+			const physicianAppointments = appointments.filter(
+				apt => apt.doctor?.toLowerCase() === physician.toLowerCase()
+			);
+
+			// Get unique patient IDs for this physician
+			const uniquePatientIds = new Set(physicianAppointments.map(apt => apt.patientId).filter(Boolean));
+
+			// Get patients attended by this physician
+			const physicianPatients = patients.filter(p => uniquePatientIds.has(p.patientId));
+
+			// Count by patient type
+			let vipCount = 0;
+			let dyesCount = 0;
+			let othersCount = 0;
+
+			physicianPatients.forEach(patient => {
+				const patientType = (patient as { patientType?: string }).patientType?.toUpperCase() || '';
+				if (patientType === 'VIP') {
+					vipCount++;
+				} else if (patientType === 'DYES') {
+					dyesCount++;
+				} else {
+					othersCount++;
+				}
+			});
+
+			// Calculate total revenue from appointments with billing
+			const totalRevenue = physicianAppointments.reduce((sum, apt) => {
+				if (apt.billing?.amount) {
+					const amount = Number(apt.billing.amount);
+					return sum + (Number.isFinite(amount) ? amount : 0);
+				}
+				return sum;
+			}, 0);
+
+			// Add row for this physician
+			rows.push(
+				[
+					physician,
+					vipCount.toString(),
+					dyesCount.toString(),
+					othersCount.toString(),
+					uniquePatientIds.size.toString(),
+					totalRevenue.toFixed(2),
+				]
+					.map(safe)
+					.join(',')
+			);
+		});
+
+		const csvContent = rows.join('\n');
+		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+		const url = URL.createObjectURL(blob);
+
+		const link = document.createElement('a');
+		link.href = url;
+		link.setAttribute('download', `clinician-performance-analytics-${new Date().toISOString().slice(0, 10)}.csv`);
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
+	};
+
 	return (
 		<div className="min-h-svh bg-slate-50 px-6 py-10">
 			<div className="mx-auto max-w-6xl space-y-10">
@@ -560,6 +711,135 @@ export default function Reports() {
 					<p className="text-sm uppercase tracking-wide text-white/80">Completed</p>
 					<p className="mt-2 text-3xl font-semibold">{summary.completed}</p>
 				</div>
+			</section>
+
+			{/* Clinician Performance Analytics */}
+			<section className="mx-auto mt-8 max-w-6xl rounded-2xl bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.07)]">
+				<div className="mb-6 flex items-center justify-between">
+					<h2 className="text-lg font-semibold text-slate-900">Clinician Performance Analytics</h2>
+					<button
+						type="button"
+						onClick={handleExportClinicianAnalytics}
+						className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 focus-visible:border-slate-400 focus-visible:text-slate-900 focus-visible:outline-none"
+					>
+						<i className="fas fa-file-csv text-xs" aria-hidden="true" />
+						Export CSV
+					</button>
+				</div>
+				
+				<div className="mb-6">
+					<label className="block text-sm font-medium text-slate-700 mb-2">
+						Select Physician
+					</label>
+					<select
+						value={selectedPhysician}
+						onChange={event => setSelectedPhysician(event.target.value)}
+						className="w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+					>
+						<option value="">Select a physician...</option>
+						{doctorOptions.map(physician => (
+							<option key={physician} value={physician}>
+								{physician}
+							</option>
+						))}
+					</select>
+				</div>
+
+				{selectedPhysician && (
+					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+						{/* VIP Count */}
+						<div className="rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50 to-purple-100 p-5 shadow-sm">
+							<div className="flex items-center justify-between">
+								<div>
+									<p className="text-xs font-semibold uppercase tracking-wide text-purple-600">
+										VIP Patients
+									</p>
+									<p className="mt-2 text-3xl font-bold text-purple-900">
+										{clinicianAnalytics.vipCount}
+									</p>
+								</div>
+								<div className="rounded-full bg-purple-200 p-3">
+									<i className="fas fa-crown text-xl text-purple-600" aria-hidden="true" />
+								</div>
+							</div>
+						</div>
+
+						{/* DYES Count */}
+						<div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-blue-100 p-5 shadow-sm">
+							<div className="flex items-center justify-between">
+								<div>
+									<p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+										DYES Patients
+									</p>
+									<p className="mt-2 text-3xl font-bold text-blue-900">
+										{clinicianAnalytics.dyesCount}
+									</p>
+								</div>
+								<div className="rounded-full bg-blue-200 p-3">
+									<i className="fas fa-users text-xl text-blue-600" aria-hidden="true" />
+								</div>
+							</div>
+						</div>
+
+						{/* Others Count */}
+						<div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 p-5 shadow-sm">
+							<div className="flex items-center justify-between">
+								<div>
+									<p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+										Other Patients
+									</p>
+									<p className="mt-2 text-3xl font-bold text-slate-900">
+										{clinicianAnalytics.othersCount}
+									</p>
+								</div>
+								<div className="rounded-full bg-slate-200 p-3">
+									<i className="fas fa-user-friends text-xl text-slate-600" aria-hidden="true" />
+								</div>
+							</div>
+						</div>
+
+						{/* Total Patients */}
+						<div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100 p-5 shadow-sm">
+							<div className="flex items-center justify-between">
+								<div>
+									<p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+										Total Patients
+									</p>
+									<p className="mt-2 text-3xl font-bold text-emerald-900">
+										{clinicianAnalytics.totalPatients}
+									</p>
+								</div>
+								<div className="rounded-full bg-emerald-200 p-3">
+									<i className="fas fa-user-check text-xl text-emerald-600" aria-hidden="true" />
+								</div>
+							</div>
+						</div>
+
+						{/* Total Revenue */}
+						<div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100 p-5 shadow-sm">
+							<div className="flex items-center justify-between">
+								<div>
+									<p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+										Total Revenue
+									</p>
+									<p className="mt-2 text-2xl font-bold text-amber-900">
+										₹{clinicianAnalytics.totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+									</p>
+								</div>
+								<div className="rounded-full bg-amber-200 p-3">
+									<i className="fas fa-rupee-sign text-xl text-amber-600" aria-hidden="true" />
+								</div>
+							</div>
+						</div>
+					</div>
+				)}
+
+				{!selectedPhysician && (
+					<div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center">
+						<i className="fas fa-chart-line text-3xl text-slate-400 mb-3" aria-hidden="true" />
+						<p className="text-sm text-slate-600">Select a physician to view performance analytics</p>
+					</div>
+				)}
 			</section>
 
 			<section className="mx-auto mt-8 grid max-w-6xl gap-4 md:grid-cols-[repeat(4,minmax(0,1fr))]">
