@@ -463,12 +463,39 @@ export default function Billing() {
 
 		try {
 			const billingRef = doc(db, 'billing', selectedBill.id);
+			const paymentDate = new Date().toISOString().split('T')[0];
+
 			await updateDoc(billingRef, {
 				status: 'Completed',
 				paymentMode,
 				utr: paymentMode === 'UPI/Card' ? utr : null,
+				date: paymentDate,
 				updatedAt: serverTimestamp(),
 			});
+
+			// Mirror completed payment details onto the linked appointment so that cycle reports pick it up
+			if (selectedBill.appointmentId) {
+				const appointmentQuery = query(
+					collection(db, 'appointments'),
+					where('appointmentId', '==', selectedBill.appointmentId)
+				);
+				const appointmentSnapshot = await getDocs(appointmentQuery);
+
+				if (!appointmentSnapshot.empty) {
+					const appointmentDoc = appointmentSnapshot.docs[0];
+					await updateDoc(appointmentDoc.ref, {
+						status: 'completed',
+						billing: {
+							amount: Number(selectedBill.amount ?? 0).toFixed(2),
+							date: paymentDate,
+							paymentMode,
+							billingId: selectedBill.billingId,
+						},
+						updatedAt: serverTimestamp(),
+					});
+				}
+			}
+
 			setShowPayModal(false);
 			setSelectedBill(null);
 			setPaymentMode('Cash');
@@ -770,26 +797,39 @@ export default function Billing() {
 
 	// Admin features: Billing history rows from appointments
 	const billingHistoryRows = useMemo(() => {
-		return appointments
-			.map(appointment => ({ appointment }))
-			.filter(entry => entry.appointment.billing && entry.appointment.billing.amount)
-			.filter(entry => (doctorFilter === 'all' ? true : entry.appointment.doctor === doctorFilter))
-			.filter(entry => isWithinDays(entry.appointment.billing?.date, completedWindow))
-			.map(entry => {
-				const patient = entry.appointment.patientId
-					? patientLookup.get(entry.appointment.patientId)
-					: undefined;
-				const patientName =
-					entry.appointment.patient || (patient ? patient.name : undefined) || entry.appointment.patientId || 'N/A';
-				const amount = Number(entry.appointment.billing?.amount ?? 0);
-				return { ...entry, patientName, amount };
+		return billing
+			.filter(record => record.status === 'Completed')
+			.filter(record => (doctorFilter === 'all' ? true : record.doctor === doctorFilter))
+			.filter(record => isWithinDays(record.date, completedWindow))
+			.map(record => {
+				const patient = record.patientId ? patientLookup.get(record.patientId) : undefined;
+				const patientName = record.patient || patient?.name || record.patientId || 'N/A';
+				return {
+					appointment: {
+						id: record.id || record.billingId,
+						patient: record.patient,
+						patientId: record.patientId,
+						doctor: record.doctor,
+						date: record.date,
+						billing: {
+							amount: record.amount?.toString(),
+							date: record.date,
+						},
+						appointmentId: record.appointmentId,
+					},
+					patientName,
+					amount: Number(record.amount ?? 0),
+				};
 			});
-	}, [appointments, doctorFilter, completedWindow, patientLookup]);
+	}, [billing, doctorFilter, completedWindow, patientLookup]);
 
-	const totalCollections = useMemo(
-		() => billingHistoryRows.reduce((sum, row) => sum + (Number.isFinite(row.amount) ? row.amount : 0), 0),
-		[billingHistoryRows]
-	);
+	const totalCollections = useMemo(() => {
+		return billing
+			.filter(record => record.status === 'Completed')
+			.filter(record => (doctorFilter === 'all' ? true : record.doctor === doctorFilter))
+			.filter(record => isWithinDays(record.date, completedWindow))
+			.reduce((sum, record) => sum + (Number.isFinite(record.amount) ? record.amount : 0), 0);
+	}, [billing, doctorFilter, completedWindow]);
 
 	// Admin features: Pending drafts management
 	useEffect(() => {
@@ -1132,24 +1172,26 @@ export default function Billing() {
 				byClinician: [] as Array<{ doctor: string; amount: number }>,
 			};
 		}
+
 		let pendingCount = 0;
 		let completedCount = 0;
 		let collectedAmount = 0;
 		const byClinicianMap = new Map<string, number>();
 
-		for (const appt of appointments) {
-			// Pending within cycle = completed appointment with no billing, visit date within cycle
-			if (appt.status === 'completed' && !appt.billing && isWithinCycle(appt.date, cycle)) {
+		for (const bill of billing) {
+			if (!isWithinCycle(bill.date, cycle)) continue;
+
+			if (bill.status === 'Pending') {
 				pendingCount += 1;
+				continue;
 			}
-			// Collections within cycle = billing date within cycle
-			const billDate = appt.billing?.date;
-			const billAmount = Number(appt.billing?.amount ?? 0);
-			if (billDate && isWithinCycle(billDate, cycle)) {
+
+			if (bill.status === 'Completed') {
 				completedCount += 1;
-				collectedAmount += Number.isFinite(billAmount) ? billAmount : 0;
-				const key = appt.doctor || 'Unassigned';
-				byClinicianMap.set(key, (byClinicianMap.get(key) || 0) + (Number.isFinite(billAmount) ? billAmount : 0));
+				const amount = Number.isFinite(bill.amount) ? bill.amount : 0;
+				collectedAmount += amount;
+				const doctorKey = bill.doctor || 'Unassigned';
+				byClinicianMap.set(doctorKey, (byClinicianMap.get(doctorKey) || 0) + amount);
 			}
 		}
 
@@ -1158,7 +1200,7 @@ export default function Billing() {
 			.sort((a, b) => b.amount - a.amount);
 
 		return { pendingCount, completedCount, collectedAmount, byClinician };
-	}, [appointments, selectedCycle]);
+	}, [billing, selectedCycle]);
 
 	// Handle billing settings save
 	const handleSaveSettings = async () => {
