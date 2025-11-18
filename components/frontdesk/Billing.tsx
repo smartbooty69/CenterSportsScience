@@ -114,6 +114,7 @@ function escapeHtml(unsafe: any) {
 	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 async function generateInvoiceHtml(
 	bill: BillingRecord, 
 	invoiceNo: string,
@@ -136,6 +137,8 @@ async function generateInvoiceHtml(
 	const taxWords = numberToWords(cgstAmount + sgstAmount);
 	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
 =======
+=======
+>>>>>>> Stashed changes
 async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 	const amount = Number(bill.amount || 0).toFixed(2);
 	const words = numberToWords(Number(bill.amount || 0));
@@ -151,11 +154,32 @@ async function generateInvoiceHtml(bill: BillingRecord, invoiceNo: string) {
 	}
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 	const buyerName = escapeHtml(options?.patientName || bill.patient);
 	const buyerAddress = options?.patientAddress || `Patient ID: ${escapeHtml(bill.patientId)}`;
 	const buyerCity = options?.patientCity || (bill.doctor ? `Doctor: ${escapeHtml(bill.doctor)}` : '');
 	const description = options?.description || 'Physiotherapy / Strength & Conditioning Sessions';
 	const hsnSac = options?.hsnSac || '9993';
+=======
+	// Load billing header configuration
+	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
+	const headerConfig = await getHeaderConfig('billing');
+	const defaultConfig = getDefaultHeaderConfig('billing');
+	
+	// Use configured values or fall back to defaults
+	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
+	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
+	const contactInfo = headerConfig?.contactInfo || defaultConfig.contactInfo || 'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
+	
+	// Split contact info for display
+	const contactParts = contactInfo.split('|').map(s => s.trim());
+	const addressPart = contactParts.find(p => p.toLowerCase().includes('stadium') || p.toLowerCase().includes('address') || p.toLowerCase().includes('bangalore')) || contactParts[0] || '';
+	const phonePart = contactParts.find(p => p.toLowerCase().includes('phone')) || contactParts[1] || '';
+
+	return `
+		<div style="font-family:Arial;width:820px;margin:0 auto;padding:16px;color:#000;">
+			<div style="border:1px solid #222;padding:18px;">
+>>>>>>> Stashed changes
 
 	// Get the base URL for the logo (works in both dev and production)
 	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
@@ -504,6 +528,7 @@ function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 	return `
 		<!DOCTYPE html>
 		<html lang="en">
@@ -691,6 +716,8 @@ function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 		</html>
 	`;
 =======
+=======
+>>>>>>> Stashed changes
 		const html = await generateInvoiceHtml(bill, invoiceNo);
 		const printWindow = window.open('', '_blank');
 
