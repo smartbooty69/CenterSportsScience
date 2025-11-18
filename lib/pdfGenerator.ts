@@ -242,23 +242,23 @@ export async function generatePhysiotherapyReportPDF(
 		console.warn(`Could not load ${rightLogoName} logo:`, error);
 	}
 
-	// Title - Centered vertically within the same row as logos
-	// Text baseline positioned to center vertically within logo height
-	doc.setFont('helvetica', 'bold');
-	doc.setFontSize(20);
-	doc.setTextColor(0, 51, 102);
 	// Calculate text baseline to center it vertically within the logo height
 	// headerY + (logoHeight / 2) centers the text baseline in the middle of the logo
 	const textBaselineY = headerY + (logoHeight / 2);
+	
+	// Title - Centered vertically within the same row as logos
+	doc.setFont('helvetica', 'bold');
+	doc.setFontSize(20);
+	doc.setTextColor(0, 51, 102);
 	// Center text across full page width (flexbox-like behavior: text centered in full width)
 	doc.text('CENTRE FOR SPORTS SCIENCE', pageCenterX, textBaselineY, { align: 'center' });
-
-	// Address - positioned just below "CENTRE FOR SPORTS SCIENCE"
-	let y = headerEndY + 4; // Start address just below the header row with minimal spacing
-
+	
+	// Phone and address - positioned just below "CENTRE FOR SPORTS SCIENCE"
+	let y = headerEndY + 4; // Start just below the header row
+	
 	// Add contact information for PAID, VIP, GETHNA patients, or DYES association text for DYES patients
 	if (isDYES) {
-		// DYES association text
+		// DYES association text - positioned just below the title
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(9);
 		doc.setTextColor(0, 0, 0);
@@ -269,7 +269,7 @@ export async function generatePhysiotherapyReportPDF(
 		doc.text('GOVT ORDER: YU SE KRIE/VI/68/2016-17', pageCenterX, y, { align: 'center' });
 		y += 6; // One line space
 	} else {
-		// For all non-DYES patients (PAID, VIP, GETHNA, or any other type), show phone and address in one line, smaller font
+		// For all non-DYES patients (PAID, VIP, GETHNA, or any other type), show phone and address just below title
 		doc.setFont('helvetica', 'normal');
 		doc.setFontSize(7); // Smaller font size
 		doc.setTextColor(0, 0, 0);
