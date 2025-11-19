@@ -169,49 +169,99 @@ export async function generatePhysiotherapyReportPDF(
 	data: PatientReportData,
 	options?: { forPrint?: boolean; sections?: ReportSection[] }
 ): Promise<string | void> {
-	const [{ default: jsPDF }, autoTableModule] = await Promise.all([
-		import('jspdf'),
-		import('jspdf-autotable'),
-	]);
+	try {
+		console.log('Starting PDF generation...', { forPrint: options?.forPrint, hasSections: !!options?.sections });
+		
+		const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+			import('jspdf'),
+			import('jspdf-autotable'),
+		]);
 
-	// jspdf-autotable v5 exports the function as default
-	const autoTable = (autoTableModule as any).default || autoTableModule;
+		// jspdf-autotable v5 exports the function as default
+		const autoTable = (autoTableModule as any).default || autoTableModule;
 
-	// If sections are specified, only include those sections. Otherwise, include all.
-	const includeSection = (section: ReportSection): boolean => {
-		if (!options?.sections) return true; // Include all if no sections specified
-		if (!Array.isArray(options.sections)) return true; // Include all if sections is not an array
-		return options.sections.includes(section);
-	};
+		// If sections are specified, only include those sections. Otherwise, include all.
+		const includeSection = (section: ReportSection): boolean => {
+			if (!options?.sections) return true; // Include all if no sections specified
+			if (!Array.isArray(options.sections)) return true; // Include all if sections is not an array
+			return options.sections.includes(section);
+		};
 
-	// Load header configuration based on patient type
-	const patientTypeUpper = data.patientType?.toUpperCase() || '';
-	const isDYES = patientTypeUpper === 'DYES';
-	const headerType = isDYES ? 'reportDYES' : 'reportNonDYES';
-	
-	const { getHeaderConfig, getDefaultHeaderConfig } = await import('./headerConfig');
-	const headerConfig = await getHeaderConfig(headerType);
-	const defaultConfig = getDefaultHeaderConfig(headerType);
-	
-	// Use configured values or fall back to defaults
-	const headerSettings = {
-		mainTitle: headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE',
-		subtitle: headerConfig?.subtitle || defaultConfig.subtitle || 'PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT',
-		contactInfo: headerConfig?.contactInfo || defaultConfig.contactInfo || '',
-		associationText: headerConfig?.associationText || defaultConfig.associationText || '',
-		govermentOrder: headerConfig?.govermentOrder || defaultConfig.govermentOrder || '',
-		leftLogo: headerConfig?.leftLogo || null,
-		rightLogo: headerConfig?.rightLogo || null,
-	};
+		// Load header configuration based on patient type
+		const patientTypeUpper = data.patientType?.toUpperCase() || '';
+		const isDYES = patientTypeUpper === 'DYES';
+		const headerType = isDYES ? 'reportDYES' : 'reportNonDYES';
+		
+		const { getHeaderConfig, getDefaultHeaderConfig } = await import('./headerConfig');
+		const headerConfig = await getHeaderConfig(headerType);
+		const defaultConfig = getDefaultHeaderConfig(headerType);
+		
+		// Priority: 1. Admin config, 2. Default config
+		// Admin changes have FIRST priority - use configured values or fall back to defaults
+		const headerSettings = {
+			mainTitle: headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE',
+			subtitle: headerConfig?.subtitle || defaultConfig.subtitle || 'PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT',
+			contactInfo: headerConfig?.contactInfo || defaultConfig.contactInfo || '',
+			associationText: headerConfig?.associationText || defaultConfig.associationText || '',
+			govermentOrder: headerConfig?.govermentOrder || defaultConfig.govermentOrder || '',
+			leftLogo: headerConfig?.leftLogo || null,
+			rightLogo: headerConfig?.rightLogo || null,
+		};
 
-	const doc = new jsPDF('p', 'mm', 'a4');
+		const doc = new jsPDF('p', 'mm', 'a4');
 	const pageWidth = 210; // A4 width in mm
+	const pageHeight = 297; // A4 height in mm
 	const pageMargin = 10; // Left and right margin
+	const footerHeight = 15; // Space reserved for footer
 	const logoWidth = 35;
 	const logoHeight = 18;
 	const leftLogoX = pageMargin; // Left logo aligned to left margin
 	const rightLogoX = pageWidth - pageMargin - logoWidth; // Right logo aligned to right margin
 	const pageCenterX = pageWidth / 2; // Center of full page width (105mm)
+	
+	// Track which pages have footers to avoid duplicates
+	const pagesWithFooter = new Set<number>();
+	
+	// Set up footer callback for all pages
+	const addFooter = (pageData: any) => {
+		// Get page number from pageData (from autoTable) or from doc internal
+		let pageNumber: number;
+		let totalPages: number;
+		
+		if (pageData && pageData.pageNumber !== undefined) {
+			// From autoTable callback
+			pageNumber = pageData.pageNumber;
+			totalPages = pageData.pageCount || (doc as any).internal.getNumberOfPages();
+		} else {
+			// Manual page addition - use internal API
+			pageNumber = (doc as any).internal.getCurrentPageInfo().pageNumber;
+			totalPages = (doc as any).internal.getNumberOfPages();
+		}
+		
+		// Skip if footer already added to this page
+		if (pagesWithFooter.has(pageNumber)) {
+			return;
+		}
+		pagesWithFooter.add(pageNumber);
+		
+		const footerY = pageHeight - 8; // Position footer 8mm from bottom
+		
+		// Add footer line
+		doc.setDrawColor(200, 200, 200);
+		doc.setLineWidth(0.1);
+		doc.line(pageMargin, footerY - 2, pageWidth - pageMargin, footerY - 2);
+		
+		// Add page number
+		doc.setFontSize(8);
+		doc.setFont('helvetica', 'normal');
+		doc.setTextColor(100, 100, 100);
+		doc.text(
+			`Page ${pageNumber} of ${totalPages}`,
+			pageCenterX,
+			footerY,
+			{ align: 'center' }
+		);
+	};
 
 	// All elements (logo, text, logo) aligned in single row at same height
 	const headerY = 10; // Starting Y position - same for all elements
@@ -392,9 +442,9 @@ export async function generatePhysiotherapyReportPDF(
 		['Patient Name', data.patientName],
 	];
 	
-	// Add Organization Type right after Patient Name if available
+	// Add Type of Organization right after Patient Name if available
 	if (data.patientType) {
-		patientInfoBody.push(['Organization Type', data.patientType]);
+		patientInfoBody.push(['Type of Organization', data.patientType]);
 	}
 	
 	// Add remaining patient information
@@ -421,6 +471,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -443,6 +495,8 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -466,6 +520,8 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -475,20 +531,22 @@ export async function generatePhysiotherapyReportPDF(
 			startY: y,
 			theme: 'grid',
 			head: [['ON OBSERVATION', '']],
-		body: [
-			['Built', data.built || ''],
-			['Posture', `${data.posture || ''}${data.postureManualNotes ? ` | Notes: ${data.postureManualNotes}` : ''}`],
-			['Kinetisense Upload', data.postureFileName || '—'],
-			['GAIT Analysis', `${data.gaitAnalysis || ''}${data.gaitManualNotes ? ` | Notes: ${data.gaitManualNotes}` : ''}`],
-			['OptaGAIT Upload', data.gaitFileName || '—'],
-			['Mobility Aids', data.mobilityAids || ''],
-			['Local Observation', data.localObservation || ''],
-			['Swelling', data.swelling || ''],
-			['Muscle Wasting', data.muscleWasting || ''],
-		],
-		headStyles,
-		styles: baseStyles,
-		columnStyles: { 0: { cellWidth: 60 } },
+			body: [
+				['Built', data.built || ''],
+				['Posture', `${data.posture || ''}${data.postureManualNotes ? ` | Notes: ${data.postureManualNotes}` : ''}`],
+				['Kinetisense Upload', data.postureFileName || '—'],
+				['GAIT Analysis', `${data.gaitAnalysis || ''}${data.gaitManualNotes ? ` | Notes: ${data.gaitManualNotes}` : ''}`],
+				['OptaGAIT Upload', data.gaitFileName || '—'],
+				['Mobility Aids', data.mobilityAids || ''],
+				['Local Observation', data.localObservation || ''],
+				['Swelling', data.swelling || ''],
+				['Muscle Wasting', data.muscleWasting || ''],
+			],
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -498,16 +556,18 @@ export async function generatePhysiotherapyReportPDF(
 			startY: y,
 			theme: 'grid',
 			head: [['ON PALPATION', '']],
-		body: [
-			['Tenderness', data.tenderness || ''],
-			['Warmth', data.warmth || ''],
-			['Scar', data.scar || ''],
-			['Crepitus', data.crepitus || ''],
-			['Odema', data.odema || ''],
-		],
-		headStyles,
-		styles: baseStyles,
-		columnStyles: { 0: { cellWidth: 60 } },
+			body: [
+				['Tenderness', data.tenderness || ''],
+				['Warmth', data.warmth || ''],
+				['Scar', data.scar || ''],
+				['Crepitus', data.crepitus || ''],
+				['Odema', data.odema || ''],
+			],
+			headStyles,
+			styles: baseStyles,
+			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -523,6 +583,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -539,6 +601,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 80 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -558,6 +622,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -584,6 +650,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -602,6 +670,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 40 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -614,6 +684,8 @@ export async function generatePhysiotherapyReportPDF(
 		body: [[buildCurrentStatus(data)]],
 		headStyles,
 		styles: { ...baseStyles, cellPadding: 3 },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -630,6 +702,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 10;
 	} else if (includeSection('nextFollowUp')) {
@@ -637,39 +711,125 @@ export async function generatePhysiotherapyReportPDF(
 	}
 
 	if (includeSection('signature')) {
+		// Ensure signature is not too close to footer - leave at least 15mm space
+		const signatureY = Math.min(y, pageHeight - footerHeight - 10);
 		doc.setFont('helvetica', 'bold');
 		doc.setFontSize(10);
-		doc.text('Physiotherapist Signature:', 12, y);
+		doc.text('Physiotherapist Signature:', 12, signatureY);
 		doc.setFont('helvetica', 'normal');
-		doc.text(data.physioName || '', 65, y);
+		doc.text(data.physioName || '', 65, signatureY);
 
 		doc.setFont('helvetica', 'bold');
-		doc.text('Reg. No:', 150, y);
+		doc.text('Reg. No:', 150, signatureY);
 		doc.setFont('helvetica', 'normal');
-		doc.text(data.physioRegNo || '', 170, y);
+		doc.text(data.physioRegNo || '', 170, signatureY);
 	}
 
-	if (options?.forPrint) {
-		// Generate PDF blob and open print window
-		const pdfBlob = doc.output('blob');
-		const pdfUrl = URL.createObjectURL(pdfBlob);
-		
-		// Open print window with PDF
-		const printWindow = window.open(pdfUrl, '_blank');
-		if (printWindow) {
-			// Wait for PDF to load, then trigger print
-			printWindow.onload = () => {
-				setTimeout(() => {
-					printWindow.print();
-					// Clean up the URL after printing
+	// Add footer to all pages that don't have it yet (final pass)
+	// This ensures all pages have footers even if autoTable didn't trigger the callback
+	const totalPages = (doc as any).internal.getNumberOfPages();
+	for (let i = 1; i <= totalPages; i++) {
+		(doc as any).setPage(i);
+		addFooter({ pageNumber: i, pageCount: totalPages });
+	}
+
+		if (options?.forPrint) {
+			try {
+				console.log('Generating PDF for print...');
+				// Generate PDF blob
+				const pdfBlob = doc.output('blob');
+				const pdfUrl = URL.createObjectURL(pdfBlob);
+				console.log('PDF blob created, URL:', pdfUrl);
+				
+				// Create a hidden iframe to load the PDF
+				const iframe = document.createElement('iframe');
+				iframe.style.position = 'fixed';
+				iframe.style.right = '0';
+				iframe.style.bottom = '0';
+				iframe.style.width = '0';
+				iframe.style.height = '0';
+				iframe.style.border = 'none';
+				iframe.style.visibility = 'hidden';
+				iframe.style.opacity = '0';
+				iframe.src = pdfUrl;
+				
+				document.body.appendChild(iframe);
+				
+				let printAttempted = false;
+				
+				const attemptPrint = () => {
+					if (printAttempted) return;
+					printAttempted = true;
+					
 					setTimeout(() => {
-						URL.revokeObjectURL(pdfUrl);
-					}, 1000);
-				}, 500);
-			};
+						try {
+							// Try to print from iframe
+							if (iframe.contentWindow) {
+								iframe.contentWindow.focus();
+								iframe.contentWindow.print();
+							} else {
+								throw new Error('iframe contentWindow not available');
+							}
+						} catch (iframeError) {
+							// If iframe printing fails, try opening in new window
+							console.warn('Iframe print failed, trying window.open:', iframeError);
+							try {
+								const printWindow = window.open(pdfUrl, '_blank');
+								if (printWindow) {
+									// Wait a bit for PDF to load, then print
+									setTimeout(() => {
+										try {
+											printWindow.print();
+										} catch (winError) {
+											console.error('Window print failed:', winError);
+										}
+									}, 1500);
+								}
+							} catch (winError) {
+								console.error('Failed to open print window:', winError);
+							}
+						}
+						
+						// Clean up iframe after a delay
+						setTimeout(() => {
+							if (iframe.parentNode) {
+								document.body.removeChild(iframe);
+							}
+							// Don't revoke URL immediately - let print dialog finish
+							setTimeout(() => {
+								URL.revokeObjectURL(pdfUrl);
+							}, 5000);
+						}, 2000);
+					}, 800);
+				};
+				
+				// Try when iframe loads
+				iframe.onload = attemptPrint;
+				
+				// Fallback: try after timeout even if onload doesn't fire
+				setTimeout(() => {
+					if (!printAttempted && iframe.parentNode) {
+						attemptPrint();
+					}
+				}, 2500);
+			
+				return pdfUrl;
+			} catch (error) {
+				console.error('Error generating PDF for print:', error);
+				throw error;
+			}
+		} else {
+			try {
+				console.log('Saving PDF for download...');
+				doc.save(`Physiotherapy_Report_${data.patientId}.pdf`);
+				console.log('PDF saved successfully');
+			} catch (error) {
+				console.error('Error saving PDF:', error);
+				throw error;
+			}
 		}
-		return pdfUrl;
-	} else {
-		doc.save(`Physiotherapy_Report_${data.patientId}.pdf`);
+	} catch (error) {
+		console.error('Error in generatePhysiotherapyReportPDF:', error);
+		throw error;
 	}
 }

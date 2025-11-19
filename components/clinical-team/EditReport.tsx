@@ -10,6 +10,8 @@ import type { AdminGenderOption, AdminPatientStatus } from '@/lib/adminMockData'
 import { generatePhysiotherapyReportPDF, type PatientReportData, type ReportSection } from '@/lib/pdfGenerator';
 import type { PatientRecordFull } from '@/lib/types';
 import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
+import { getHeaderConfig, getDefaultHeaderConfig } from '@/lib/headerConfig';
+import type { HeaderConfig } from '@/components/admin/HeaderManagement';
 
 const VAS_EMOJIS = ['😀','😁','🙂','😊','😌','😟','😣','😢','😭','😱'];
 const HYDRATION_EMOJIS = ['😄','😃','🙂','😐','😕','😟','😢','😭'];
@@ -306,6 +308,7 @@ export default function EditReport() {
 		'nextFollowUp',
 		'signature',
 	]);
+	const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
 	const vasValue = Number(formData.vasScale || '5');
 	const vasEmoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, vasValue) - 1)];
 	const hydrationValue = Number(formData.hydration || '4');
@@ -457,6 +460,51 @@ export default function EditReport() {
 			}
 		}
 	}, [patientIdParam, patients, selectedPatient]);
+
+	// Load header config based on patient type (DYES vs non-DYES)
+	useEffect(() => {
+		if (!selectedPatient) {
+			setHeaderConfig(null);
+			return;
+		}
+
+		const loadHeaderConfig = async () => {
+			const patientTypeUpper = selectedPatient.patientType?.toUpperCase() || '';
+			const isDYES = patientTypeUpper === 'DYES';
+			const headerType = isDYES ? 'reportDYES' : 'reportNonDYES';
+			
+			try {
+				const config = await getHeaderConfig(headerType);
+				const defaultConfig = getDefaultHeaderConfig(headerType);
+				
+				// Merge config with defaults
+				const mergedConfig: HeaderConfig = {
+					id: config?.id || headerType,
+					type: headerType as 'reportDYES' | 'reportNonDYES' | 'billing',
+					mainTitle: config?.mainTitle || defaultConfig.mainTitle || '',
+					subtitle: config?.subtitle || defaultConfig.subtitle || '',
+					contactInfo: config?.contactInfo || defaultConfig.contactInfo || '',
+					associationText: config?.associationText || defaultConfig.associationText || '',
+					govermentOrder: config?.govermentOrder || defaultConfig.govermentOrder || '',
+					leftLogo: config?.leftLogo || undefined,
+					rightLogo: config?.rightLogo || undefined,
+				};
+				
+				setHeaderConfig(mergedConfig);
+			} catch (error) {
+				console.error('Failed to load header config', error);
+				// Use defaults on error
+				const defaultConfig = getDefaultHeaderConfig(headerType);
+				setHeaderConfig({
+					id: headerType,
+					type: headerType as 'reportDYES' | 'reportNonDYES' | 'billing',
+					...defaultConfig,
+				} as HeaderConfig);
+			}
+		};
+
+		loadHeaderConfig();
+	}, [selectedPatient]);
 
 	const filteredPatients = useMemo(() => {
 		// Debug logging in development
@@ -955,6 +1003,15 @@ export default function EditReport() {
 		} finally {
 			setLoadingVersions(false);
 		}
+	};
+
+	const handleStrengthConditioningReport = (patientId?: string) => {
+		// Navigate to strength and conditioning report page
+		// If patientId is provided, pass it as a query parameter
+		const url = patientId 
+			? `/clinical-team/strength-conditioning-report?patientId=${patientId}`
+			: '/clinical-team/strength-conditioning-report';
+		router.push(url);
 	};
 
 	const handleViewVersionHistory = async () => {
@@ -1602,18 +1659,34 @@ export default function EditReport() {
 		} as PatientReportData;
 	};
 
-	const handleDownloadPDF = (sections?: ReportSection[]) => {
-		const payload = buildReportPayload();
-		if (!payload) return;
-		generatePhysiotherapyReportPDF(payload, { sections });
+	const handleDownloadPDF = async (sections?: ReportSection[]) => {
+		try {
+			const payload = buildReportPayload();
+			if (!payload) {
+				alert('No patient selected. Please select a patient first.');
+				return;
+			}
+			await generatePhysiotherapyReportPDF(payload, { sections });
+		} catch (error) {
+			console.error('Error downloading PDF:', error);
+			alert('Failed to download PDF. Please try again.');
+		}
 	};
 
 	const handlePrint = async (sections?: ReportSection[]) => {
-		const payload = buildReportPayload();
-		if (!payload) return;
+		try {
+			const payload = buildReportPayload();
+			if (!payload) {
+				alert('No patient selected. Please select a patient first.');
+				return;
+			}
 
-		// Generate PDF and open print window
-		await generatePhysiotherapyReportPDF(payload, { forPrint: true, sections });
+			// Generate PDF and open print window
+			await generatePhysiotherapyReportPDF(payload, { forPrint: true, sections });
+		} catch (error) {
+			console.error('Error printing PDF:', error);
+			alert('Failed to print PDF. Please try again.');
+		}
 	};
 
 	const handleCrispReport = () => {
@@ -1625,9 +1698,9 @@ export default function EditReport() {
 		await handlePrint(selectedSections);
 	};
 
-	const handleCrispReportDownload = () => {
+	const handleCrispReportDownload = async () => {
 		setShowCrispReportModal(false);
-		handleDownloadPDF(selectedSections);
+		await handleDownloadPDF(selectedSections);
 	};
 
 	const allSections: Array<{ key: ReportSection; label: string }> = [
@@ -1697,7 +1770,17 @@ export default function EditReport() {
 							<div>
 								<b>Clinic:</b> Centre For Sports Science, Kanteerava Stadium
 							</div>
-							<div>
+							{headerConfig?.associationText && (
+								<div className="mt-1 text-xs text-slate-500">
+									{headerConfig.associationText}
+								</div>
+							)}
+							{headerConfig?.govermentOrder && (
+								<div className="mt-1 text-xs text-slate-500">
+									{headerConfig.govermentOrder}
+								</div>
+							)}
+							<div className="mt-1">
 								<b>Date:</b> {new Date().toLocaleDateString()}
 							</div>
 						</div>
@@ -1707,6 +1790,15 @@ export default function EditReport() {
 								<input
 									type="text"
 									value={selectedPatient.name}
+									readOnly
+									className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+								/>
+							</div>
+							<div>
+								<label className="block text-xs font-medium text-slate-500">Type of Organization</label>
+								<input
+									type="text"
+									value={selectedPatient.patientType || '—'}
 									readOnly
 									className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 								/>
@@ -2714,7 +2806,7 @@ export default function EditReport() {
 						>
 							<i className="fas fa-history text-xs" aria-hidden="true" />
 							Report History
-						</button>
+image.png						</button>
 						<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
 							<i className="fas fa-save text-xs" aria-hidden="true" />
 							{saving ? 'Saving...' : 'Save Report'}
