@@ -16,6 +16,7 @@ interface Therapist {
 	role: string;
 	email?: string;
 	phone?: string;
+	dateSpecificAvailability?: Record<string, { enabled: boolean; slots: Array<{ start: string; end: string }> }>;
 }
 
 interface TransferHistory {
@@ -57,6 +58,11 @@ interface ConfirmationState {
 	isOpen: boolean;
 	patient: PatientRecordTransfer | null;
 	newTherapist: string;
+	availabilityCheck?: {
+		appointments: Array<{ id: string; date: string; time: string; status: string }>;
+		conflicts: AppointmentConflict[];
+		hasConflicts: boolean;
+	};
 }
 
 const STATUS_BADGES: Record<AdminPatientStatus, string> = {
@@ -101,6 +107,7 @@ export default function Transfer() {
 	const [appointmentConflicts, setAppointmentConflicts] = useState<Record<string, AppointmentConflict[]>>({});
 	const [checkingConflicts, setCheckingConflicts] = useState<Record<string, boolean>>({});
 	const [updatingStatus, setUpdatingStatus] = useState<Record<string, boolean>>({});
+	const [checkingAvailability, setCheckingAvailability] = useState(false);
 
 	// Load current staff member's userName to match against assignedDoctor
 	useEffect(() => {
@@ -223,6 +230,7 @@ export default function Transfer() {
 							status: data.status as string,
 							email: data.email as string | undefined,
 							phone: data.phone as string | undefined,
+							dateSpecificAvailability: data.dateSpecificAvailability as Therapist['dateSpecificAvailability'],
 						};
 					})
 					.filter(
@@ -237,6 +245,7 @@ export default function Transfer() {
 						role: staff.role,
 						email: staff.email,
 						phone: staff.phone,
+						dateSpecificAvailability: staff.dateSpecificAvailability,
 					}));
 
 				setTherapists(mapped);
@@ -508,7 +517,7 @@ export default function Transfer() {
 		});
 	}, [pendingRequests.length]);
 
-	const handleTransferClick = (patient: PatientRecordTransfer, newTherapistName: string) => {
+	const handleTransferClick = async (patient: PatientRecordTransfer, newTherapistName: string) => {
 		if (!newTherapistName || newTherapistName === patient.assignedDoctor) {
 			return;
 		}
@@ -520,11 +529,133 @@ export default function Transfer() {
 			return;
 		}
 
-		setConfirmation({
-			isOpen: true,
-			patient,
-			newTherapist: newTherapistName,
-		});
+		// Check availability before showing confirmation
+		setCheckingAvailability(true);
+		try {
+			const newTherapistData = therapists.find(t => t.name === newTherapistName);
+			if (!newTherapistData) {
+				alert('Therapist not found. Please try again.');
+				setCheckingAvailability(false);
+				return;
+			}
+
+			// Load patient's upcoming appointments
+			const appointmentsQuery = query(
+				collection(db, 'appointments'),
+				where('patientId', '==', patient.patientId),
+				where('status', 'in', ['pending', 'ongoing'])
+			);
+			const appointmentsSnapshot = await getDocs(appointmentsQuery);
+			const appointments = appointmentsSnapshot.docs.map(docSnap => ({
+				id: docSnap.id,
+				date: docSnap.data().date as string,
+				time: docSnap.data().time as string,
+				status: docSnap.data().status as string,
+			}));
+
+			if (appointments.length === 0) {
+				// No appointments, proceed with transfer
+				setConfirmation({
+					isOpen: true,
+					patient,
+					newTherapist: newTherapistName,
+					availabilityCheck: {
+						appointments: [],
+						conflicts: [],
+						hasConflicts: false,
+					},
+				});
+				setCheckingAvailability(false);
+				return;
+			}
+
+			// Load new therapist's availability
+			const therapistDoc = await getDoc(doc(db, 'staff', newTherapistData.id));
+			if (!therapistDoc.exists()) {
+				alert('Therapist data not found. Please try again.');
+				setCheckingAvailability(false);
+				return;
+			}
+
+			const therapistData = therapistDoc.data();
+			const availability = therapistData.dateSpecificAvailability as Record<string, { enabled: boolean; slots: Array<{ start: string; end: string }> }> | undefined;
+
+			// Check each appointment for conflicts
+			const conflicts: AppointmentConflict[] = [];
+
+			for (const appointment of appointments) {
+				const dateKey = appointment.date; // Already in YYYY-MM-DD format
+				const daySchedule = availability?.[dateKey];
+
+				if (!daySchedule || !daySchedule.enabled) {
+					conflicts.push({
+						appointmentId: appointment.id,
+						date: appointment.date,
+						time: appointment.time,
+						conflictReason: 'no_availability',
+					});
+					continue;
+				}
+
+				// Check if appointment time falls within any available slot
+				const [aptHours, aptMinutes] = appointment.time.split(':').map(Number);
+				const aptTime = aptHours * 60 + aptMinutes;
+
+				const fitsInSlot = daySchedule.slots.some(slot => {
+					const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
+					const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
+					const slotStart = slotStartHours * 60 + slotStartMinutes;
+					let slotEnd = slotEndHours * 60 + slotEndMinutes;
+					if (slotEnd <= slotStart) slotEnd += 24 * 60;
+					return aptTime >= slotStart && aptTime < slotEnd;
+				});
+
+				if (!fitsInSlot) {
+					conflicts.push({
+						appointmentId: appointment.id,
+						date: appointment.date,
+						time: appointment.time,
+						conflictReason: 'slot_unavailable',
+					});
+					continue;
+				}
+
+				// Check if therapist already has an appointment at that time
+				const existingAppointmentsQuery = query(
+					collection(db, 'appointments'),
+					where('doctor', '==', newTherapistName),
+					where('date', '==', appointment.date),
+					where('time', '==', appointment.time),
+					where('status', 'in', ['pending', 'ongoing'])
+				);
+				const existingSnapshot = await getDocs(existingAppointmentsQuery);
+				if (!existingSnapshot.empty) {
+					conflicts.push({
+						appointmentId: appointment.id,
+						date: appointment.date,
+						time: appointment.time,
+						conflictReason: 'already_booked',
+					});
+				}
+			}
+
+			// Show confirmation with availability check results
+			setConfirmation({
+				isOpen: true,
+				patient,
+				newTherapist: newTherapistName,
+				availabilityCheck: {
+					appointments,
+					conflicts,
+					hasConflicts: conflicts.length > 0,
+				},
+			});
+		} catch (error) {
+			console.error('Failed to check availability', error);
+			alert('Failed to check therapist availability. Please try again.');
+		} finally {
+			setCheckingAvailability(false);
+		}
 	};
 
 	const handleConfirmTransfer = async () => {
@@ -1363,19 +1494,22 @@ export default function Transfer() {
 														isTransferring || 
 														!selectedTherapist || 
 														selectedTherapist === patient.assignedDoctor ||
-														normalize(selectedTherapist) === clinicianName
+														normalize(selectedTherapist) === clinicianName ||
+														checkingAvailability
 													}
 													className="btn-primary"
 													title={
 														normalize(selectedTherapist) === clinicianName 
 															? 'Cannot transfer to yourself' 
+															: checkingAvailability
+															? 'Checking availability...'
 															: undefined
 													}
 												>
-													{isTransferring ? (
+													{isTransferring || checkingAvailability ? (
 														<>
 															<div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-															Transferring...
+															{checkingAvailability ? 'Checking Availability...' : 'Transferring...'}
 														</>
 													) : (
 														<>
@@ -1453,6 +1587,7 @@ export default function Transfer() {
 				onConfirm={handleConfirmTransfer}
 				onCancel={handleCancelTransfer}
 				transferring={confirmation.patient ? transferring[confirmation.patient.id] || false : false}
+				availabilityCheck={confirmation.availabilityCheck}
 			/>
 		</div>
 	);
