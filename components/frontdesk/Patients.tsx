@@ -12,7 +12,7 @@ import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
-import { checkAppointmentConflict, checkAvailabilityConflict } from '@/lib/appointmentUtils';
+import { checkAppointmentConflict } from '@/lib/appointmentUtils';
 import { createInitialSessionAllowance } from '@/lib/sessionAllowance';
 
 type PaymentTypeOption = 'with' | 'without';
@@ -65,6 +65,7 @@ interface AppointmentRecord {
 	doctor: string;
 	date: string;
 	time: string;
+	duration?: number;
 	status: AdminAppointmentStatus;
 }
 
@@ -73,6 +74,7 @@ interface BookingFormState {
 	doctor: string;
 	date: string;
 	time: string;
+	duration: number;
 	notes?: string;
 }
 
@@ -132,6 +134,8 @@ const PAYMENT_OPTIONS: Array<{ value: PaymentTypeOption; label: string }> = [
 ];
 
 const PHONE_REGEX = /^[0-9]{10,15}$/;
+const SLOT_INTERVAL_MINUTES = 30;
+const MAX_BLOCK_DURATION_MINUTES = 120;
 
 const REGISTER_FORM_INITIAL_STATE: RegisterFormState = {
 	fullName: '',
@@ -172,6 +176,32 @@ function formatDateLabel(value: string) {
 	return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed);
 }
 
+function timeStringToMinutes(time: string) {
+	const [hours, minutes] = time.split(':').map(Number);
+	if (Number.isNaN(hours) || Number.isNaN(minutes)) return 0;
+	return hours * 60 + minutes;
+}
+
+function minutesToTimeString(totalMinutes: number) {
+	const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+	const hours = Math.floor(normalized / 60);
+	const minutes = normalized % 60;
+	return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function formatDurationLabel(minutes: number) {
+	if (minutes % 60 === 0) {
+		const hours = minutes / 60;
+		return hours === 1 ? '1 hr' : `${hours} hrs`;
+	}
+	if (minutes > 60) {
+		const hours = Math.floor(minutes / 60);
+		const remaining = minutes % 60;
+		return `${hours} hr ${remaining} min`;
+	}
+	return `${minutes} min`;
+}
+
 export default function Patients() {
 	const [patients, setPatients] = useState<FrontdeskPatient[]>([]);
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
@@ -203,8 +233,10 @@ export default function Patients() {
 		doctor: '',
 		date: '',
 		time: '',
+		duration: 0,
 		notes: '',
 	});
+	const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
 	const [bookingLoading, setBookingLoading] = useState(false);
 	const [showBookingModal, setShowBookingModal] = useState(false);
 	const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -292,6 +324,7 @@ export default function Patients() {
 						doctor: data.doctor ? String(data.doctor) : '',
 						date: data.date ? String(data.date) : '',
 						time: data.time ? String(data.time) : '',
+						duration: typeof data.duration === 'number' ? data.duration : undefined,
 						status: (data.status as AdminAppointmentStatus) ?? 'pending',
 					} as AppointmentRecord;
 				});
@@ -366,7 +399,7 @@ export default function Patients() {
 	}, [patients, bookingForm.patientId]);
 
 	const doctorOptions = useMemo(() => {
-		const base = staff
+		return staff
 			.filter(
 				member =>
 					member.status === 'Active' &&
@@ -375,29 +408,154 @@ export default function Patients() {
 			.map(member => member.userName)
 			.filter(Boolean)
 			.sort((a, b) => a.localeCompare(b));
+	}, [staff]);
 
-		if (!bookingForm.date || !bookingForm.time) {
-			return base;
+	const availableSlots = useMemo<string[]>(() => {
+		if (!bookingForm.date || !bookingForm.doctor) {
+			return [];
 		}
 
-		return base.filter(name => {
-			const member = staff.find(staffMember => staffMember.userName === name);
-			if (!member) return false;
-			const availability = checkAvailabilityConflict(
-				member.dateSpecificAvailability,
-				bookingForm.date,
-				bookingForm.time
-			);
-			return availability.isAvailable;
+		const staffMember = staff.find(member => member.userName === bookingForm.doctor);
+		if (!staffMember) {
+			return [];
+		}
+
+		const dayAvailability = staffMember.dateSpecificAvailability?.[bookingForm.date];
+		if (!dayAvailability || !dayAvailability.enabled || !dayAvailability.slots || dayAvailability.slots.length === 0) {
+			return [];
+		}
+
+		const relevantAppointments = appointments.filter(
+			appointment =>
+				appointment.doctor === bookingForm.doctor &&
+				appointment.date === bookingForm.date &&
+				appointment.status !== 'cancelled'
+		);
+
+		const bookedSlotSet = new Set<string>();
+		relevantAppointments.forEach(appointment => {
+			if (!appointment.time) return;
+			const durationMinutes = Math.max(SLOT_INTERVAL_MINUTES, appointment.duration ?? SLOT_INTERVAL_MINUTES);
+			const blocks = Math.ceil(durationMinutes / SLOT_INTERVAL_MINUTES);
+			const startMinutes = timeStringToMinutes(appointment.time);
+			for (let block = 0; block < blocks; block += 1) {
+				const blockStartMinutes = startMinutes + block * SLOT_INTERVAL_MINUTES;
+				bookedSlotSet.add(minutesToTimeString(blockStartMinutes));
+			}
 		});
-	}, [staff, bookingForm.date, bookingForm.time]);
+
+		const now = new Date();
+		const selectedDate = new Date(`${bookingForm.date}T00:00:00`);
+		const isToday = selectedDate.toDateString() === now.toDateString();
+		const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+
+		const slots: string[] = [];
+
+		dayAvailability.slots.forEach(slot => {
+			if (!slot.start || !slot.end) return;
+
+			const [startHour, startMinute] = slot.start.split(':').map(Number);
+			const [endHour, endMinute] = slot.end.split(':').map(Number);
+
+			if ([startHour, startMinute, endHour, endMinute].some(value => Number.isNaN(value))) {
+				return;
+			}
+
+			const slotStart = new Date(selectedDate);
+			slotStart.setHours(startHour, startMinute, 0, 0);
+			const slotEnd = new Date(selectedDate);
+			slotEnd.setHours(endHour, endMinute, 0, 0);
+
+			if (slotEnd <= slotStart) {
+				slotEnd.setDate(slotEnd.getDate() + 1);
+			}
+
+			const current = new Date(slotStart);
+			while (current < slotEnd) {
+				const timeString = `${String(current.getHours()).padStart(2, '0')}:${String(current.getMinutes()).padStart(2, '0')}`;
+
+				if (bookedSlotSet.has(timeString)) {
+					current.setMinutes(current.getMinutes() + SLOT_INTERVAL_MINUTES);
+					continue;
+				}
+
+				if (isToday) {
+					const minutesFromMidnight = current.getHours() * 60 + current.getMinutes();
+					if (minutesFromMidnight < currentTimeMinutes) {
+						current.setMinutes(current.getMinutes() + SLOT_INTERVAL_MINUTES);
+						continue;
+					}
+				}
+
+				slots.push(timeString);
+				current.setMinutes(current.getMinutes() + SLOT_INTERVAL_MINUTES);
+			}
+		});
+
+		return [...new Set(slots)].sort();
+	}, [appointments, bookingForm.date, bookingForm.doctor, staff]);
 
 	useEffect(() => {
 		if (!bookingForm.doctor) return;
 		if (!doctorOptions.includes(bookingForm.doctor)) {
-			setBookingForm(prev => ({ ...prev, doctor: '' }));
+			setBookingForm(prev => ({ ...prev, doctor: '', date: '', time: '', duration: 0 }));
+			setSelectedSlots([]);
 		}
 	}, [bookingForm.doctor, doctorOptions]);
+
+	useEffect(() => {
+		setSelectedSlots(prevSelected => {
+			if (prevSelected.length === 0) return prevSelected;
+			const filtered = prevSelected.filter(slot => availableSlots.includes(slot));
+			if (filtered.length === prevSelected.length) return prevSelected;
+			setBookingForm(prev => ({
+				...prev,
+				time: filtered[0] ?? '',
+				duration: filtered.length > 0 ? filtered.length * SLOT_INTERVAL_MINUTES : 0,
+			}));
+			return filtered;
+		});
+	}, [availableSlots]);
+
+	const handleSlotToggle = (slot: string) => {
+		setSelectedSlots(prevSelected => {
+			let nextSelection: string[];
+			if (prevSelected.includes(slot)) {
+				nextSelection = prevSelected.filter(item => item !== slot);
+			} else {
+				nextSelection = [...prevSelected, slot];
+			}
+
+			nextSelection = [...nextSelection].sort((a, b) => a.localeCompare(b));
+
+			if (nextSelection.length > 1) {
+				const isContiguous = nextSelection.every((time, index) => {
+					if (index === 0) return true;
+					const previousTime = nextSelection[index - 1];
+					return (
+						timeStringToMinutes(time) - timeStringToMinutes(previousTime) === SLOT_INTERVAL_MINUTES
+					);
+				});
+
+				if (!isContiguous) {
+					nextSelection = [slot];
+				}
+			}
+
+			const maxSlots = Math.max(1, Math.floor(MAX_BLOCK_DURATION_MINUTES / SLOT_INTERVAL_MINUTES));
+			if (nextSelection.length > maxSlots) {
+				nextSelection = nextSelection.slice(-maxSlots);
+			}
+
+			setBookingForm(prev => ({
+				...prev,
+				time: nextSelection[0] ?? '',
+				duration: nextSelection.length > 0 ? nextSelection.length * SLOT_INTERVAL_MINUTES : 0,
+			}));
+
+			return nextSelection;
+		});
+	};
 
 	const handleBookFirstAppointment = (patientId: string) => {
 		if (patientHasAppointments(patientId)) {
@@ -411,8 +569,10 @@ export default function Patients() {
 			doctor: '',
 			date: '',
 			time: '',
+			duration: 0,
 			notes: '',
 		});
+		setSelectedSlots([]);
 		setShowBookingModal(true);
 		setOpenMenuId(null);
 	};
@@ -424,8 +584,10 @@ export default function Patients() {
 			doctor: '',
 			date: '',
 			time: '',
+			duration: 0,
 			notes: '',
 		});
+		setSelectedSlots([]);
 	};
 
 const handleOpenRegisterModal = () => {
@@ -576,8 +738,14 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 };
 
 	const handleCreateAppointment = async () => {
-		if (!bookingForm.patientId || !bookingForm.doctor || !bookingForm.date || !bookingForm.time) {
-			alert('Please select clinician, date, and time for the appointment.');
+		if (
+			!bookingForm.patientId ||
+			!bookingForm.doctor ||
+			!bookingForm.date ||
+			!bookingForm.time ||
+			!bookingForm.duration
+		) {
+			alert('Please select clinician, date, and a time slot duration for the appointment.');
 			return;
 		}
 
@@ -607,12 +775,14 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 				doctor: appointment.doctor,
 				date: appointment.date,
 				time: appointment.time,
+				duration: appointment.duration,
 				status: appointment.status,
 			})),
 			{
 				doctor: bookingForm.doctor,
 				date: bookingForm.date,
 				time: bookingForm.time,
+				duration: bookingForm.duration,
 			}
 		);
 
@@ -636,6 +806,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 				staffId: staffMember.id,
 				date: bookingForm.date,
 				time: bookingForm.time,
+				duration: bookingForm.duration,
 				status: 'pending' as AdminAppointmentStatus,
 				notes: bookingForm.notes?.trim() || null,
 				createdAt: serverTimestamp(),
@@ -864,6 +1035,21 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 
 		setDeletingId(id);
 		try {
+			const deleteDocsByQuery = async (targetQuery: any) => {
+				const snapshot = await getDocs(targetQuery);
+				if (snapshot.empty) return 0;
+				const docs = snapshot.docs;
+				const batchSize = 500;
+				for (let index = 0; index < docs.length; index += batchSize) {
+					const batch = writeBatch(db);
+					docs.slice(index, index + batchSize).forEach(docSnap => {
+						batch.delete(docSnap.ref);
+					});
+					await batch.commit();
+				}
+				return docs.length;
+			};
+
 			// First, delete all appointments for this patient (query by patientId)
 			const appointmentsQuery = query(
 				collection(db, 'appointments'),
@@ -880,8 +1066,15 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			
 			// Combine and deduplicate appointment references
 			const allAppointmentRefs = new Set<string>();
-			appointmentsSnapshot.docs.forEach(doc => allAppointmentRefs.add(doc.id));
-			appointmentsByNameSnapshot.docs.forEach(doc => allAppointmentRefs.add(doc.id));
+
+			const collectAppointmentRefs = (docs: typeof appointmentsSnapshot.docs) => {
+				docs.forEach(docSnap => {
+					allAppointmentRefs.add(docSnap.id);
+				});
+			};
+
+			collectAppointmentRefs(appointmentsSnapshot.docs);
+			collectAppointmentRefs(appointmentsByNameSnapshot.docs);
 			
 			if (allAppointmentRefs.size > 0) {
 				// Use batch write for better performance and atomicity
@@ -903,9 +1096,25 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 				console.log(`Deleted ${allAppointmentRefs.size} appointment(s) for patient ${patient.patientId} (${patient.name})`);
 			}
 
+			// Delete reports, transfer records, and notifications tied to this patient
+			await Promise.all([
+				deleteDocsByQuery(query(collection(db, 'reportVersions'), where('patientId', '==', patient.patientId))),
+				deleteDocsByQuery(query(collection(db, 'transferRequests'), where('patientId', '==', patient.patientId))),
+				deleteDocsByQuery(query(collection(db, 'transferHistory'), where('patientId', '==', patient.patientId))),
+				deleteDocsByQuery(query(collection(db, 'notifications'), where('metadata.patientId', '==', patient.patientId))),
+			]);
+
+			// Delete patient subcollections (notes, attachments, history)
+			if (patient.id) {
+				const subcollections = ['notes', 'attachments', 'history'];
+				for (const subcollectionName of subcollections) {
+					await deleteDocsByQuery(query(collection(db, 'patients', patient.id, subcollectionName)));
+				}
+			}
+
 			// Then delete the patient
 			await deleteDoc(doc(db, 'patients', id));
-			alert(`Patient "${patient.name}" and all associated appointments have been deleted successfully.`);
+			alert(`Patient "${patient.name}" and all associated records have been deleted successfully.`);
 		} catch (error) {
 			console.error('Failed to delete patient', error);
 			alert(`Failed to delete patient: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1399,41 +1608,38 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 									<p>Email: {selectedBookingPatient?.email ?? '—'}</p>
 								</div>
 
-								<div>
-									<label className="block text-sm font-medium text-slate-700">
-										Clinician <span className="text-rose-500">*</span>
-									</label>
-									<select
-										value={bookingForm.doctor}
-										onChange={event => setBookingForm(prev => ({ ...prev, doctor: event.target.value }))}
-										className="select-base mt-2"
-										disabled={!bookingForm.date || !bookingForm.time || bookingLoading}
-										required
-									>
-										<option value="">
-											{!bookingForm.date || !bookingForm.time
-												? 'Select date & time first'
-												: doctorOptions.length
-													? 'Select clinician'
-													: 'No clinicians available'}
-										</option>
-										{doctorOptions.map(option => (
-											<option key={option} value={option}>
-												{option}
-											</option>
-										))}
-									</select>
-									{(!bookingForm.date || !bookingForm.time) && (
-										<p className="mt-1 text-xs text-slate-500">Pick a date and time to view available clinicians.</p>
-									)}
-									{bookingForm.date && bookingForm.time && doctorOptions.length === 0 && (
-										<p className="mt-1 text-xs text-amber-600">
-											No clinicians have availability for {bookingForm.date} at {bookingForm.time}.
-										</p>
-									)}
-								</div>
-
 								<div className="grid gap-4 sm:grid-cols-2">
+									<div>
+										<label className="block text-sm font-medium text-slate-700">
+											Clinician <span className="text-rose-500">*</span>
+										</label>
+										<select
+											value={bookingForm.doctor}
+											onChange={event => {
+												setBookingForm(prev => ({
+													...prev,
+													doctor: event.target.value,
+													date: '',
+													time: '',
+													duration: 0,
+												}));
+												setSelectedSlots([]);
+											}}
+											className="select-base mt-2"
+											disabled={bookingLoading}
+											required
+										>
+											<option value="">{doctorOptions.length ? 'Select clinician' : 'No clinicians available'}</option>
+											{doctorOptions.map(option => (
+												<option key={option} value={option}>
+													{option}
+												</option>
+											))}
+										</select>
+										{doctorOptions.length === 0 && (
+											<p className="mt-1 text-xs text-amber-600">No active clinicians are available right now.</p>
+										)}
+									</div>
 									<div>
 										<label className="block text-sm font-medium text-slate-700">
 											Date <span className="text-rose-500">*</span>
@@ -1442,35 +1648,83 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 											type="date"
 											className="input-base mt-2"
 											value={bookingForm.date}
-											onChange={event =>
+											onChange={event => {
 												setBookingForm(prev => ({
 													...prev,
 													date: event.target.value,
-													doctor: '',
-												}))
-											}
+													time: '',
+													duration: 0,
+												}));
+												setSelectedSlots([]);
+											}}
 											min={new Date().toISOString().split('T')[0]}
+											disabled={!bookingForm.doctor || bookingLoading}
 											required
 										/>
+										{!bookingForm.doctor && (
+											<p className="mt-1 text-xs text-slate-500">Pick a clinician to enable date selection.</p>
+										)}
 									</div>
-									<div>
-										<label className="block text-sm font-medium text-slate-700">
-											Time <span className="text-rose-500">*</span>
-										</label>
-										<input
-											type="time"
-											className="input-base mt-2"
-											value={bookingForm.time}
-											onChange={event =>
-												setBookingForm(prev => ({
-													...prev,
-													time: event.target.value,
-													doctor: '',
-												}))
-											}
-											required
-										/>
-									</div>
+								</div>
+
+								<div>
+									<label className="block text-sm font-medium text-slate-700">
+										Time Slot <span className="text-rose-500">*</span>
+									</label>
+									{!bookingForm.doctor ? (
+										<p className="mt-2 text-xs text-slate-500">Choose a clinician to see their available dates and slots.</p>
+									) : !bookingForm.date ? (
+										<p className="mt-2 text-xs text-slate-500">Select a date to view available time slots.</p>
+									) : availableSlots.length === 0 ? (
+										<div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+											No slots available for {bookingForm.doctor} on {bookingForm.date}. Pick another date or clinician.
+										</div>
+									) : (
+										<div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+											{availableSlots.map(slot => {
+												const slotEnd = minutesToTimeString(timeStringToMinutes(slot) + SLOT_INTERVAL_MINUTES);
+												const isSelected = selectedSlots.includes(slot);
+												return (
+													<button
+														type="button"
+														key={slot}
+														onClick={() => handleSlotToggle(slot)}
+														className={`rounded-xl border px-3 py-2 text-sm font-medium shadow-sm transition ${
+															isSelected
+																? 'border-sky-500 bg-sky-50 text-sky-800 ring-2 ring-sky-200'
+																: 'border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50'
+														}`}
+														aria-pressed={isSelected}
+														disabled={bookingLoading}
+													>
+														<div className="flex items-center justify-between">
+															<div>
+																<p className="font-semibold">{slot} – {slotEnd}</p>
+																<p className="text-xs text-slate-500">30 minutes</p>
+															</div>
+															<span className={`text-xs ${isSelected ? 'text-sky-600' : 'text-slate-400'}`}>
+																<i
+																	className={`fas ${isSelected ? 'fa-check-circle' : 'fa-clock'}`}
+																	aria-hidden="true"
+																/>
+															</span>
+														</div>
+													</button>
+												);
+											})}
+										</div>
+									)}
+									{selectedSlots.length > 0 && (
+										<p className="mt-2 text-xs font-medium text-slate-600">
+											Selected duration:{' '}
+											<span className="text-slate-900">{formatDurationLabel(selectedSlots.length * SLOT_INTERVAL_MINUTES)}</span>
+										</p>
+									)}
+									{selectedSlots.length <= 1 && (
+										<p className="mt-1 text-xs text-slate-500">
+											Select consecutive slots to automatically combine them into longer appointments.
+										</p>
+									)}
 								</div>
 
 								<div>
@@ -1499,6 +1753,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 									!bookingForm.doctor ||
 									!bookingForm.date ||
 									!bookingForm.time ||
+									!bookingForm.duration ||
 									!selectedBookingPatient
 								}
 							>

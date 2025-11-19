@@ -25,6 +25,7 @@ interface FrontdeskAppointment {
 	doctor: string;
 	date: string;
 	time: string;
+	duration?: number;
 	status: AdminAppointmentStatus;
 	createdAt: string;
 	notes?: string;
@@ -84,6 +85,21 @@ interface BookingForm {
 	notes?: string;
 }
 
+const SLOT_INTERVAL_MINUTES = 30;
+
+function timeStringToMinutes(value: string) {
+	const [hours, minutes] = value.split(':').map(Number);
+	if (Number.isNaN(hours) || Number.isNaN(minutes)) return 0;
+	return hours * 60 + minutes;
+}
+
+function minutesToTimeString(totalMinutes: number) {
+	const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+	const hours = Math.floor(normalized / 60);
+	const minutes = normalized % 60;
+	return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
 function formatDateLabel(value: string) {
 	if (!value) return '—';
 	const parsed = new Date(value);
@@ -132,6 +148,7 @@ export default function Appointments() {
 						doctor: data.doctor ? String(data.doctor) : '',
 						date: data.date ? String(data.date) : '',
 						time: data.time ? String(data.time) : '',
+						duration: typeof data.duration === 'number' ? data.duration : undefined,
 						status: (data.status as AdminAppointmentStatus) ?? 'pending',
 						notes: data.notes ? String(data.notes) : undefined,
 						createdAt: created ? created.toISOString() : (data.createdAt as string | undefined) || new Date().toISOString(),
@@ -323,10 +340,21 @@ export default function Appointments() {
 			return []; // Return empty array - no slots should be shown
 		}
 
-		// Get all booked appointments for this staff and date
-		const bookedSlots = appointments
+		// Get all booked appointments for this staff and date (expand by duration)
+		const bookedSlotSet = new Set<string>();
+		appointments
 			.filter(apt => apt.doctor === selectedStaff.userName && apt.date === bookingForm.date && apt.status !== 'cancelled')
-			.map(apt => apt.time);
+			.forEach(apt => {
+				if (!apt.time) return;
+				const durationMinutes = Math.max(SLOT_INTERVAL_MINUTES, apt.duration ?? SLOT_INTERVAL_MINUTES);
+				const blocks = Math.ceil(durationMinutes / SLOT_INTERVAL_MINUTES);
+				const startMinutes = timeStringToMinutes(apt.time);
+				for (let block = 0; block < blocks; block += 1) {
+					const blockStartMinutes = startMinutes + block * SLOT_INTERVAL_MINUTES;
+					bookedSlotSet.add(minutesToTimeString(blockStartMinutes));
+				}
+			});
+		const bookedSlots = [...bookedSlotSet];
 
 		if (process.env.NODE_ENV === 'development') {
 			console.log('📋 Availability Details:', {
