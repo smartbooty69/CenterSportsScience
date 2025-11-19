@@ -10,6 +10,12 @@ async function requireAdmin(request: NextRequest, fallbackRole?: string) {
 	}
 	const token = auth.slice('Bearer '.length).trim();
 	try {
+		// Check if Admin SDK is properly initialized
+		if (!authAdmin) {
+			console.error('Firebase Admin SDK not initialized');
+			return { ok: false, status: 500, message: 'Firebase Admin SDK not configured. Please set up FIREBASE_SERVICE_ACCOUNT_KEY or GOOGLE_APPLICATION_CREDENTIALS.' as const };
+		}
+
 		const decoded = await authAdmin.verifyIdToken(token);
 		let role = (decoded as any).role || (decoded as any).claims?.role;
 		
@@ -45,9 +51,44 @@ async function requireAdmin(request: NextRequest, fallbackRole?: string) {
 			return { ok: false, status: 403, message: 'Forbidden: admin role required' as const };
 		}
 		return { ok: true as const, uid: decoded.uid };
-	} catch (err) {
-		console.error('verifyIdToken failed', err);
-		return { ok: false, status: 401, message: 'Invalid token' as const };
+	} catch (err: any) {
+		// Log detailed error information for debugging
+		console.error('verifyIdToken failed', {
+			code: err?.code,
+			message: err?.message,
+			stack: err?.stack,
+			tokenLength: token?.length,
+			hasAuthAdmin: !!authAdmin,
+			projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+		});
+		
+		// Provide more specific error messages
+		let errorMessage: string = 'Invalid token';
+		const isNetworkError = err?.message?.includes('ETIMEDOUT') || 
+			err?.message?.includes('ECONNREFUSED') || 
+			err?.message?.includes('ENOTFOUND') ||
+			err?.message?.includes('timeout') ||
+			err?.message?.includes('connect');
+		
+		if (isNetworkError) {
+			errorMessage = 'Network timeout: Unable to connect to Firebase servers to verify token. ' +
+				'This may be due to network connectivity issues, firewall blocking, or IPv6 connectivity problems. ' +
+				'Please check your internet connection and try again. If the issue persists, you may need to configure proxy settings or disable IPv6.';
+		} else if (err?.code === 'auth/argument-error' && !isNetworkError) {
+			errorMessage = 'Invalid token format. Please log in again.';
+		} else if (err?.code === 'auth/id-token-expired') {
+			errorMessage = 'Token expired. Please log in again.';
+		} else if (err?.code === 'auth/id-token-revoked') {
+			errorMessage = 'Token revoked. Please log in again.';
+		} else if (err?.code === 'auth/project-not-found' || err?.message?.includes('project')) {
+			errorMessage = 'Firebase project configuration error. Please check FIREBASE_SERVICE_ACCOUNT_KEY and NEXT_PUBLIC_FIREBASE_PROJECT_ID.';
+		} else if (err?.code === 'auth/invalid-credential' || err?.message?.includes('credential')) {
+			errorMessage = 'Firebase Admin SDK credential error. Please verify FIREBASE_SERVICE_ACCOUNT_KEY is correctly set and restart the server.';
+		} else if (err?.message) {
+			errorMessage = `Token verification failed: ${err.message}`;
+		}
+		
+		return { ok: false, status: 401, message: errorMessage };
 	}
 }
 

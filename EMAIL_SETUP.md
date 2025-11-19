@@ -71,13 +71,25 @@ NEXT_PUBLIC_CLINIC_PHONE=+1 (555) 123-4567
 
 ### 4. Verify Domain (Production - Email)
 
+**Important:** Resend has restrictions in test/development mode:
+
+- **Test Mode**: You can only send emails to your own verified email address (the one you used to sign up for Resend)
+- **To send to other recipients**: You must verify a domain in Resend
+
 For production use, you'll need to:
 
-1. Add your domain in Resend dashboard
-2. Verify domain ownership via DNS records
-3. Update `RESEND_FROM_EMAIL` to use your verified domain
+1. Go to [Resend Domains](https://resend.com/domains)
+2. Add your domain (e.g., `yourdomain.com`)
+3. Verify domain ownership by adding DNS records (Resend will provide the exact records)
+4. Once verified, update `RESEND_FROM_EMAIL` in `.env.local` to use your verified domain:
+   ```env
+   RESEND_FROM_EMAIL=noreply@yourdomain.com
+   ```
 
-**Note:** In development, Resend provides a default sender email (`onboarding@resend.dev`) that works for testing.
+**Note:** 
+- In test mode with `onboarding@resend.dev`, you can only send to your own verified email
+- For password reset emails and other user emails, you'll need to verify a domain
+- Domain verification is free and takes about 5-10 minutes
 
 ### 5. Verify Phone Number (Production - SMS & WhatsApp)
 

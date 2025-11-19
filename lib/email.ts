@@ -6,11 +6,12 @@ export type EmailTemplate =
 	| 'patient-registered'
 	| 'appointment-status-changed'
 	| 'billing-pending'
-	| 'session-balance';
+	| 'session-balance'
+	| 'password-reset';
 
 export interface EmailData {
 	to: string;
-	subject: string;
+	subject?: string;
 	template: EmailTemplate;
 	data: Record<string, unknown>;
 }
@@ -55,6 +56,8 @@ export function getEmailSubject(template: EmailTemplate, data: Record<string, un
 			const name = (data.recipientName as string) || (data.patientName as string) || 'Patient';
 			return `Session Balance Update - ${name}`;
 		}
+		case 'password-reset':
+			return 'Reset Your Password - Centre For Sports Science';
 		default:
 			return 'Notification from Centre For Sports Science';
 	}
@@ -502,36 +505,169 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 			`;
 		}
 
+		case 'password-reset': {
+			const resetData = data as unknown as {
+				userName?: string;
+				userEmail: string;
+				resetLink: string;
+			};
+			const userName = resetData.userName || 'User';
+			return `
+				<!DOCTYPE html>
+				<html>
+				<head>
+					<meta charset="utf-8">
+					<meta name="viewport" content="width=device-width, initial-scale=1.0">
+					${baseStyles}
+				</head>
+				<body>
+					<div class="container">
+						<div class="header">
+							<h1 style="margin: 0; font-size: 24px;">Reset Your Password</h1>
+						</div>
+						<div class="content">
+							<p>Dear ${userName},</p>
+							<p>We received a request to reset your password for your ${clinicName} account.</p>
+							
+							<div class="info-box" style="text-align: center; padding: 20px;">
+								<p style="margin: 0 0 15px 0;">Click the button below to reset your password:</p>
+								<a href="${resetData.resetLink}" class="button" style="text-decoration: none; display: inline-block; padding: 12px 24px; background: #0ea5e9; color: white; border-radius: 6px; margin: 10px 0;">
+									Reset Password
+								</a>
+								<p style="margin: 15px 0 0 0; font-size: 12px; color: #64748b;">
+									Or copy and paste this link into your browser:<br>
+									<a href="${resetData.resetLink}" style="color: #0ea5e9; word-break: break-all;">${resetData.resetLink}</a>
+								</p>
+							</div>
+							
+							<p><strong>This link will expire in 1 hour.</strong></p>
+							
+							<p>If you did not request a password reset, please ignore this email. Your password will remain unchanged.</p>
+							
+							<p>For security reasons, if you continue to receive these emails, please contact our support team.</p>
+							
+							<p>Best regards,<br>The ${clinicName} Team</p>
+						</div>
+						<div class="footer">
+							<p><strong>${clinicName}</strong></p>
+							${clinicEmail ? `<p>Email: ${clinicEmail}</p>` : ''}
+							${clinicPhone ? `<p>Phone: ${clinicPhone}</p>` : ''}
+						</div>
+					</div>
+				</body>
+				</html>
+			`;
+		}
+
 		default:
 			return '<p>Notification from Centre For Sports Science</p>';
 	}
 }
 
 /**
- * Send email notification via API route
+ * Send email notification (server-side only - directly uses Resend)
+ * For client-side use, call the /api/email endpoint directly
  */
 export async function sendEmailNotification(emailData: EmailData): Promise<{ success: boolean; error?: string }> {
-	try {
-		const response = await fetch('/api/email', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify(emailData),
-		});
+	// Check if we're in a server environment
+	if (typeof window === 'undefined') {
+		// Server-side: use Resend directly
+		try {
+			const { Resend } = await import('resend');
+			const resend = new Resend(process.env.RESEND_API_KEY);
 
-		if (!response.ok) {
-			const error = await response.text();
-			return { success: false, error };
+			// Validate required fields
+			if (!emailData.to || !emailData.template) {
+				return { success: false, error: 'Missing required fields: to, template' };
+			}
+
+			// Validate email format
+			const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+			if (!emailRegex.test(emailData.to)) {
+				return { success: false, error: 'Invalid email address' };
+			}
+
+			// Check if Resend API key is configured
+			if (!process.env.RESEND_API_KEY) {
+				console.warn('RESEND_API_KEY not configured. Email will not be sent.');
+				if (process.env.NODE_ENV === 'development') {
+					console.log('Email would be sent:', {
+						to: emailData.to,
+						subject: emailData.subject || getEmailSubject(emailData.template, emailData.data),
+						template: emailData.template,
+					});
+					return { success: true };
+				}
+				return { success: false, error: 'Email service not configured' };
+			}
+
+			// Generate subject and body
+			const subject = emailData.subject || getEmailSubject(emailData.template, emailData.data);
+			const html = generateEmailBody(emailData.template, emailData.data);
+
+			// Get sender email from environment or use default
+			const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+			const fromName = process.env.RESEND_FROM_NAME || 'Centre For Sports Science';
+
+			// Send email via Resend
+			const result = await resend.emails.send({
+				from: `${fromName} <${fromEmail}>`,
+				to: emailData.to,
+				subject,
+				html,
+			});
+
+			if (result.error) {
+				console.error('Resend API error:', result.error);
+				let errorMessage = result.error.message || JSON.stringify(result.error) || 'Failed to send email';
+				
+				// Provide helpful guidance for common Resend errors
+				if (result.error.statusCode === 403 && errorMessage.includes('testing emails')) {
+					console.warn('Resend test mode restriction: You can only send to verified email addresses.');
+					console.warn('To send to other recipients, verify a domain at https://resend.com/domains');
+					console.warn('For now, emails can only be sent to:', emailData.to);
+					// In development, we'll still try to proceed if sending to the verified email
+					if (process.env.NODE_ENV === 'development') {
+						console.warn('Continuing in development mode...');
+					}
+				}
+				
+				return { success: false, error: errorMessage };
+			}
+
+			return { success: true };
+		} catch (error) {
+			console.error('Failed to send email notification:', error);
+			return { 
+				success: false, 
+				error: error instanceof Error ? error.message : 'Unknown error' 
+			};
 		}
+	} else {
+		// Client-side: use API route
+		try {
+			const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+			const response = await fetch(`${baseUrl}/api/email`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify(emailData),
+			});
 
-		return { success: true };
-	} catch (error) {
-		console.error('Failed to send email notification:', error);
-		return { 
-			success: false, 
-			error: error instanceof Error ? error.message : 'Unknown error' 
-		};
+			if (!response.ok) {
+				const error = await response.text();
+				return { success: false, error };
+			}
+
+			return { success: true };
+		} catch (error) {
+			console.error('Failed to send email notification:', error);
+			return { 
+				success: false, 
+				error: error instanceof Error ? error.message : 'Unknown error' 
+			};
+		}
 	}
 }
 
