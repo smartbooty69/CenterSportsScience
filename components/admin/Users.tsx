@@ -235,8 +235,8 @@ export default function Users() {
 			} else {
 				// Create new employee - need to create auth user and user profile first
 				try {
-					// Get admin token for API call
-					const token = await auth.currentUser?.getIdToken();
+					// Get admin token for API call - force refresh to ensure we have a valid token
+					const token = await auth.currentUser?.getIdToken(true);
 					if (!token) {
 						throw new Error('Unable to get authentication token. Please log in again.');
 					}
@@ -265,7 +265,11 @@ export default function Users() {
 							// User exists, continue to create staff record
 							console.warn('User already exists in Firebase Auth, creating staff record only');
 						} else {
-							throw new Error(result.message || 'Failed to create user account');
+							// Throw error with the specific message from the API
+							const errorMessage = result.message || result.error || 'Failed to create user account';
+							const apiError = new Error(errorMessage);
+							(apiError as any).apiResponse = result;
+							throw apiError;
 						}
 					}
 
@@ -282,6 +286,12 @@ export default function Users() {
 					// and show a warning that user needs to be created manually
 					console.warn('Failed to create auth user via API, creating staff record only:', apiError);
 					
+					// Extract the error message - check multiple possible locations
+					const errorMessage = apiError?.message || 
+						apiError?.apiResponse?.message || 
+						apiError?.apiResponse?.error || 
+						'Unknown error';
+					
 					// Still create the staff record
 					await addDoc(collection(db, 'staff'), {
 						userName: trimmedName,
@@ -291,13 +301,55 @@ export default function Users() {
 						createdAt: serverTimestamp(),
 					});
 
-					// Show warning about manual user creation
-					setError(
-						`Staff record created, but user account could not be created automatically. ` +
-						`Please create the Firebase Authentication user manually in Firebase Console ` +
-						`(email: ${trimmedEmail}, password: ${trimmedPassword}) and add a user profile in the 'users' collection. ` +
-						`Error: ${apiError?.message || 'Unknown error'}`
-					);
+					// Show warning about manual user creation with specific error details
+					const isConfigError = errorMessage.includes('Firebase Admin SDK') || 
+						errorMessage.includes('FIREBASE_SERVICE_ACCOUNT') ||
+						errorMessage.includes('GOOGLE_APPLICATION_CREDENTIALS') ||
+						errorMessage.includes('configuration');
+					
+					const isNetworkError = errorMessage.includes('Network timeout') || 
+						errorMessage.includes('ETIMEDOUT') ||
+						errorMessage.includes('timeout') ||
+						errorMessage.includes('Unable to connect');
+					
+					let userMessage = `Staff record created, but user account could not be created automatically. `;
+					
+					if (isNetworkError) {
+						userMessage += `\n\n⚠️ Network Connectivity Issue:\n` +
+							`Your server cannot connect to Google's servers to verify authentication tokens. ` +
+							`This is likely due to:\n` +
+							`- Network firewall blocking Google services\n` +
+							`- IPv6 connectivity issues (common on Windows)\n` +
+							`- Corporate network restrictions\n` +
+							`- Proxy configuration needed\n\n` +
+							`Solutions:\n` +
+							`1. Check if you can access https://www.googleapis.com in a browser\n` +
+							`2. Try using a VPN or different network\n` +
+							`3. Configure proxy settings if on a corporate network\n` +
+							`4. See FIREBASE_ADMIN_SETUP.md for detailed troubleshooting\n\n`;
+					} else if (isConfigError) {
+						userMessage += `\n\nConfiguration Issue: ${errorMessage}\n\n` +
+							`Please set up Firebase Admin SDK credentials in your environment variables. ` +
+							`See FIREBASE_ADMIN_SETUP.md for instructions.\n\n`;
+					}
+					
+					userMessage += `📝 Manual User Creation Required:\n\n` +
+						`1. Go to Firebase Console → Authentication → Users → "Add user"\n` +
+						`   - Email: ${trimmedEmail}\n` +
+						`   - Password: ${trimmedPassword}\n` +
+						`   - Click "Add user" and copy the User UID\n\n` +
+						`2. Go to Firestore Database → 'users' collection → "Add document"\n` +
+						`   - Document ID: Paste the User UID from step 1\n` +
+						`   - Add fields:\n` +
+						`     • email: ${trimmedEmail}\n` +
+						`     • displayName: ${trimmedName}\n` +
+						`     • userName: ${trimmedName}\n` +
+						`     • role: ${formState.userRole}\n` +
+						`     • status: Active\n` +
+						`   - Click "Save"\n\n` +
+						`Error details: ${errorMessage}`;
+
+					setError(userMessage);
 					// Don't close dialog so user can see the error
 					return;
 				}

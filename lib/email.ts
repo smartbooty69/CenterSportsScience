@@ -6,7 +6,8 @@ export type EmailTemplate =
 	| 'patient-registered'
 	| 'appointment-status-changed'
 	| 'billing-pending'
-	| 'session-balance';
+	| 'session-balance'
+	| 'password-reset';
 
 export interface EmailData {
 	to: string;
@@ -55,6 +56,8 @@ export function getEmailSubject(template: EmailTemplate, data: Record<string, un
 			const name = (data.recipientName as string) || (data.patientName as string) || 'Patient';
 			return `Session Balance Update - ${name}`;
 		}
+		case 'password-reset':
+			return 'Reset Your Password - Centre For Sports Science';
 		default:
 			return 'Notification from Centre For Sports Science';
 	}
@@ -489,6 +492,60 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 							
 							<p>Please coordinate with the billing desk to settle any pending sessions.</p>
 
+							<p>Best regards,<br>The ${clinicName} Team</p>
+						</div>
+						<div class="footer">
+							<p><strong>${clinicName}</strong></p>
+							${clinicEmail ? `<p>Email: ${clinicEmail}</p>` : ''}
+							${clinicPhone ? `<p>Phone: ${clinicPhone}</p>` : ''}
+						</div>
+					</div>
+				</body>
+				</html>
+			`;
+		}
+
+		case 'password-reset': {
+			const resetData = data as unknown as {
+				userName?: string;
+				userEmail: string;
+				resetLink: string;
+			};
+			const userName = resetData.userName || 'User';
+			return `
+				<!DOCTYPE html>
+				<html>
+				<head>
+					<meta charset="utf-8">
+					<meta name="viewport" content="width=device-width, initial-scale=1.0">
+					${baseStyles}
+				</head>
+				<body>
+					<div class="container">
+						<div class="header">
+							<h1 style="margin: 0; font-size: 24px;">Reset Your Password</h1>
+						</div>
+						<div class="content">
+							<p>Dear ${userName},</p>
+							<p>We received a request to reset your password for your ${clinicName} account.</p>
+							
+							<div class="info-box" style="text-align: center; padding: 20px;">
+								<p style="margin: 0 0 15px 0;">Click the button below to reset your password:</p>
+								<a href="${resetData.resetLink}" class="button" style="text-decoration: none; display: inline-block; padding: 12px 24px; background: #0ea5e9; color: white; border-radius: 6px; margin: 10px 0;">
+									Reset Password
+								</a>
+								<p style="margin: 15px 0 0 0; font-size: 12px; color: #64748b;">
+									Or copy and paste this link into your browser:<br>
+									<a href="${resetData.resetLink}" style="color: #0ea5e9; word-break: break-all;">${resetData.resetLink}</a>
+								</p>
+							</div>
+							
+							<p><strong>This link will expire in 1 hour.</strong></p>
+							
+							<p>If you did not request a password reset, please ignore this email. Your password will remain unchanged.</p>
+							
+							<p>For security reasons, if you continue to receive these emails, please contact our support team.</p>
+							
 							<p>Best regards,<br>The ${clinicName} Team</p>
 						</div>
 						<div class="footer">

@@ -1,7 +1,7 @@
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { App } from 'firebase-admin/app';
 import type { Auth } from 'firebase-admin/auth';
@@ -93,6 +93,21 @@ if (!app) {
 
 authAdmin = getAuth(app as App);
 dbAdmin = getFirestore(app as App);
+
+// Log initialization status
+const hasCredentials = !!(
+	process.env.FIREBASE_SERVICE_ACCOUNT_KEY || 
+	process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+	(process.cwd() && existsSync(join(process.cwd(), 'firebase-service-account.json')))
+);
+
+if (hasCredentials) {
+	console.log('✅ Firebase Admin SDK initialized successfully');
+	console.log('   Project ID:', app?.options?.projectId || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'not set');
+} else {
+	console.warn('⚠️ Firebase Admin SDK initialized but credentials may be missing');
+	console.warn('   Set FIREBASE_SERVICE_ACCOUNT_KEY or GOOGLE_APPLICATION_CREDENTIALS in .env.local');
+}
 
 export { authAdmin, dbAdmin };
 

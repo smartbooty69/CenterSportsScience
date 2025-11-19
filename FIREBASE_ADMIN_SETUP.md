@@ -76,6 +76,38 @@ If you prefer to keep the JSON file separate:
 - Check that `.env.local` is in the project root (same folder as `package.json`)
 - Verify the JSON content is correct
 
+### Error: "Network timeout" or "ETIMEDOUT"
+This error occurs when the Firebase Admin SDK cannot connect to Google's servers to verify tokens. Common causes:
+
+1. **IPv6 Connectivity Issues** (Most Common):
+   - Windows may have IPv6 connectivity problems
+   - Try disabling IPv6 or forcing IPv4:
+     - Open PowerShell as Administrator
+     - Run: `netsh interface ipv6 set global randomizeidentifiers=disabled`
+     - Or disable IPv6 in your network adapter settings
+
+2. **Firewall/Network Blocking**:
+   - Check if your firewall is blocking outbound HTTPS connections
+   - Ensure ports 443 (HTTPS) are open
+   - Check if your network requires a proxy
+
+3. **Proxy Settings**:
+   - If behind a corporate proxy, configure Node.js to use it:
+     ```bash
+     set HTTP_PROXY=http://proxy.example.com:8080
+     set HTTPS_PROXY=http://proxy.example.com:8080
+     ```
+
+4. **Temporary Network Issues**:
+   - Try again after a few minutes
+   - Check your internet connection
+   - Verify you can access `https://www.googleapis.com` in a browser
+
+**Quick Fix**: If you're on Windows and experiencing IPv6 issues, you can try:
+- Restart your network adapter
+- Use a VPN if your network blocks Google services
+- Contact your network administrator if on a corporate network
+
 ### Still seeing manual creation errors?
 - Check the terminal/console for specific error messages
 - Make sure the service account key has the correct permissions in Firebase Console
