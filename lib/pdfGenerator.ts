@@ -1,3 +1,5 @@
+'use client';
+
 export interface PatientReportData {
 	patientName: string;
 	patientId: string;

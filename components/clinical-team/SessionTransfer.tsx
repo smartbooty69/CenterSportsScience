@@ -254,15 +254,26 @@ export default function SessionTransfer() {
 				apt => apt.doctor === targetStaff.userName && apt.date === appointment.date && apt.status !== 'cancelled'
 			);
 
-			const timeConflict = existingAppointments.some(apt => {
-				const conflictResult = checkAppointmentConflict(
-					{ ...apt, id: apt.id },
-					appointments.map(a => ({ ...a, id: a.id }))
-				);
-				return conflictResult.hasConflict && conflictResult.conflictingAppointments?.some(
-					conf => conf.appointmentId === appointment.appointmentId
-				);
-			});
+			const conflictResult = checkAppointmentConflict(
+				appointments.map(a => ({
+					id: a.id,
+					appointmentId: a.appointmentId,
+					patient: a.patient,
+					doctor: a.doctor,
+					date: a.date,
+					time: a.time,
+					status: a.status
+				})),
+				{
+					id: appointment.id,
+					doctor: targetStaff.userName,
+					date: appointment.date,
+					time: appointment.time
+				}
+			);
+			const timeConflict = conflictResult.hasConflict && conflictResult.conflictingAppointments?.some(
+				conf => conf.appointmentId === appointment.appointmentId
+			);
 
 			if (timeConflict) {
 				conflicts.push({
