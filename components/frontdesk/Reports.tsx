@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { collection, query, where, orderBy, getDocs, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { collection, doc, query, where, orderBy, getDocs, onSnapshot, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import { generatePhysiotherapyReportPDF, type ReportSection } from '@/lib/pdfGenerator';
+import { generatePhysiotherapyReportPDF, type ReportSection, generateStrengthConditioningPDF, type StrengthConditioningData } from '@/lib/pdfGenerator';
 import type { PatientRecordFull } from '@/lib/types';
 
 type PatientRecord = Omit<PatientRecordFull, 'id' | 'status'> & { id?: string; status?: string };
@@ -107,6 +107,11 @@ export default function Reports() {
 		'nextFollowUp',
 		'signature',
 	]);
+	const [showStrengthConditioningModal, setShowStrengthConditioningModal] = useState(false);
+	const [strengthConditioningData, setStrengthConditioningData] = useState<StrengthConditioningData | null>(null);
+	const [loadingStrengthConditioning, setLoadingStrengthConditioning] = useState(false);
+	const strengthConditioningUnsubscribeRef = useRef<(() => void) | null>(null);
+	const currentPatientIdRef = useRef<string | null>(null);
 
 	// Load patients from Firestore
 	useEffect(() => {
@@ -303,6 +308,105 @@ export default function Reports() {
 		// Ensure main modal is open
 		if (!showModal) {
 			setShowModal(true);
+		}
+	};
+
+	const handleViewStrengthConditioning = async (patientId: string) => {
+		if (!patientId) return;
+		
+		// Find the patient to get both id and patientId
+		const patient = patients.find(p => (p.patientId === patientId) || (p.id === patientId));
+		if (!patient) {
+			console.error('Patient not found');
+			return;
+		}
+		
+		// Use patient.id (Firestore document ID) as that's what clinical team uses
+		const documentId = patient.id || patient.patientId || patientId;
+		
+		// Clean up previous subscription
+		if (strengthConditioningUnsubscribeRef.current) {
+			strengthConditioningUnsubscribeRef.current();
+			strengthConditioningUnsubscribeRef.current = null;
+		}
+		
+		setLoadingStrengthConditioning(true);
+		setStrengthConditioningData(null);
+		currentPatientIdRef.current = documentId;
+		
+		try {
+			const reportRef = doc(db, 'strengthConditioningReports', documentId);
+			const unsubscribe = onSnapshot(reportRef, (docSnap) => {
+				if (docSnap.exists()) {
+					setStrengthConditioningData(docSnap.data() as StrengthConditioningData);
+				} else {
+					setStrengthConditioningData({});
+				}
+				setShowStrengthConditioningModal(true);
+				setLoadingStrengthConditioning(false);
+			}, (error) => {
+				console.error('Error loading strength and conditioning report:', error);
+				setStrengthConditioningData({});
+				setShowStrengthConditioningModal(true);
+				setLoadingStrengthConditioning(false);
+			});
+			
+			strengthConditioningUnsubscribeRef.current = unsubscribe;
+		} catch (error) {
+			console.error('Failed to load strength and conditioning report', error);
+			setStrengthConditioningData({});
+			setShowStrengthConditioningModal(true);
+			setLoadingStrengthConditioning(false);
+		}
+	};
+
+	// Cleanup subscription when modal closes
+	useEffect(() => {
+		return () => {
+			if (strengthConditioningUnsubscribeRef.current) {
+				strengthConditioningUnsubscribeRef.current();
+				strengthConditioningUnsubscribeRef.current = null;
+			}
+		};
+	}, []);
+
+	const handleStrengthConditioningPrint = async () => {
+		if (!selectedPatient || !strengthConditioningData) return;
+		try {
+			await generateStrengthConditioningPDF({
+				patient: {
+					name: selectedPatient.name,
+					patientId: selectedPatient.patientId,
+					dob: selectedPatient.dob,
+					gender: selectedPatient.gender,
+					phone: selectedPatient.phone,
+					email: selectedPatient.email,
+				},
+				formData: strengthConditioningData,
+			}, { forPrint: true });
+		} catch (error) {
+			console.error('Failed to print strength and conditioning report', error);
+			alert('Failed to print report. Please try again.');
+		}
+	};
+
+	const handleStrengthConditioningDownload = async () => {
+		if (!selectedPatient || !strengthConditioningData) return;
+		try {
+			await generateStrengthConditioningPDF({
+				patient: {
+					name: selectedPatient.name,
+					patientId: selectedPatient.patientId,
+					dob: selectedPatient.dob,
+					gender: selectedPatient.gender,
+					phone: selectedPatient.phone,
+					email: selectedPatient.email,
+				},
+				formData: strengthConditioningData,
+			}, { forPrint: false });
+		} catch (error) {
+			console.error('Failed to download strength and conditioning report', error);
+			alert('Failed to download report. Please try again.');
 		}
 	};
 
@@ -662,7 +766,17 @@ export default function Reports() {
 													onClick={() => handleView(patient.patientId || patient.id || '')}
 													className="inline-flex items-center rounded-lg border border-sky-200 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:border-sky-300 hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
 												>
-													View
+													Report
+												</button>
+												<button
+													type="button"
+													onClick={() => {
+														setSelectedPatientId(patient.patientId || patient.id || '');
+														handleViewStrengthConditioning(patient.patientId || patient.id || '');
+													}}
+													className="inline-flex items-center rounded-lg border border-sky-200 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:border-sky-300 hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200"
+												>
+													Strength and Conditioning
 												</button>
 												<button
 													type="button"
@@ -1411,6 +1525,344 @@ export default function Reports() {
 							>
 								Close
 							</button>
+						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Strength & Conditioning Report Modal */}
+			{showStrengthConditioningModal && selectedPatient && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="flex w-full max-w-5xl max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<h2 className="text-lg font-semibold text-slate-900">
+								Strength & Conditioning Report - {selectedPatient.name} ({selectedPatient.patientId})
+							</h2>
+							<button
+								type="button"
+								onClick={() => {
+									setShowStrengthConditioningModal(false);
+									setStrengthConditioningData(null);
+									if (strengthConditioningUnsubscribeRef.current) {
+										strengthConditioningUnsubscribeRef.current();
+										strengthConditioningUnsubscribeRef.current = null;
+									}
+									currentPatientIdRef.current = null;
+								}}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
+								aria-label="Close"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="flex-1 overflow-y-auto p-6">
+							{loadingStrengthConditioning ? (
+								<div className="text-center py-12">
+									<div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-sky-600 border-r-transparent"></div>
+									<p className="mt-4 text-sm text-slate-600">Loading report...</p>
+								</div>
+							) : !strengthConditioningData || Object.keys(strengthConditioningData).length === 0 ? (
+								<div className="text-center py-12">
+									<p className="text-slate-600">No Strength & Conditioning report available for this patient.</p>
+								</div>
+							) : (
+								<div className="space-y-6">
+									{/* Patient Information */}
+									<div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+										<h3 className="mb-3 text-sm font-semibold text-slate-900">Patient Information</h3>
+										<div className="grid gap-3 sm:grid-cols-2">
+											<div>
+												<span className="text-xs text-slate-500">Name:</span>
+												<p className="text-sm font-medium text-slate-900">{selectedPatient.name || '—'}</p>
+											</div>
+											<div>
+												<span className="text-xs text-slate-500">Patient ID:</span>
+												<p className="text-sm font-medium text-slate-900">{selectedPatient.patientId || '—'}</p>
+											</div>
+											<div>
+												<span className="text-xs text-slate-500">Date of Birth:</span>
+												<p className="text-sm font-medium text-slate-900">{selectedPatient.dob || '—'}</p>
+											</div>
+											<div>
+												<span className="text-xs text-slate-500">Gender:</span>
+												<p className="text-sm font-medium text-slate-900">{selectedPatient.gender || '—'}</p>
+											</div>
+											<div>
+												<span className="text-xs text-slate-500">Phone:</span>
+												<p className="text-sm font-medium text-slate-900">{selectedPatient.phone || '—'}</p>
+											</div>
+											<div>
+												<span className="text-xs text-slate-500">Email:</span>
+												<p className="text-sm font-medium text-slate-900">{selectedPatient.email || '—'}</p>
+											</div>
+										</div>
+										{strengthConditioningData.therapistName && (
+											<div className="mt-3">
+												<span className="text-xs text-slate-500">Therapist:</span>
+												<p className="text-sm font-medium text-slate-900">{strengthConditioningData.therapistName}</p>
+											</div>
+										)}
+									</div>
+
+									{/* Injury Risk Screening */}
+									<div>
+										<h3 className="mb-3 text-base font-semibold text-slate-900">Injury Risk Screening</h3>
+										<div className="space-y-4">
+											{strengthConditioningData.scapularDyskinesiaTest && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Scapular Dyskinesia Test:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.scapularDyskinesiaTest}</p>
+												</div>
+											)}
+
+											{/* Upper Body Table */}
+											{(strengthConditioningData.upperLimbFlexibilityRight || strengthConditioningData.upperLimbFlexibilityLeft ||
+												strengthConditioningData.shoulderInternalRotationRight || strengthConditioningData.shoulderInternalRotationLeft ||
+												strengthConditioningData.shoulderExternalRotationRight || strengthConditioningData.shoulderExternalRotationLeft) && (
+												<div className="overflow-x-auto">
+													<table className="min-w-full divide-y divide-slate-200 border border-slate-300 text-sm">
+														<thead className="bg-slate-100">
+															<tr>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Fields</th>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Right</th>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Left</th>
+															</tr>
+														</thead>
+														<tbody className="divide-y divide-slate-200 bg-white">
+															{(strengthConditioningData.upperLimbFlexibilityRight || strengthConditioningData.upperLimbFlexibilityLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Upper Limb Flexibility</td>
+																	<td className="px-3 py-2">{strengthConditioningData.upperLimbFlexibilityRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.upperLimbFlexibilityLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.shoulderInternalRotationRight || strengthConditioningData.shoulderInternalRotationLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Shoulder Internal Rotation</td>
+																	<td className="px-3 py-2">{strengthConditioningData.shoulderInternalRotationRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.shoulderInternalRotationLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.shoulderExternalRotationRight || strengthConditioningData.shoulderExternalRotationLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Shoulder External Rotation</td>
+																	<td className="px-3 py-2">{strengthConditioningData.shoulderExternalRotationRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.shoulderExternalRotationLeft || '—'}</td>
+																</tr>
+															)}
+														</tbody>
+													</table>
+												</div>
+											)}
+
+											{strengthConditioningData.thoracicRotation && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Thoracic Rotation:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.thoracicRotation}</p>
+												</div>
+											)}
+
+											{strengthConditioningData.sitAndReachTest && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Sit And Reach Test:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.sitAndReachTest}</p>
+												</div>
+											)}
+
+											{/* Lower Body Table */}
+											{(strengthConditioningData.singleLegSquatRight || strengthConditioningData.singleLegSquatLeft ||
+												strengthConditioningData.weightBearingLungeTestRight || strengthConditioningData.weightBearingLungeTestLeft ||
+												strengthConditioningData.hamstringsFlexibilityRight || strengthConditioningData.hamstringsFlexibilityLeft ||
+												strengthConditioningData.quadricepsFlexibilityRight || strengthConditioningData.quadricepsFlexibilityLeft ||
+												strengthConditioningData.hipExternalRotationRight || strengthConditioningData.hipExternalRotationLeft ||
+												strengthConditioningData.hipInternalRotationRight || strengthConditioningData.hipInternalRotationLeft ||
+												strengthConditioningData.hipExtensionRight || strengthConditioningData.hipExtensionLeft ||
+												strengthConditioningData.activeSLRRight || strengthConditioningData.activeSLRLeft) && (
+												<div className="overflow-x-auto">
+													<table className="min-w-full divide-y divide-slate-200 border border-slate-300 text-sm">
+														<thead className="bg-slate-100">
+															<tr>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Fields</th>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Right</th>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Left</th>
+															</tr>
+														</thead>
+														<tbody className="divide-y divide-slate-200 bg-white">
+															{(strengthConditioningData.singleLegSquatRight || strengthConditioningData.singleLegSquatLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Single Leg Squat</td>
+																	<td className="px-3 py-2">{strengthConditioningData.singleLegSquatRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.singleLegSquatLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.weightBearingLungeTestRight || strengthConditioningData.weightBearingLungeTestLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Weight Bearing Lunge Test</td>
+																	<td className="px-3 py-2">{strengthConditioningData.weightBearingLungeTestRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.weightBearingLungeTestLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.hamstringsFlexibilityRight || strengthConditioningData.hamstringsFlexibilityLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Hamstrings Flexibility</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hamstringsFlexibilityRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hamstringsFlexibilityLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.quadricepsFlexibilityRight || strengthConditioningData.quadricepsFlexibilityLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Quadriceps Flexibility</td>
+																	<td className="px-3 py-2">{strengthConditioningData.quadricepsFlexibilityRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.quadricepsFlexibilityLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.hipExternalRotationRight || strengthConditioningData.hipExternalRotationLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Hip External Rotation</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hipExternalRotationRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hipExternalRotationLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.hipInternalRotationRight || strengthConditioningData.hipInternalRotationLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Hip Internal Rotation</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hipInternalRotationRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hipInternalRotationLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.hipExtensionRight || strengthConditioningData.hipExtensionLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Hip Extension</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hipExtensionRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.hipExtensionLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.activeSLRRight || strengthConditioningData.activeSLRLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Active SLR</td>
+																	<td className="px-3 py-2">{strengthConditioningData.activeSLRRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.activeSLRLeft || '—'}</td>
+																</tr>
+															)}
+														</tbody>
+													</table>
+												</div>
+											)}
+
+											{strengthConditioningData.pronePlank && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Prone Plank:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.pronePlank}</p>
+												</div>
+											)}
+
+											{/* Balance Table */}
+											{(strengthConditioningData.sidePlankRight || strengthConditioningData.sidePlankLeft ||
+												strengthConditioningData.storkStandingBalanceTestRight || strengthConditioningData.storkStandingBalanceTestLeft) && (
+												<div className="overflow-x-auto">
+													<table className="min-w-full divide-y divide-slate-200 border border-slate-300 text-sm">
+														<thead className="bg-slate-100">
+															<tr>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Fields</th>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Right</th>
+																<th className="px-3 py-2 text-left font-semibold text-slate-700">Left</th>
+															</tr>
+														</thead>
+														<tbody className="divide-y divide-slate-200 bg-white">
+															{(strengthConditioningData.sidePlankRight || strengthConditioningData.sidePlankLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Side Plank</td>
+																	<td className="px-3 py-2">{strengthConditioningData.sidePlankRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.sidePlankLeft || '—'}</td>
+																</tr>
+															)}
+															{(strengthConditioningData.storkStandingBalanceTestRight || strengthConditioningData.storkStandingBalanceTestLeft) && (
+																<tr>
+																	<td className="px-3 py-2 font-medium">Stork Standing Balance Test</td>
+																	<td className="px-3 py-2">{strengthConditioningData.storkStandingBalanceTestRight || '—'}</td>
+																	<td className="px-3 py-2">{strengthConditioningData.storkStandingBalanceTestLeft || '—'}</td>
+																</tr>
+															)}
+														</tbody>
+													</table>
+												</div>
+											)}
+
+											{strengthConditioningData.deepSquat && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Deep Squat:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.deepSquat}</p>
+												</div>
+											)}
+
+											{strengthConditioningData.pushup && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Pushup:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.pushup}</p>
+												</div>
+											)}
+
+											{strengthConditioningData.fmsScore && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">FMS Score:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.fmsScore}</p>
+												</div>
+											)}
+
+											{strengthConditioningData.totalFmsScore && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Total FMS Score:</span>
+													<p className="text-sm text-slate-900">{strengthConditioningData.totalFmsScore}</p>
+												</div>
+											)}
+
+											{strengthConditioningData.summary && (
+												<div>
+													<span className="text-xs font-medium text-slate-600">Summary:</span>
+													<p className="text-sm text-slate-900 whitespace-pre-wrap">{strengthConditioningData.summary}</p>
+												</div>
+											)}
+										</div>
+									</div>
+								</div>
+							)}
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={() => {
+									setShowStrengthConditioningModal(false);
+									setStrengthConditioningData(null);
+									if (strengthConditioningUnsubscribeRef.current) {
+										strengthConditioningUnsubscribeRef.current();
+										strengthConditioningUnsubscribeRef.current = null;
+									}
+									currentPatientIdRef.current = null;
+								}}
+								className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
+							>
+								Close
+							</button>
+							{strengthConditioningData && Object.keys(strengthConditioningData).length > 0 && (
+								<>
+									<button
+										type="button"
+										onClick={handleStrengthConditioningDownload}
+										className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
+									>
+										<i className="fas fa-download mr-2" aria-hidden="true" />
+										Download PDF
+									</button>
+									<button
+										type="button"
+										onClick={handleStrengthConditioningPrint}
+										className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
+									>
+										<i className="fas fa-print mr-2" aria-hidden="true" />
+										Print Report
+									</button>
+								</>
+							)}
 						</footer>
 					</div>
 				</div>

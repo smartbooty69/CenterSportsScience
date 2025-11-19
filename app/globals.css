@@ -98,6 +98,10 @@ body {
     @apply bg-rose-100 text-rose-600 ring-1 ring-rose-200;
   }
 
+  .no-print {
+    @apply print:hidden;
+  }
+
   .badge-base {
     @apply inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold;
   }
