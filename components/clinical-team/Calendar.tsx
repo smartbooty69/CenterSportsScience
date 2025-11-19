@@ -21,6 +21,7 @@ interface AppointmentRecord {
 	doctor?: string;
 	date?: string;
 	time?: string;
+	duration?: number;
 	status?: string;
 	notes?: string;
 }
@@ -63,6 +64,8 @@ const statusColors: Record<string, string> = {
 	completed: 'bg-emerald-500',
 	cancelled: 'bg-rose-500',
 };
+
+const SLOT_INTERVAL_MINUTES = 30;
 
 
 const formatDateTime = (date?: string, time?: string) => {
@@ -190,6 +193,7 @@ export default function Calendar() {
 							doctor: data.doctor ? String(data.doctor) : undefined,
 							date: data.date ? String(data.date) : undefined,
 							time: data.time ? String(data.time) : undefined,
+							duration: typeof data.duration === 'number' ? data.duration : undefined,
 							status: data.status ? String(data.status) : undefined,
 							notes: data.notes ? String(data.notes) : undefined,
 						};
@@ -571,23 +575,40 @@ export default function Calendar() {
 			})
 			.map(event => {
 				// Format date and time for FullCalendar
-				let startDateTime: string;
-				
+				let startDateObj: Date | null = null;
+				const durationMinutes = Math.max(
+					SLOT_INTERVAL_MINUTES,
+					event.appointment.duration ?? SLOT_INTERVAL_MINUTES
+				);
+
 				if (event.appointment.time) {
 					let timeStr = event.appointment.time.trim();
-					
-					// If time doesn't have seconds, add them for ISO format
+
+					// Ensure seconds are present for ISO format
 					const timeParts = timeStr.split(':');
 					if (timeParts.length === 2) {
 						timeStr = `${timeStr}:00`;
 					} else if (timeParts.length === 1) {
 						timeStr = `${timeStr}:00:00`;
 					}
-					
-					startDateTime = `${event.appointment.date}T${timeStr}`;
-				} else {
-					startDateTime = event.appointment.date || '';
+
+					startDateObj = new Date(`${event.appointment.date}T${timeStr}`);
+					if (Number.isNaN(startDateObj.getTime())) {
+						startDateObj = null;
+					}
+				} else if (event.appointment.date) {
+					const potentialDate = new Date(event.appointment.date);
+					if (!Number.isNaN(potentialDate.getTime())) {
+						startDateObj = potentialDate;
+					}
 				}
+
+				if (!startDateObj) {
+					// Skip malformed events
+					return null;
+				}
+
+				const endDateObj = new Date(startDateObj.getTime() + durationMinutes * 60000);
 				
 				// Extract color class name to actual color value
 				const statusColorClass = statusColors[(event.appointment.status ?? 'pending') as string] || statusColors.pending;
@@ -623,7 +644,8 @@ export default function Calendar() {
 				return {
 					id: event.id,
 					title: eventTitle,
-					start: startDateTime,
+					start: startDateObj,
+					end: endDateObj,
 					extendedProps: {
 						appointment: event.appointment,
 						patient: event.patient,
@@ -636,7 +658,26 @@ export default function Calendar() {
 					startEditable: true,
 					durationEditable: false,
 				};
-			});
+			})
+			.filter(Boolean) as Array<
+				{
+					id: string;
+					title: string;
+					start: Date;
+					end: Date;
+					extendedProps: {
+						appointment: AppointmentRecord;
+						patient: PatientRecordBasic | undefined;
+						type: 'appointment';
+						patientName: string;
+					};
+					backgroundColor: string;
+					borderColor: string;
+					editable: boolean;
+					startEditable: boolean;
+					durationEditable: boolean;
+				}
+			>;
 		
 		// Combine appointment events with availability events
 		return [...availabilityEvents, ...appointmentEvents];
