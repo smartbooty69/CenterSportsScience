@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, addDoc, updateDoc, doc, getDocs, onSnapshot, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, getDocs, onSnapshot, serverTimestamp, query, where, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import {
 	type AdminAppointmentStatus,
@@ -439,6 +439,28 @@ export default function Register() {
 		if (Object.keys(errors).length > 0) {
 			setAssignment(current => (current ? { ...current, errors } : current));
 			return;
+		}
+
+		// Check if patient has any completed appointments
+		// If they do, they should book through the backend instead
+		try {
+			const appointmentsQuery = query(
+				collection(db, 'appointments'),
+				where('patientId', '==', assignment.patient.patientId),
+				where('status', '==', 'completed')
+			);
+			const appointmentsSnapshot = await getDocs(appointmentsQuery);
+			
+			if (!appointmentsSnapshot.empty) {
+				setBanner({
+					type: 'error',
+					message: `This patient has ${appointmentsSnapshot.size} completed appointment(s). Subsequent appointments should be booked through the Clinical Dashboard. Please use the Clinical Dashboard to book appointments for this patient.`,
+				});
+				return;
+			}
+		} catch (checkError) {
+			console.error('Failed to check patient appointments', checkError);
+			// Continue with booking if check fails (fail open)
 		}
 
 		setSubmitting(true);

@@ -4,21 +4,17 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar, { type SidebarLink } from '@/components/Sidebar';
 import Dashboard from '@/components/frontdesk/Dashboard';
-import Register from '@/components/frontdesk/Register';
-import Appointments from '@/components/frontdesk/Appointments';
 import Patients from '@/components/frontdesk/Patients';
 import Billing from '@/components/frontdesk/Billing';
 import Reports from '@/components/frontdesk/Reports';
 import Calendar from '@/components/frontdesk/Calendar';
 import { useAuth } from '@/contexts/AuthContext';
 
-type FrontdeskPage = 'dashboard' | 'register' | 'patients' | 'appointments' | 'billing' | 'reports' | 'calendar';
+type FrontdeskPage = 'dashboard' | 'patients' | 'billing' | 'reports' | 'calendar';
 
 const frontdeskLinks: SidebarLink[] = [
 	{ href: '#dashboard', label: 'Dashboard', icon: 'fas fa-home' },
-	{ href: '#register', label: 'Register Patient', icon: 'fas fa-user-plus' },
 	{ href: '#patients', label: 'Patient Management', icon: 'fas fa-users' },
-	{ href: '#appointments', label: 'Appointments', icon: 'fas fa-calendar-check' },
 	{ href: '#calendar', label: 'Calendar', icon: 'fas fa-calendar-alt' },
 	{ href: '#billing', label: 'Billing', icon: 'fas fa-file-invoice-dollar' },
 	{ href: '#reports', label: 'Reports', icon: 'fas fa-chart-line' },
@@ -64,12 +60,8 @@ export default function FrontdeskLayout({ children }: { children: React.ReactNod
 		switch (activePage) {
 			case 'dashboard':
 				return <Dashboard onNavigate={handleLinkClick} />;
-			case 'register':
-				return <Register />;
 			case 'patients':
 				return <Patients />;
-			case 'appointments':
-				return <Appointments />;
 			case 'calendar':
 				return <Calendar />;
 			case 'billing':

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { collection, doc, onSnapshot, updateDoc, deleteDoc, addDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
@@ -89,6 +90,7 @@ function formatDateLabel(value: string) {
 }
 
 export default function Appointments() {
+	const searchParams = useSearchParams();
 	const [appointments, setAppointments] = useState<FrontdeskAppointment[]>([]);
 	const [patients, setPatients] = useState<PatientRecordWithSessions[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -287,6 +289,17 @@ export default function Appointments() {
 		return groupedByPatient.reduce((sum, group) => sum + group.appointments.length, 0);
 	}, [groupedByPatient]);
 
+	// Filter patients eligible for frontdesk booking (only first appointments)
+	// Patients with completed appointments should use backend/admin system
+	const eligiblePatients = useMemo(() => {
+		return patients.filter(patient => {
+			const hasCompletedAppointments = appointments.some(
+				a => a.patientId === patient.patientId && a.status === 'completed'
+			);
+			return !hasCompletedAppointments;
+		});
+	}, [patients, appointments]);
+
 	// Filter clinicians by availability based on selected date/time
 	const doctorOptions = useMemo(() => {
 		const base = staff
@@ -321,6 +334,36 @@ export default function Appointments() {
 			setBookingForm(prev => ({ ...prev, doctor: '' }));
 		}
 	}, [bookingForm.doctor, doctorOptions]);
+
+	// Clear patient selection if they become ineligible (have completed appointments)
+	useEffect(() => {
+		if (!bookingForm.patientId) return;
+		const isEligible = eligiblePatients.some(p => p.patientId === bookingForm.patientId);
+		if (!isEligible) {
+			setBookingForm(prev => ({ ...prev, patientId: '' }));
+		}
+	}, [bookingForm.patientId, eligiblePatients]);
+
+	// Handle bookFor query parameter from patient management page
+	useEffect(() => {
+		const bookForPatientId = searchParams?.get('bookFor');
+		if (bookForPatientId && patients.length > 0 && !showBookingModal) {
+			// Check if patient exists and is eligible
+			const patient = eligiblePatients.find(p => p.patientId === bookForPatientId);
+			if (patient) {
+				setBookingForm({
+					patientId: bookForPatientId,
+					doctor: '',
+					date: '',
+					time: '',
+					notes: '',
+				});
+				setShowBookingModal(true);
+				// Clean up URL
+				window.history.replaceState({}, '', window.location.pathname);
+			}
+		}
+	}, [searchParams, patients, eligiblePatients, showBookingModal]);
 
 	const pendingCount = appointments.filter(appointment => appointment.status === 'pending').length;
 	const ongoingCount = appointments.filter(appointment => appointment.status === 'ongoing').length;
@@ -597,6 +640,21 @@ export default function Appointments() {
 
 		if (!staffMember) {
 			alert('Unable to find the selected clinician.');
+			return;
+		}
+
+		// Check if patient has any completed appointments
+		// If they do, they should book through the backend instead
+		const patientCompletedAppointments = appointments.filter(
+			a => a.patientId === bookingForm.patientId && a.status === 'completed'
+		);
+
+		if (patientCompletedAppointments.length > 0) {
+			alert(
+				`This patient has ${patientCompletedAppointments.length} completed appointment(s). ` +
+				`Subsequent appointments should be booked through the Clinical Dashboard. ` +
+				`Please use the Clinical Dashboard to book appointments for this patient.`
+			);
 			return;
 		}
 
@@ -944,7 +1002,7 @@ export default function Appointments() {
 						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
 							<div>
 								<h2 className="text-lg font-semibold text-slate-900">Book Appointment</h2>
-								<p className="text-xs text-slate-500">Create a new visit for any patient</p>
+								<p className="text-xs text-slate-500">Create a new visit for first-time appointments only</p>
 							</div>
 							<button
 								type="button"
@@ -968,13 +1026,25 @@ export default function Appointments() {
 										className="select-base mt-2"
 										required
 									>
-										<option value="">{patients.length ? 'Select patient' : 'No patients available'}</option>
-										{patients.map(patient => (
+										<option value="">
+											{eligiblePatients.length 
+												? 'Select patient (first appointments only)' 
+												: patients.length 
+													? 'No eligible patients (all have completed appointments)' 
+													: 'No patients available'}
+										</option>
+										{eligiblePatients.map(patient => (
 											<option key={patient.id} value={patient.patientId}>
 												{patient.name} ({patient.patientId})
 											</option>
 										))}
 									</select>
+									{patients.length > eligiblePatients.length && (
+										<p className="mt-1 text-xs text-amber-600">
+											Note: {patients.length - eligiblePatients.length} patient(s) with completed appointments are not shown. 
+											Please use the Clinical Dashboard to book subsequent appointments for those patients.
+										</p>
+									)}
 								</div>
 
 								<div>
