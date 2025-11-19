@@ -223,6 +223,12 @@ export default function Users() {
 			return;
 		}
 
+		// Validate password length (Firebase requires at least 6 characters)
+		if (!editingEmployee && trimmedPassword.length < 6) {
+			setError('Password must be at least 6 characters long.');
+			return;
+		}
+
 		setSaving(true);
 		try {
 			if (editingEmployee) {
@@ -831,9 +837,10 @@ export default function Users() {
 										onChange={event => setFormState(current => ({ ...current, password: event.target.value }))}
 										className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 										required
+										minLength={6}
 									/>
 									<p className="mt-1 text-xs text-slate-500">
-										The employee should change this password after first login.
+										Must be at least 6 characters. The employee should change this password after first login.
 									</p>
 								</div>
 							)}

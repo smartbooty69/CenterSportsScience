@@ -11,7 +11,7 @@ export type EmailTemplate =
 
 export interface EmailData {
 	to: string;
-	subject: string;
+	subject?: string;
 	template: EmailTemplate;
 	data: Record<string, unknown>;
 }
@@ -565,30 +565,109 @@ export function generateEmailBody(template: EmailTemplate, data: Record<string, 
 }
 
 /**
- * Send email notification via API route
+ * Send email notification (server-side only - directly uses Resend)
+ * For client-side use, call the /api/email endpoint directly
  */
 export async function sendEmailNotification(emailData: EmailData): Promise<{ success: boolean; error?: string }> {
-	try {
-		const response = await fetch('/api/email', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify(emailData),
-		});
+	// Check if we're in a server environment
+	if (typeof window === 'undefined') {
+		// Server-side: use Resend directly
+		try {
+			const { Resend } = await import('resend');
+			const resend = new Resend(process.env.RESEND_API_KEY);
 
-		if (!response.ok) {
-			const error = await response.text();
-			return { success: false, error };
+			// Validate required fields
+			if (!emailData.to || !emailData.template) {
+				return { success: false, error: 'Missing required fields: to, template' };
+			}
+
+			// Validate email format
+			const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+			if (!emailRegex.test(emailData.to)) {
+				return { success: false, error: 'Invalid email address' };
+			}
+
+			// Check if Resend API key is configured
+			if (!process.env.RESEND_API_KEY) {
+				console.warn('RESEND_API_KEY not configured. Email will not be sent.');
+				if (process.env.NODE_ENV === 'development') {
+					console.log('Email would be sent:', {
+						to: emailData.to,
+						subject: emailData.subject || getEmailSubject(emailData.template, emailData.data),
+						template: emailData.template,
+					});
+					return { success: true };
+				}
+				return { success: false, error: 'Email service not configured' };
+			}
+
+			// Generate subject and body
+			const subject = emailData.subject || getEmailSubject(emailData.template, emailData.data);
+			const html = generateEmailBody(emailData.template, emailData.data);
+
+			// Get sender email from environment or use default
+			const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+			const fromName = process.env.RESEND_FROM_NAME || 'Centre For Sports Science';
+
+			// Send email via Resend
+			const result = await resend.emails.send({
+				from: `${fromName} <${fromEmail}>`,
+				to: emailData.to,
+				subject,
+				html,
+			});
+
+			if (result.error) {
+				console.error('Resend API error:', result.error);
+				let errorMessage = result.error.message || JSON.stringify(result.error) || 'Failed to send email';
+				
+				// Provide helpful guidance for common Resend errors
+				if (result.error.statusCode === 403 && errorMessage.includes('testing emails')) {
+					console.warn('Resend test mode restriction: You can only send to verified email addresses.');
+					console.warn('To send to other recipients, verify a domain at https://resend.com/domains');
+					console.warn('For now, emails can only be sent to:', emailData.to);
+					// In development, we'll still try to proceed if sending to the verified email
+					if (process.env.NODE_ENV === 'development') {
+						console.warn('Continuing in development mode...');
+					}
+				}
+				
+				return { success: false, error: errorMessage };
+			}
+
+			return { success: true };
+		} catch (error) {
+			console.error('Failed to send email notification:', error);
+			return { 
+				success: false, 
+				error: error instanceof Error ? error.message : 'Unknown error' 
+			};
 		}
+	} else {
+		// Client-side: use API route
+		try {
+			const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+			const response = await fetch(`${baseUrl}/api/email`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify(emailData),
+			});
 
-		return { success: true };
-	} catch (error) {
-		console.error('Failed to send email notification:', error);
-		return { 
-			success: false, 
-			error: error instanceof Error ? error.message : 'Unknown error' 
-		};
+			if (!response.ok) {
+				const error = await response.text();
+				return { success: false, error };
+			}
+
+			return { success: true };
+		} catch (error) {
+			console.error('Failed to send email notification:', error);
+			return { 
+				success: false, 
+				error: error instanceof Error ? error.message : 'Unknown error' 
+			};
+		}
 	}
 }
 
