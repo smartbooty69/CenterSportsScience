@@ -6,7 +6,7 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/PageHeader';
 
-export type HeaderType = 'reportDYES' | 'reportNonDYES' | 'billing' | 'invoice';
+export type HeaderType = 'reportDYES' | 'reportNonDYES' | 'billing';
 
 export interface HeaderConfig {
 	id: string;
@@ -26,7 +26,6 @@ const HEADER_TYPE_LABELS: Record<HeaderType, string> = {
 	reportDYES: 'Report DYES',
 	reportNonDYES: 'Report (Non-DYES)',
 	billing: 'Billing',
-	invoice: 'Invoice',
 };
 
 export default function HeaderManagement() {
@@ -102,15 +101,6 @@ export default function HeaderManagement() {
 						associationText: '',
 						govermentOrder: '',
 					}));
-				} else if (activeType === 'invoice') {
-					setFormData(prev => ({
-						...prev,
-						mainTitle: 'CENTRE FOR SPORTS SCIENCE',
-						subtitle: 'Sports Business Solutions Pvt. Ltd.',
-						contactInfo: 'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396',
-						associationText: '',
-						govermentOrder: '',
-					}));
 				}
 			}
 		} catch (error) {
@@ -159,10 +149,6 @@ export default function HeaderManagement() {
 		setSavedMessage(false);
 
 		try {
-			// Build header config object, only including defined values
-			const leftLogo = formData.leftLogoPreview || config?.leftLogo;
-			const rightLogo = formData.rightLogoPreview || config?.rightLogo;
-			
 			const headerConfig: Omit<HeaderConfig, 'id'> = {
 				type: activeType,
 				mainTitle: formData.mainTitle.trim() || undefined,
@@ -170,24 +156,14 @@ export default function HeaderManagement() {
 				contactInfo: formData.contactInfo.trim() || undefined,
 				associationText: formData.associationText.trim() || undefined,
 				govermentOrder: formData.govermentOrder.trim() || undefined,
-				leftLogo: leftLogo && leftLogo.trim() ? leftLogo.trim() : undefined,
-				rightLogo: rightLogo && rightLogo.trim() ? rightLogo.trim() : undefined,
+				leftLogo: formData.leftLogoPreview || config?.leftLogo,
+				rightLogo: formData.rightLogoPreview || config?.rightLogo,
 				updatedAt: serverTimestamp() as any,
 				updatedBy: user?.email || user?.displayName || 'Admin',
 			};
 
-			// Remove undefined values to avoid Firestore issues, but always keep type
-			const cleanedConfig = Object.fromEntries(
-				Object.entries(headerConfig).filter(([key, value]) => 
-					key === 'type' || value !== undefined
-				)
-			) as Omit<HeaderConfig, 'id'>;
-			
-			// Ensure type is always set
-			cleanedConfig.type = activeType;
-
 			const docRef = doc(db, 'headerConfigs', activeType);
-			await setDoc(docRef, cleanedConfig, { merge: true });
+			await setDoc(docRef, headerConfig, { merge: true });
 
 			setSavedMessage(true);
 			setTimeout(() => setSavedMessage(false), 3000);
@@ -196,8 +172,7 @@ export default function HeaderManagement() {
 			await loadHeaderConfig();
 		} catch (error) {
 			console.error('Failed to save header config:', error);
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-			alert(`Failed to save header configuration: ${errorMessage}`);
+			alert('Failed to save header configuration');
 		} finally {
 			setSaving(false);
 		}
@@ -248,7 +223,7 @@ export default function HeaderManagement() {
 				{/* Header Type Selection */}
 				<div className="section-card">
 					<h2 className="mb-4 text-lg font-semibold text-slate-900">Select Document Type</h2>
-					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+					<div className="grid gap-4 sm:grid-cols-3">
 						{(Object.keys(HEADER_TYPE_LABELS) as HeaderType[]).map(type => (
 							<button
 								key={type}
@@ -276,7 +251,7 @@ export default function HeaderManagement() {
 						{/* Logos Section */}
 						<div className="border-b border-slate-200 pb-6">
 							<h3 className="mb-4 text-md font-semibold text-slate-700">Logos</h3>
-							<div className={`grid gap-6 ${activeType === 'invoice' ? 'sm:grid-cols-1' : 'sm:grid-cols-2'}`}>
+							<div className="grid gap-6 sm:grid-cols-2">
 								{/* Left Logo */}
 								<div>
 									<label className="mb-2 block text-sm font-medium text-slate-700">
@@ -301,35 +276,33 @@ export default function HeaderManagement() {
 									)}
 								</div>
 
-								{/* Right Logo - Not shown for invoice */}
-								{activeType !== 'invoice' && (
-									<div>
-										<label className="mb-2 block text-sm font-medium text-slate-700">
-											Right Logo
-										</label>
-										<div className="mb-2">
-											<input
-												type="file"
-												accept="image/*"
-												onChange={e => handleFileChange('right', e.target.files?.[0] || null)}
-												className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-sky-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-sky-700 hover:file:bg-sky-100"
+								{/* Right Logo */}
+								<div>
+									<label className="mb-2 block text-sm font-medium text-slate-700">
+										Right Logo
+									</label>
+									<div className="mb-2">
+										<input
+											type="file"
+											accept="image/*"
+											onChange={e => handleFileChange('right', e.target.files?.[0] || null)}
+											className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-sky-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-sky-700 hover:file:bg-sky-100"
+										/>
+									</div>
+									{formData.rightLogoPreview && (
+										<div className="mt-2 rounded-lg border border-slate-200 p-2 bg-white">
+											<img
+												src={formData.rightLogoPreview}
+												alt="Right logo preview"
+												className="max-h-24 max-w-full object-contain"
 											/>
 										</div>
-										{formData.rightLogoPreview && (
-											<div className="mt-2 rounded-lg border border-slate-200 p-2 bg-white">
-												<img
-													src={formData.rightLogoPreview}
-													alt="Right logo preview"
-													className="max-h-24 max-w-full object-contain"
-												/>
-											</div>
-										)}
-									</div>
-								)}
+									)}
+								</div>
 							</div>
 						</div>
 
-						{/* Main Title - Always shown */}
+						{/* Main Title */}
 						<div>
 							<label className="mb-2 block text-sm font-medium text-slate-700">
 								Main Title
@@ -338,29 +311,29 @@ export default function HeaderManagement() {
 								type="text"
 								value={formData.mainTitle}
 								onChange={e => setFormData(prev => ({ ...prev, mainTitle: e.target.value }))}
-								placeholder={activeType === 'invoice' ? 'e.g., CENTRE FOR SPORTS SCIENCE' : 'e.g., CENTRE FOR SPORTS SCIENCE'}
+								placeholder="e.g., CENTRE FOR SPORTS SCIENCE"
 								className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 							/>
 						</div>
 
-						{/* Subtitle (for billing/invoice) or Report Header */}
-						{(activeType === 'billing' || activeType === 'invoice' || activeType === 'reportDYES' || activeType === 'reportNonDYES') && (
+						{/* Subtitle (for billing) or Report Header */}
+						{(activeType === 'billing' || activeType === 'reportDYES' || activeType === 'reportNonDYES') && (
 							<div>
 								<label className="mb-2 block text-sm font-medium text-slate-700">
-									{(activeType === 'billing' || activeType === 'invoice') ? 'Subtitle' : 'Report Header'}
+									{activeType === 'billing' ? 'Subtitle' : 'Report Header'}
 								</label>
 								<input
 									type="text"
 									value={formData.subtitle}
 									onChange={e => setFormData(prev => ({ ...prev, subtitle: e.target.value }))}
-									placeholder={(activeType === 'billing' || activeType === 'invoice') ? 'e.g., Sports Business Solutions Pvt. Ltd.' : 'e.g., PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT'}
+									placeholder={activeType === 'billing' ? 'e.g., Sports Business Solutions Pvt. Ltd.' : 'e.g., PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT'}
 									className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 								/>
 							</div>
 						)}
 
 						{/* Contact Info */}
-						{(activeType === 'reportNonDYES' || activeType === 'billing' || activeType === 'invoice') && (
+						{(activeType === 'reportNonDYES' || activeType === 'billing') && (
 							<div>
 								<label className="mb-2 block text-sm font-medium text-slate-700">
 									Contact Information
@@ -368,8 +341,8 @@ export default function HeaderManagement() {
 								<textarea
 									value={formData.contactInfo}
 									onChange={e => setFormData(prev => ({ ...prev, contactInfo: e.target.value }))}
-									placeholder={activeType === 'invoice' ? 'e.g., Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396' : 'e.g., Phone No: +91 9731128396 | Address: Sree Kanteerava Stadium Gate 8 and 10, Sampangiram Nagar, Bengaluru 560027'}
-									rows={activeType === 'invoice' ? 3 : 2}
+									placeholder="e.g., Phone No: +91 9731128396 | Address: Sree Kanteerava Stadium Gate 8 and 10, Sampangiram Nagar, Bengaluru 560027"
+									rows={2}
 									className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 								/>
 							</div>
