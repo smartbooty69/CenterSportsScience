@@ -192,15 +192,21 @@ export async function POST(request: NextRequest) {
 		await authAdmin.setCustomUserClaims(userRecord.uid, { role });
 
 		// Update/create Firestore profile
-		await dbAdmin.collection('users').doc(userRecord.uid).set({
+		const userProfileData: any = {
 			email,
 			displayName,
 			role,
 			status: 'Active',
 			userName: displayName,
-			createdAt: isNewUser ? new Date().toISOString() : undefined,
 			updatedAt: new Date().toISOString(),
-		}, { merge: true });
+		};
+		
+		// Only set createdAt for new users
+		if (isNewUser) {
+			userProfileData.createdAt = new Date().toISOString();
+		}
+		
+		await dbAdmin.collection('users').doc(userRecord.uid).set(userProfileData, { merge: true });
 
 		return new Response(
 			JSON.stringify({

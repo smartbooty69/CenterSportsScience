@@ -3,11 +3,14 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { confirmPasswordReset, verifyPasswordResetCode } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 function ResetPasswordForm() {
 	const searchParams = useSearchParams();
 	const router = useRouter();
-	const token = searchParams.get('token');
+	// Firebase uses 'oobCode' parameter for action codes
+	const actionCode = searchParams.get('oobCode') || searchParams.get('token');
 
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
@@ -16,25 +19,43 @@ function ResetPasswordForm() {
 	const [submitting, setSubmitting] = useState(false);
 	const [validating, setValidating] = useState(true);
 	const [tokenValid, setTokenValid] = useState(false);
+	const [email, setEmail] = useState<string | null>(null);
 
 	useEffect(() => {
-		if (!token) {
-			setError('No reset token provided. Please use the link from your email.');
+		if (!actionCode) {
+			setError('No reset code provided. Please use the link from your email.');
 			setValidating(false);
 			return;
 		}
-		// Token validation will happen on submit, so we can proceed
-		setTokenValid(true);
-		setValidating(false);
-	}, [token]);
+
+		// Verify the action code and get the email
+		verifyPasswordResetCode(auth, actionCode)
+			.then((email) => {
+				setEmail(email);
+				setTokenValid(true);
+				setValidating(false);
+			})
+			.catch((err: any) => {
+				console.error('Invalid reset code:', err);
+				const code = err?.code || '';
+				if (code === 'auth/expired-action-code') {
+					setError('This reset link has expired. Please request a new one.');
+				} else if (code === 'auth/invalid-action-code') {
+					setError('This reset link is invalid or has already been used.');
+				} else {
+					setError('Invalid or expired reset link. Please request a new one.');
+				}
+				setValidating(false);
+			});
+	}, [actionCode]);
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		setError(null);
 		setSuccess(null);
 
-		if (!token) {
-			setError('No reset token provided. Please use the link from your email.');
+		if (!actionCode) {
+			setError('No reset code provided. Please use the link from your email.');
 			return;
 		}
 
@@ -55,31 +76,24 @@ function ResetPasswordForm() {
 
 		setSubmitting(true);
 		try {
-			const response = await fetch('/api/auth/reset-password', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({
-					token,
-					password: password.trim(),
-				}),
-			});
-
-			const data = await response.json();
-
-			if (!response.ok) {
-				setError(data.error || 'Failed to reset password. Please try again.');
-			} else {
-				setSuccess('Password has been reset successfully! Redirecting to login...');
-				// Redirect to login after 2 seconds
-				setTimeout(() => {
-					router.push('/login');
-				}, 2000);
-			}
+			await confirmPasswordReset(auth, actionCode, password.trim());
+			setSuccess('Password has been reset successfully! Redirecting to login...');
+			// Redirect to login after 2 seconds
+			setTimeout(() => {
+				router.push('/login');
+			}, 2000);
 		} catch (err: any) {
 			console.error('Password reset error:', err);
-			setError('Network error. Please try again.');
+			const code = err?.code || '';
+			if (code === 'auth/expired-action-code') {
+				setError('This reset link has expired. Please request a new one.');
+			} else if (code === 'auth/invalid-action-code') {
+				setError('This reset link is invalid or has already been used.');
+			} else if (code === 'auth/weak-password') {
+				setError('Password is too weak. Please choose a stronger password.');
+			} else {
+				setError('Failed to reset password. Please try again.');
+			}
 		} finally {
 			setSubmitting(false);
 		}
@@ -97,7 +111,7 @@ function ResetPasswordForm() {
 		);
 	}
 
-	if (!token || !tokenValid) {
+	if (!actionCode || !tokenValid) {
 		return (
 			<div className="flex min-h-svh items-center justify-center bg-gray-50 px-4 py-10">
 				<div className="w-full max-w-md">
@@ -127,6 +141,11 @@ function ResetPasswordForm() {
 			<div className="w-full max-w-md">
 				<div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
 					<h2 className="mb-6 text-center text-xl font-semibold text-gray-900">Reset Your Password</h2>
+					{email && (
+						<p className="mb-4 text-center text-sm text-gray-600">
+							Resetting password for: <strong>{email}</strong>
+						</p>
+					)}
 					<form onSubmit={handleSubmit} noValidate className="space-y-4">
 						<div className="space-y-2">
 							<label htmlFor="password" className="block text-sm font-medium text-gray-700">
