@@ -123,6 +123,7 @@ async function generateInvoiceHtml(
 		description?: string;
 		hsnSac?: string;
 		taxRate?: number;
+		companyBankDetails?: string;
 	}
 ) {
 	const taxableValue = Number(bill.amount || 0);
@@ -411,10 +412,10 @@ async function generateInvoiceHtml(
 					</td>
 					<td width="50%">
 						<strong>Company's Bank Details</strong><br>
-						A/c Holder's Name: Six Sports & Business Solutions INC<br>
+						${options?.companyBankDetails ? escapeHtml(options.companyBankDetails).replace(/\n/g, '<br>') : `A/c Holder's Name: Six Sports & Business Solutions INC<br>
 						Bank Name: Canara Bank<br>
 						A/c No.: 0284201007444<br>
-						Branch & IFS Code: CNRB0000444<br><br>
+						Branch & IFS Code: CNRB0000444`}<br><br>
 						
 						<div class="text-right" style="margin-top: 20px;">
 							for <strong>SIXS SPORTS AND BUSINESS SOLUTIONS INC</strong><br><br><br>
@@ -658,6 +659,7 @@ export default function Billing() {
 		referenceNo: string;
 		hsnSac: string;
 		taxRate: number;
+		companyBankDetails?: string;
 	} | null>(null);
 
 	// Load billing records from Firestore (ordered by createdAt desc)
@@ -1176,6 +1178,7 @@ export default function Billing() {
 			referenceNo: bill.appointmentId || '',
 			hsnSac: '9993',
 			taxRate: 5, // Default 5% CGST/SGST
+			companyBankDetails: 'A/c Holder\'s Name: Six Sports & Business Solutions INC\nBank Name: Canara Bank\nA/c No.: 0284201007444\nBranch & IFS Code: CNRB0000444',
 		});
 		setSelectedBill(bill);
 		setShowInvoicePreview(true);
@@ -1203,6 +1206,7 @@ export default function Billing() {
 				description: editableInvoice.description,
 				hsnSac: editableInvoice.hsnSac,
 				taxRate: editableInvoice.taxRate,
+				companyBankDetails: editableInvoice.companyBankDetails,
 			});
 			
 			const printWindow = window.open('', '_blank');
@@ -1261,6 +1265,7 @@ export default function Billing() {
 				description: editableInvoice.description,
 				hsnSac: editableInvoice.hsnSac,
 				taxRate: editableInvoice.taxRate,
+				companyBankDetails: editableInvoice.companyBankDetails,
 			});
 
 			setPreviewHtml(html);
@@ -1819,6 +1824,17 @@ export default function Billing() {
 												type="text"
 												value={editableInvoice.referenceNo}
 												onChange={e => setEditableInvoice({ ...editableInvoice, referenceNo: e.target.value })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">Company's Bank Details</label>
+											<textarea
+												value={editableInvoice.companyBankDetails || ''}
+												onChange={e => setEditableInvoice({ ...editableInvoice, companyBankDetails: e.target.value })}
+												placeholder="Enter company bank details..."
+												rows={4}
 												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 											/>
 										</div>
