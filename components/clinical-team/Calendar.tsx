@@ -580,10 +580,10 @@ export default function Calendar() {
 					SLOT_INTERVAL_MINUTES,
 					event.appointment.duration ?? SLOT_INTERVAL_MINUTES
 				);
-
+				
 				if (event.appointment.time) {
 					let timeStr = event.appointment.time.trim();
-
+					
 					// Ensure seconds are present for ISO format
 					const timeParts = timeStr.split(':');
 					if (timeParts.length === 2) {
@@ -591,7 +591,7 @@ export default function Calendar() {
 					} else if (timeParts.length === 1) {
 						timeStr = `${timeStr}:00:00`;
 					}
-
+					
 					startDateObj = new Date(`${event.appointment.date}T${timeStr}`);
 					if (Number.isNaN(startDateObj.getTime())) {
 						startDateObj = null;
@@ -600,7 +600,7 @@ export default function Calendar() {
 					const potentialDate = new Date(event.appointment.date);
 					if (!Number.isNaN(potentialDate.getTime())) {
 						startDateObj = potentialDate;
-					}
+				}
 				}
 
 				if (!startDateObj) {

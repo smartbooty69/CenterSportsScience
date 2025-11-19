@@ -26,10 +26,32 @@ interface DateAppointmentSummary {
 	time: string;
 	status: string;
 	patient?: string;
+	duration?: number;
 }
 
 const BUTTON_DANGER =
 	'inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700 focus-visible:border-rose-300 focus-visible:text-rose-700 focus-visible:outline-none';
+
+const SLOT_INTERVAL_MINUTES = 30;
+
+const cloneSlots = (slots: TimeSlot[]): TimeSlot[] =>
+	slots.map(slot => ({
+		start: slot.start,
+		end: slot.end,
+	}));
+
+const timeStringToMinutes = (time: string) => {
+	const [hours, minutes] = time.split(':').map(Number);
+	if (Number.isNaN(hours) || Number.isNaN(minutes)) return 0;
+	return hours * 60 + minutes;
+};
+
+const minutesToTimeString = (totalMinutes: number) => {
+	const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+	const hours = Math.floor(normalized / 60);
+	const minutes = normalized % 60;
+	return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
 
 // Helper to format date as YYYY-MM-DD in local timezone
 const formatDateKey = (date: Date): string => {
@@ -60,6 +82,12 @@ export default function Availability() {
 	const [appointmentsForDate, setAppointmentsForDate] = useState<DateAppointmentSummary[]>([]);
 	const [loadingAppointments, setLoadingAppointments] = useState(false);
 	const [currentStaffUserName, setCurrentStaffUserName] = useState<string | null>(null);
+	const [copyDialog, setCopyDialog] = useState<{
+		isOpen: boolean;
+		sourceDate: string | null;
+		selectedDates: string[];
+	}>({ isOpen: false, sourceDate: null, selectedDates: [] });
+	const [copyingSchedule, setCopyingSchedule] = useState(false);
 
 	// Find staff document by user email
 	useEffect(() => {
@@ -199,21 +227,20 @@ const hasAppointmentsInSlot = (slot: TimeSlot, date: string): boolean => {
 	return appointmentsForDate.some(apt => {
 			if (apt.status === 'cancelled') return false;
 			
-			const [aptHours, aptMinutes] = apt.time.split(':').map(Number);
-			const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
-			const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
+			const aptDuration = Math.max(SLOT_INTERVAL_MINUTES, apt.duration ?? SLOT_INTERVAL_MINUTES);
+			const aptStart = timeStringToMinutes(apt.time);
+			const aptEnd = aptStart + aptDuration;
 			
-			const aptTime = aptHours * 60 + aptMinutes;
-			const slotStart = slotStartHours * 60 + slotStartMinutes;
-			let slotEnd = slotEndHours * 60 + slotEndMinutes;
+			const slotStart = timeStringToMinutes(slot.start);
+			let slotEnd = timeStringToMinutes(slot.end);
 			
 			// Handle slots that span midnight
 			if (slotEnd <= slotStart) {
 				slotEnd += 24 * 60; // Add 24 hours
 			}
 			
-			// Check if appointment time is within the slot
-			return aptTime >= slotStart && aptTime < slotEnd;
+			// Overlap if appointment starts before slot ends AND ends after slot starts
+			return aptStart < slotEnd && aptEnd > slotStart;
 		});
 	};
 
@@ -241,6 +268,7 @@ const hasAppointmentsInSlot = (slot: TimeSlot, date: string): boolean => {
 					time: doc.data().time as string,
 					patient: doc.data().patient as string,
 					status: doc.data().status as string,
+					duration: typeof doc.data().duration === 'number' ? doc.data().duration : undefined,
 				}));
 				setAppointmentsForDate(appointments);
 				setLoadingAppointments(false);
@@ -278,6 +306,7 @@ const loadAppointmentsForDate = async (
 				time: doc.data().time as string,
 				patient: doc.data().patient as string,
 				status: doc.data().status as string,
+				duration: typeof doc.data().duration === 'number' ? doc.data().duration : undefined,
 			}));
 			setAppointmentsForDate(appointments);
 			return includeCancelled ? appointments : appointments.filter(apt => apt.status !== 'cancelled');
@@ -472,37 +501,23 @@ const handleDateAddSlot = () => {
 		});
 	};
 
-	const copyDayToMonth = async (sourceDate: string) => {
-		if (!staffDocId) return;
-		
-		const monthDates = getMonthDates(selectedMonth);
-		const sourceSchedule = getDateSchedule(sourceDate);
-		
-		// Filter to only current month dates (not previous/next month padding)
-		const currentMonth = new Date(selectedMonth + 'T00:00:00');
-		const year = currentMonth.getFullYear();
-		const month = currentMonth.getMonth();
-		const currentMonthDates = monthDates.filter(date => {
-			const d = new Date(date + 'T00:00:00');
-			return d.getFullYear() === year && d.getMonth() === month;
-		});
-		
-		if (!window.confirm(`Copy schedule from ${formatDateDisplay(sourceDate)} to all days in this month?`)) return;
+	const copyScheduleToDates = async (sourceDate: string, targetDates: string[]) => {
+		if (!staffDocId || targetDates.length === 0) return;
 
+		const sourceSchedule = getDateSchedule(sourceDate);
 		const newDateSpecific = { ...dateSpecific };
-		
-		currentMonthDates.forEach(date => {
+
+		targetDates.forEach(date => {
 			newDateSpecific[date] = {
 				enabled: sourceSchedule.enabled,
-				slots: sourceSchedule.slots.map(slot => ({ ...slot })),
+				slots: cloneSlots(sourceSchedule.slots),
 			};
 		});
 
-		// Update local state immediately
 		setDateSpecific(newDateSpecific);
 
-		// Auto-save to Firestore
 		isSavingRef.current = true;
+		setCopyingSchedule(true);
 		try {
 			const staffRef = doc(db, 'staff', staffDocId);
 			await setDoc(
@@ -513,14 +528,13 @@ const handleDateAddSlot = () => {
 				},
 				{ merge: true }
 			);
-			console.log('✅ Copied schedule to month');
 			setSavedMessage(true);
 			setTimeout(() => setSavedMessage(false), 3000);
 		} catch (error) {
 			console.error('Failed to copy schedule', error);
 			alert('Failed to copy schedule. Please try again.');
 		} finally {
-			// Allow listener to update after a short delay
+			setCopyingSchedule(false);
 			setTimeout(() => {
 				isSavingRef.current = false;
 			}, 500);
@@ -593,6 +607,74 @@ const handleDateAddSlot = () => {
 		return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 	};
 
+	const currentMonthDatesOnly = useMemo(() => {
+		const today = new Date();
+		// zero time for comparison
+		today.setHours(0, 0, 0, 0);
+		return monthDates.filter(date => {
+			if (!isCurrentMonth(date)) return false;
+			const dateObj = new Date(date + 'T00:00:00');
+			return dateObj >= today;
+		});
+	}, [monthDates, selectedMonth]);
+
+	const handleOpenCopyDialog = (sourceDate: string) => {
+		const sourceDateObj = new Date(sourceDate + 'T00:00:00');
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+		if (sourceDateObj < today) {
+			alert('You cannot copy schedules from a past date.');
+			return;
+		}
+
+		const defaultTargets = currentMonthDatesOnly.filter(date => date !== sourceDate);
+		if (defaultTargets.length === 0) {
+			alert('No future days available this month to copy the schedule.');
+			return;
+		}
+		setCopyDialog({
+			isOpen: true,
+			sourceDate,
+			selectedDates: defaultTargets,
+		});
+	};
+
+	const handleCloseCopyDialog = () => {
+		setCopyDialog({ isOpen: false, sourceDate: null, selectedDates: [] });
+	};
+
+	const handleToggleCopyDate = (date: string) => {
+		setCopyDialog(prev => {
+			if (!prev.isOpen) return prev;
+			const isSelected = prev.selectedDates.includes(date);
+			const selectedDates = isSelected
+				? prev.selectedDates.filter(item => item !== date)
+				: [...prev.selectedDates, date];
+			return { ...prev, selectedDates };
+		});
+	};
+
+	const handleSelectAllCopyDates = () => {
+		setCopyDialog(prev => {
+			if (!prev.isOpen || !prev.sourceDate) return prev;
+			const allTargets = currentMonthDatesOnly.filter(date => date !== prev.sourceDate);
+			return { ...prev, selectedDates: allTargets };
+		});
+	};
+
+	const handleClearCopyDates = () => {
+		setCopyDialog(prev => ({ ...prev, selectedDates: [] }));
+	};
+
+	const handleCopyDialogSave = async () => {
+		if (!copyDialog.sourceDate || copyDialog.selectedDates.length === 0) {
+			alert('Select at least one day to copy the schedule.');
+			return;
+		}
+		await copyScheduleToDates(copyDialog.sourceDate, copyDialog.selectedDates);
+		handleCloseCopyDialog();
+	};
+
 	if (loading) {
 		return (
 			<div className="min-h-svh bg-slate-50 px-6 py-10">
@@ -607,8 +689,9 @@ const handleDateAddSlot = () => {
 	}
 
 	return (
-		<div className="min-h-svh bg-slate-50 px-6 py-10">
-			<div className="mx-auto max-w-6xl">
+		<>
+			<div className="min-h-svh bg-slate-50 px-6 py-10">
+				<div className="mx-auto max-w-6xl">
 				<header className="mb-8">
 					<p className="text-sm font-semibold uppercase tracking-wide text-sky-600">Clinical Team</p>
 					<h1 className="mt-1 text-3xl font-semibold text-slate-900">My Availability</h1>
@@ -767,12 +850,12 @@ const handleDateAddSlot = () => {
 												{hasSchedule && (
 													<button
 														type="button"
-														onClick={() => copyDayToMonth(date)}
+														onClick={() => handleOpenCopyDialog(date)}
 														className={`rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 ${
 															isInactivePastDay ? 'cursor-not-allowed opacity-50 hover:border-slate-300 hover:bg-white hover:text-slate-700' : ''
 														}`}
 														disabled={isInactivePastDay}
-														title="Copy to all days in month"
+														title="Copy to selected days"
 													>
 														<i className="fas fa-copy" aria-hidden="true" />
 													</button>
@@ -822,17 +905,21 @@ const handleDateAddSlot = () => {
 												const hasAppointments = selectedDate ? hasAppointmentsInSlot(slot, selectedDate) : false;
 												const isLocked = hasAppointments && !slot.isNew;
 												const hasConflictButEditable = hasAppointments && slot.isNew;
-										const slotAppointments = selectedDate ? appointmentsForDate.filter(apt => {
-											if (apt.status === 'cancelled') return false;
-											const [aptHours, aptMinutes] = apt.time.split(':').map(Number);
-											const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
-											const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
-											const aptTime = aptHours * 60 + aptMinutes;
-											const slotStart = slotStartHours * 60 + slotStartMinutes;
-											let slotEnd = slotEndHours * 60 + slotEndMinutes;
-											if (slotEnd <= slotStart) slotEnd += 24 * 60;
-											return aptTime >= slotStart && aptTime < slotEnd;
-										}) : [];
+										const slotAppointments = selectedDate
+											? appointmentsForDate.filter(apt => {
+													if (apt.status === 'cancelled') return false;
+													const aptDuration = Math.max(
+														SLOT_INTERVAL_MINUTES,
+														apt.duration ?? SLOT_INTERVAL_MINUTES
+													);
+													const aptStart = timeStringToMinutes(apt.time);
+													const aptEnd = aptStart + aptDuration;
+													const slotStart = timeStringToMinutes(slot.start);
+													let slotEnd = timeStringToMinutes(slot.end);
+													if (slotEnd <= slotStart) slotEnd += 24 * 60;
+													return aptStart < slotEnd && aptEnd > slotStart;
+												})
+											: [];
 										
 										return (
 											<div 
@@ -846,37 +933,42 @@ const handleDateAddSlot = () => {
 												}`}
 											>
 												<div className="flex-1">
-													<label className="block text-xs font-medium text-slate-500">
-														Start Time
-														{isLocked && <span className="ml-1 text-amber-600">(Has appointments)</span>}
-														{hasConflictButEditable && <span className="ml-1 text-amber-600">(Conflicts with existing appointments)</span>}
-													</label>
-													<input
-														type="time"
-														value={slot.start}
-														onChange={e => handleDateSlotChange(slotIndex, 'start', e.target.value)}
-														className="input-base"
-														disabled={isLocked}
-													/>
+													<div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+														<div className="flex-1">
+															<label className="block text-xs font-medium text-slate-500 mb-1">Start Time</label>
+															<input
+																type="time"
+																value={slot.start}
+																onChange={e => handleDateSlotChange(slotIndex, 'start', e.target.value)}
+																className="input-base"
+																disabled={isLocked}
+															/>
+														</div>
+														<div className="flex items-center justify-center text-xs font-semibold text-slate-400 pt-5 sm:pt-0">
+															to
+														</div>
+														<div className="flex-1">
+															<label className="block text-xs font-medium text-slate-500 mb-1">End Time</label>
+															<input
+																type="time"
+																value={slot.end}
+																onChange={e => handleDateSlotChange(slotIndex, 'end', e.target.value)}
+																className="input-base"
+																disabled={isLocked}
+															/>
+														</div>
+													</div>
 													{hasAppointments && slotAppointments.length > 0 && (
-														<div className="mt-1 text-xs text-amber-700">
+														<div className="mt-2 text-xs text-amber-700">
 															{slotAppointments.map((apt, idx) => (
-																<div key={idx}>
-																	{apt.time} - {apt.patient}
+																<div key={idx} className="flex items-center gap-1">
+																	<span>{apt.patient}</span>
+																	{isLocked && <span className="text-amber-600">(Has appointments)</span>}
+																	{hasConflictButEditable && <span className="text-amber-600">(Conflicts with existing appointments)</span>}
 																</div>
 															))}
 														</div>
 													)}
-												</div>
-												<div className="flex-1">
-													<label className="block text-xs font-medium text-slate-500">End Time</label>
-													<input
-														type="time"
-														value={slot.end}
-														onChange={e => handleDateSlotChange(slotIndex, 'end', e.target.value)}
-														className="input-base"
-														disabled={isLocked}
-													/>
 												</div>
 												<div className="flex items-end">
 													{editingDateSchedule.slots.length > 1 && (
@@ -962,9 +1054,79 @@ const handleDateAddSlot = () => {
 
 				<div className="mt-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
 					<i className="fas fa-info-circle mr-2" aria-hidden="true" />
-					<strong>Tip:</strong> Click on any date to set your availability. Use the copy button to quickly apply a day's schedule to the entire week.
+					<strong>Tip:</strong> Click on any date to set your availability. Use the copy button to apply that schedule to specific days in the same month.
 				</div>
 			</div>
 		</div>
+
+		{copyDialog.isOpen && copyDialog.sourceDate ? (
+			<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-4 py-6">
+				<div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+					<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+						<div>
+							<p className="text-xs uppercase tracking-wide text-slate-500">Copy Schedule</p>
+							<h3 className="text-lg font-semibold text-slate-900">{formatDateDisplay(copyDialog.sourceDate)}</h3>
+							<p className="text-xs text-slate-500">Select the days in this month that should receive this schedule.</p>
+						</div>
+						<button
+							type="button"
+							onClick={handleCloseCopyDialog}
+							className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+						>
+							<i className="fas fa-times" aria-hidden="true" />
+						</button>
+					</header>
+					<div className="px-6 py-4 space-y-4">
+						<div className="flex items-center gap-3">
+							<button type="button" onClick={handleSelectAllCopyDates} className="text-xs font-medium text-sky-600 hover:text-sky-700">
+								Select all
+							</button>
+							<button type="button" onClick={handleClearCopyDates} className="text-xs font-medium text-slate-500 hover:text-slate-700">
+								Clear
+							</button>
+						</div>
+						<div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200 p-3">
+							<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+								{currentMonthDatesOnly
+									.filter(date => date !== copyDialog.sourceDate)
+									.map(date => {
+										const isSelected = copyDialog.selectedDates.includes(date);
+										return (
+											<label
+												key={date}
+												className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium transition ${
+													isSelected ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700'
+												}`}
+											>
+												<span>{formatDateDisplay(date)}</span>
+												<input
+													type="checkbox"
+													checked={isSelected}
+													onChange={() => handleToggleCopyDate(date)}
+													className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-200"
+												/>
+											</label>
+										);
+									})}
+							</div>
+						</div>
+					</div>
+					<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+						<button type="button" onClick={handleCloseCopyDialog} className="btn-secondary" disabled={copyingSchedule}>
+							Cancel
+						</button>
+						<button
+							type="button"
+							onClick={handleCopyDialogSave}
+							className="btn-primary"
+							disabled={copyingSchedule || copyDialog.selectedDates.length === 0}
+						>
+							{copyingSchedule ? 'Copying…' : 'Copy schedule'}
+						</button>
+					</footer>
+				</div>
+			</div>
+		) : null}
+	</>
 	);
 }

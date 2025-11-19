@@ -1609,12 +1609,12 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 								</div>
 
 								<div className="grid gap-4 sm:grid-cols-2">
-									<div>
-										<label className="block text-sm font-medium text-slate-700">
-											Clinician <span className="text-rose-500">*</span>
-										</label>
-										<select
-											value={bookingForm.doctor}
+								<div>
+									<label className="block text-sm font-medium text-slate-700">
+										Clinician <span className="text-rose-500">*</span>
+									</label>
+									<select
+										value={bookingForm.doctor}
 											onChange={event => {
 												setBookingForm(prev => ({
 													...prev,
@@ -1625,21 +1625,21 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 												}));
 												setSelectedSlots([]);
 											}}
-											className="select-base mt-2"
+										className="select-base mt-2"
 											disabled={bookingLoading}
-											required
-										>
+										required
+									>
 											<option value="">{doctorOptions.length ? 'Select clinician' : 'No clinicians available'}</option>
-											{doctorOptions.map(option => (
-												<option key={option} value={option}>
-													{option}
-												</option>
-											))}
-										</select>
+										{doctorOptions.map(option => (
+											<option key={option} value={option}>
+												{option}
+											</option>
+										))}
+									</select>
 										{doctorOptions.length === 0 && (
 											<p className="mt-1 text-xs text-amber-600">No active clinicians are available right now.</p>
-										)}
-									</div>
+									)}
+								</div>
 									<div>
 										<label className="block text-sm font-medium text-slate-700">
 											Date <span className="text-rose-500">*</span>
@@ -1667,10 +1667,10 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 									</div>
 								</div>
 
-								<div>
-									<label className="block text-sm font-medium text-slate-700">
+									<div>
+										<label className="block text-sm font-medium text-slate-700">
 										Time Slot <span className="text-rose-500">*</span>
-									</label>
+										</label>
 									{!bookingForm.doctor ? (
 										<p className="mt-2 text-xs text-slate-500">Choose a clinician to see their available dates and slots.</p>
 									) : !bookingForm.date ? (
@@ -1708,7 +1708,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 																	aria-hidden="true"
 																/>
 															</span>
-														</div>
+									</div>
 													</button>
 												);
 											})}
