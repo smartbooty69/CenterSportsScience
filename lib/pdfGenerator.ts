@@ -437,6 +437,15 @@ export async function generatePhysiotherapyReportPDF(
 	doc.line(12, y, 198, y);
 	y += 4;
 
+	// Helper function to check if we need a new page before adding a table
+	const checkPageBreak = (requiredSpace: number = 30) => {
+		const availableSpace = pageHeight - y - footerHeight - pageMargin;
+		if (availableSpace < requiredSpace) {
+			doc.addPage();
+			y = pageMargin + 20; // Start new page with some top margin
+		}
+	};
+
 	// Build patient information body
 	const patientInfoBody: string[][] = [
 		['Patient Name', data.patientName],
@@ -527,6 +536,7 @@ export async function generatePhysiotherapyReportPDF(
 	}
 
 	if (includeSection('onObservation')) {
+		checkPageBreak(40); // Ensure enough space for the table
 		autoTable(doc, {
 			startY: y,
 			theme: 'grid',
@@ -543,8 +553,15 @@ export async function generatePhysiotherapyReportPDF(
 				['Muscle Wasting', data.muscleWasting || ''],
 			],
 			headStyles,
-			styles: baseStyles,
-			columnStyles: { 0: { cellWidth: 60 } },
+			styles: {
+				...baseStyles,
+				overflow: 'linebreak',
+				cellWidth: 'wrap',
+			},
+			columnStyles: { 
+				0: { cellWidth: 60 },
+				1: { cellWidth: 'auto', overflow: 'linebreak' },
+			},
 			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
 			didDrawPage: addFooter,
 		});
@@ -552,6 +569,7 @@ export async function generatePhysiotherapyReportPDF(
 	}
 
 	if (includeSection('onPalpation')) {
+		checkPageBreak(30);
 		autoTable(doc, {
 			startY: y,
 			theme: 'grid',
@@ -564,8 +582,14 @@ export async function generatePhysiotherapyReportPDF(
 				['Odema', data.odema || ''],
 			],
 			headStyles,
-			styles: baseStyles,
-			columnStyles: { 0: { cellWidth: 60 } },
+			styles: {
+				...baseStyles,
+				overflow: 'linebreak',
+			},
+			columnStyles: { 
+				0: { cellWidth: 60 },
+				1: { cellWidth: 'auto', overflow: 'linebreak' },
+			},
 			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
 			didDrawPage: addFooter,
 		});
@@ -830,6 +854,273 @@ export async function generatePhysiotherapyReportPDF(
 		}
 	} catch (error) {
 		console.error('Error in generatePhysiotherapyReportPDF:', error);
+		throw error;
+	}
+}
+
+export interface StrengthConditioningData {
+	therapistName?: string;
+	scapularDyskinesiaTest?: string;
+	upperLimbFlexibilityRight?: string;
+	upperLimbFlexibilityLeft?: string;
+	shoulderInternalRotationRight?: string;
+	shoulderInternalRotationLeft?: string;
+	shoulderExternalRotationRight?: string;
+	shoulderExternalRotationLeft?: string;
+	thoracicRotation?: string;
+	sitAndReachTest?: string;
+	singleLegSquatRight?: string;
+	singleLegSquatLeft?: string;
+	weightBearingLungeTestRight?: string;
+	weightBearingLungeTestLeft?: string;
+	hamstringsFlexibilityRight?: string;
+	hamstringsFlexibilityLeft?: string;
+	quadricepsFlexibilityRight?: string;
+	quadricepsFlexibilityLeft?: string;
+	hipExternalRotationRight?: string;
+	hipExternalRotationLeft?: string;
+	hipInternalRotationRight?: string;
+	hipInternalRotationLeft?: string;
+	hipExtensionRight?: string;
+	hipExtensionLeft?: string;
+	activeSLRRight?: string;
+	activeSLRLeft?: string;
+	pronePlank?: string;
+	sidePlankRight?: string;
+	sidePlankLeft?: string;
+	storkStandingBalanceTestRight?: string;
+	storkStandingBalanceTestLeft?: string;
+	deepSquat?: string;
+	pushup?: string;
+	fmsScore?: string;
+	totalFmsScore?: string;
+	summary?: string;
+}
+
+export interface StrengthConditioningPDFData {
+	patient: {
+		name?: string;
+		patientId?: string;
+		dob?: string;
+		gender?: string;
+		phone?: string;
+		email?: string;
+	};
+	formData: StrengthConditioningData;
+}
+
+export async function generateStrengthConditioningPDF(
+	data: StrengthConditioningPDFData,
+	options?: { forPrint?: boolean }
+): Promise<void> {
+	try {
+		const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+			import('jspdf'),
+			import('jspdf-autotable'),
+		]);
+
+		const autoTable = (autoTableModule as any).default || autoTableModule;
+		const doc = new jsPDF('p', 'mm', 'a4');
+		const pageWidth = 210;
+		const pageHeight = 297;
+		const pageMargin = 10;
+		let y = 20;
+
+		// Title
+		doc.setFontSize(16);
+		doc.setFont('helvetica', 'bold');
+		doc.text('Strength and Conditioning Assessment Report', pageWidth / 2, y, { align: 'center' });
+		y += 10;
+
+		// Patient Details
+		doc.setFontSize(12);
+		doc.setFont('helvetica', 'bold');
+		doc.text('Patient Information', pageMargin, y);
+		y += 8;
+
+		doc.setFontSize(10);
+		doc.setFont('helvetica', 'normal');
+		const patientInfo = [
+			['Patient Name', data.patient.name || ''],
+			['Patient ID', data.patient.patientId || ''],
+			['Date of Birth', data.patient.dob || ''],
+			['Gender', data.patient.gender || ''],
+			['Phone', data.patient.phone || ''],
+			['Email', data.patient.email || ''],
+		];
+
+		autoTable(doc, {
+			startY: y,
+			head: [['Field', 'Value']],
+			body: patientInfo,
+			theme: 'grid',
+			headStyles: { fillColor: [7, 89, 133], textColor: [255, 255, 255] },
+			styles: { fontSize: 9, cellPadding: 3 },
+			columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 'auto' } },
+			margin: { left: pageMargin, right: pageMargin },
+		});
+		y = (doc as any).lastAutoTable.finalY + 10;
+
+		// Therapist Name
+		if (data.formData.therapistName) {
+			doc.setFontSize(10);
+			doc.setFont('helvetica', 'normal');
+			doc.text(`Therapist: ${data.formData.therapistName}`, pageMargin, y);
+			y += 8;
+		}
+
+		// Injury Risk Screening Section
+		doc.setFontSize(12);
+		doc.setFont('helvetica', 'bold');
+		doc.text('Injury Risk Screening', pageMargin, y);
+		y += 8;
+
+		// Build body rows
+		const bodyRows: string[][] = [];
+
+		if (data.formData.scapularDyskinesiaTest) {
+			bodyRows.push(['Scapular Dyskinesia Test', data.formData.scapularDyskinesiaTest]);
+		}
+
+		// Upper body table
+		const upperBodyRows: string[][] = [
+			['Upper Limb Flexibility', data.formData.upperLimbFlexibilityRight || '', data.formData.upperLimbFlexibilityLeft || ''],
+			['Shoulder Internal Rotation', data.formData.shoulderInternalRotationRight || '', data.formData.shoulderInternalRotationLeft || ''],
+			['Shoulder External Rotation', data.formData.shoulderExternalRotationRight || '', data.formData.shoulderExternalRotationLeft || ''],
+		].filter(row => row[1] || row[2]);
+
+		if (upperBodyRows.length > 0) {
+			autoTable(doc, {
+				startY: y,
+				head: [['Field', 'Right', 'Left']],
+				body: upperBodyRows,
+				theme: 'grid',
+				headStyles: { fillColor: [7, 89, 133], textColor: [255, 255, 255] },
+				styles: { fontSize: 9, cellPadding: 2 },
+				margin: { left: pageMargin, right: pageMargin },
+			});
+			y = (doc as any).lastAutoTable.finalY + 6;
+		}
+
+		if (data.formData.thoracicRotation) {
+			bodyRows.push(['Thoracic Rotation', data.formData.thoracicRotation]);
+		}
+		if (data.formData.sitAndReachTest) {
+			bodyRows.push(['Sit And Reach Test', data.formData.sitAndReachTest]);
+		}
+
+		// Lower body table
+		const lowerBodyRows: string[][] = [
+			['Single Leg Squat', data.formData.singleLegSquatRight || '', data.formData.singleLegSquatLeft || ''],
+			['Weight Bearing Lunge Test', data.formData.weightBearingLungeTestRight || '', data.formData.weightBearingLungeTestLeft || ''],
+			['Hamstrings Flexibility', data.formData.hamstringsFlexibilityRight || '', data.formData.hamstringsFlexibilityLeft || ''],
+			['Quadriceps Flexibility', data.formData.quadricepsFlexibilityRight || '', data.formData.quadricepsFlexibilityLeft || ''],
+			['Hip External Rotation', data.formData.hipExternalRotationRight || '', data.formData.hipExternalRotationLeft || ''],
+			['Hip Internal Rotation', data.formData.hipInternalRotationRight || '', data.formData.hipInternalRotationLeft || ''],
+			['Hip Extension', data.formData.hipExtensionRight || '', data.formData.hipExtensionLeft || ''],
+			['Active SLR', data.formData.activeSLRRight || '', data.formData.activeSLRLeft || ''],
+		].filter(row => row[1] || row[2]);
+
+		if (lowerBodyRows.length > 0) {
+			autoTable(doc, {
+				startY: y,
+				head: [['Field', 'Right', 'Left']],
+				body: lowerBodyRows,
+				theme: 'grid',
+				headStyles: { fillColor: [7, 89, 133], textColor: [255, 255, 255] },
+				styles: { fontSize: 9, cellPadding: 2 },
+				margin: { left: pageMargin, right: pageMargin },
+			});
+			y = (doc as any).lastAutoTable.finalY + 6;
+		}
+
+		if (data.formData.pronePlank) {
+			bodyRows.push(['Prone Plank', data.formData.pronePlank]);
+		}
+
+		// Side plank and stork table
+		const balanceRows: string[][] = [
+			['Side Plank', data.formData.sidePlankRight || '', data.formData.sidePlankLeft || ''],
+			['Stork Standing Balance Test', data.formData.storkStandingBalanceTestRight || '', data.formData.storkStandingBalanceTestLeft || ''],
+		].filter(row => row[1] || row[2]);
+
+		if (balanceRows.length > 0) {
+			autoTable(doc, {
+				startY: y,
+				head: [['Field', 'Right', 'Left']],
+				body: balanceRows,
+				theme: 'grid',
+				headStyles: { fillColor: [7, 89, 133], textColor: [255, 255, 255] },
+				styles: { fontSize: 9, cellPadding: 2 },
+				margin: { left: pageMargin, right: pageMargin },
+			});
+			y = (doc as any).lastAutoTable.finalY + 6;
+		}
+
+		// Additional fields
+		const additionalFields: string[][] = [];
+		if (data.formData.deepSquat) additionalFields.push(['Deep Squat', data.formData.deepSquat]);
+		if (data.formData.pushup) additionalFields.push(['Pushup', data.formData.pushup]);
+		if (data.formData.fmsScore) additionalFields.push(['FMS Score', data.formData.fmsScore]);
+		if (data.formData.totalFmsScore) additionalFields.push(['Total FMS Score', data.formData.totalFmsScore]);
+
+		if (additionalFields.length > 0) {
+			autoTable(doc, {
+				startY: y,
+				head: [['Field', 'Value']],
+				body: additionalFields,
+				theme: 'grid',
+				headStyles: { fillColor: [7, 89, 133], textColor: [255, 255, 255] },
+				styles: { fontSize: 9, cellPadding: 2 },
+				columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 'auto' } },
+				margin: { left: pageMargin, right: pageMargin },
+			});
+			y = (doc as any).lastAutoTable.finalY + 6;
+		}
+
+		// Summary
+		if (data.formData.summary) {
+			doc.setFontSize(12);
+			doc.setFont('helvetica', 'bold');
+			doc.text('Summary', pageMargin, y);
+			y += 6;
+
+			doc.setFontSize(10);
+			doc.setFont('helvetica', 'normal');
+			const summaryLines = doc.splitTextToSize(data.formData.summary, pageWidth - 2 * pageMargin);
+			doc.text(summaryLines, pageMargin, y);
+		}
+
+		// Handle print or download
+		if (options?.forPrint) {
+			try {
+				const pdfBlob = doc.output('blob');
+				const pdfUrl = URL.createObjectURL(pdfBlob);
+				const printWindow = window.open(pdfUrl, '_blank');
+				if (printWindow) {
+					setTimeout(() => {
+						try {
+							printWindow.print();
+						} catch (winError) {
+							console.error('Window print failed:', winError);
+						}
+					}, 1500);
+				}
+			} catch (error) {
+				console.error('Error generating PDF for print:', error);
+				throw error;
+			}
+		} else {
+			try {
+				const fileName = `Strength_Conditioning_${data.patient.patientId || 'Report'}_${new Date().toISOString().split('T')[0]}.pdf`;
+				doc.save(fileName);
+			} catch (error) {
+				console.error('Error saving PDF:', error);
+				throw error;
+			}
+		}
+	} catch (error) {
+		console.error('Error in generateStrengthConditioningPDF:', error);
 		throw error;
 	}
 }

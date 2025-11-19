@@ -1562,14 +1562,24 @@ export default function EditReport() {
 												</td>
 												<td className="px-4 py-4 text-sm text-slate-600">{patient.assignedDoctor || 'Unassigned'}</td>
 												<td className="px-4 py-4 text-right">
-													<button
-														type="button"
-														onClick={() => handleSelectPatient(patient)}
-														className="btn-primary"
-													>
-														<i className="fas fa-edit text-xs" aria-hidden="true" />
-														Edit Report
-													</button>
+													<div className="flex items-center justify-end gap-2">
+														<button
+															type="button"
+															onClick={() => handleSelectPatient(patient)}
+															className="btn-primary"
+														>
+															<i className="fas fa-edit text-xs" aria-hidden="true" />
+															Edit Report
+														</button>
+														<button
+															type="button"
+															onClick={() => handleStrengthConditioningReport(patient.patientId)}
+															className="btn-secondary"
+														>
+															<i className="fas fa-dumbbell text-xs" aria-hidden="true" />
+															Strength & Conditioning
+														</button>
+													</div>
 												</td>
 											</tr>
 										))}
@@ -2806,7 +2816,7 @@ export default function EditReport() {
 						>
 							<i className="fas fa-history text-xs" aria-hidden="true" />
 							Report History
-image.png						</button>
+						</button>
 						<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
 							<i className="fas fa-save text-xs" aria-hidden="true" />
 							{saving ? 'Saving...' : 'Save Report'}

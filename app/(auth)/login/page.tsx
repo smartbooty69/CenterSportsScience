@@ -121,23 +121,23 @@ export default function LoginPage() {
 			await signOut(auth);
 			setSubmitting(false);
 		} catch (err: any) {
-			const code = err?.code || '';
-			const message = err?.message || '';
+			// Extract error code and message safely
+			const code = err?.code || err?.error?.code || '';
+			const message = err?.message || err?.error?.message || '';
 			
 			// Log detailed error in development mode only
 			if (process.env.NODE_ENV === 'development') {
 				// Safely serialize error for logging
 				const errorDetails: any = {
-					code,
-					message,
 					email: username.trim().toLowerCase(),
 				};
 				
 				// Add error properties safely
 				if (err) {
-					if (err.code) errorDetails.code = err.code;
-					if (err.message) errorDetails.message = err.message;
+					if (code) errorDetails.code = code;
+					if (message) errorDetails.message = message;
 					if (err.stack) errorDetails.stack = err.stack;
+					
 					// Try to get string representation
 					try {
 						errorDetails.errorString = String(err);
@@ -145,11 +145,33 @@ export default function LoginPage() {
 					} catch (e) {
 						errorDetails.errorString = '[Unable to stringify error]';
 					}
+					
+					// Try to get all enumerable properties
+					try {
+						const errorKeys = Object.keys(err);
+						if (errorKeys.length > 0) {
+							errorDetails.errorKeys = errorKeys;
+							errorKeys.forEach(key => {
+								try {
+									if (key !== 'stack' && typeof err[key] !== 'function') {
+										errorDetails[`error_${key}`] = err[key];
+									}
+								} catch (e) {
+									// Skip properties that can't be accessed
+								}
+							});
+						}
+					} catch (e) {
+						// Ignore errors when trying to enumerate properties
+					}
 				} else {
 					errorDetails.error = 'Error object is null or undefined';
 				}
 				
-				console.error('Login error details:', errorDetails);
+				// Only log if we have some meaningful information
+				if (Object.keys(errorDetails).length > 1 || code || message) {
+					console.error('Login error details:', errorDetails);
+				}
 				// Also log the raw error separately for debugging
 				console.error('Raw error object:', err);
 			}
