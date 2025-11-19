@@ -149,7 +149,7 @@ function escapeHtml(unsafe: any) {
 /* --------------------------------------------------------
 	GENERATE PRINTABLE INVOICE HTML (INDIAN GST FORMAT)
 ---------------------------------------------------------- */
-function generateInvoiceHtml(
+async function generateInvoiceHtml(
 	bill: BillingRecord, 
 	invoiceNo: string, 
 	options?: {
@@ -179,8 +179,22 @@ function generateInvoiceHtml(
 	const description = options?.description || 'Physiotherapy / Strength & Conditioning Sessions';
 	const hsnSac = options?.hsnSac || '9993';
 	
-	// Get the base URL for the logo (works in both dev and production)
-	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+	// Load invoice header configuration - Admin changes have FIRST priority
+	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
+	const headerConfig = await getHeaderConfig('invoice');
+	const defaultConfig = getDefaultHeaderConfig('invoice');
+
+	// Priority: 1. Admin config, 2. Default config
+	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
+	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
+	const contactInfo =
+		headerConfig?.contactInfo ||
+		defaultConfig.contactInfo ||
+		'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
+
+	// Logos: Admin config has priority, fallback to default logo
+	const leftLogoUrl = headerConfig?.leftLogo || (typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg');
+	const rightLogoUrl = headerConfig?.rightLogo || '';
 
 	return `
 		<!DOCTYPE html>
@@ -240,8 +254,11 @@ function generateInvoiceHtml(
 				<tr>
 					<td class="header-left">
 						<div style="display: flex; gap: 10px; align-items: flex-start;">
-							<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto; flex-shrink: 0;">
+							${leftLogoUrl ? `<img src="${leftLogoUrl}" alt="Company Logo" style="width: 100px; height: auto; flex-shrink: 0;">` : ''}
 							<div>
+								<span class="bold" style="font-size: 14px;">${escapeHtml(mainTitle)}</span><br>
+								${subtitle ? `${escapeHtml(subtitle)}<br>` : ''}
+								${contactInfo ? `${escapeHtml(contactInfo)}<br>` : ''}
 								<span class="bold" style="font-size: 14px;">SIXS SPORTS AND BUSINESS SOLUTIONS INC</span><br>
 								Blr: No.503, 5th Floor Donata Marvel Apartment,<br>
 								Gokula Extension, Mattikere, Bangalore-560054<br>
@@ -254,6 +271,7 @@ function generateInvoiceHtml(
 						</div>
 					</td>
 					<td class="header-right">
+						${rightLogoUrl ? `<div style="text-align: right; margin-bottom: 5px;"><img src="${rightLogoUrl}" alt="Right Logo" style="max-width: 100px; max-height: 80px; object-fit: contain;"></div>` : ''}
 						<table class="nested-table">
 							<tr>
 								<td width="50%"><strong>Invoice No.</strong><br>${escapeHtml(invoiceNo)}</td>
@@ -437,13 +455,29 @@ function generateInvoiceHtml(
 /* --------------------------------------------------------
 	GENERATE RECEIPT HTML (MATCHING RECEIPT IMAGE FORMAT)
 ---------------------------------------------------------- */
-function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
+async function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 	const amount = Number(bill.amount || 0).toFixed(2);
 	const words = numberToWords(Number(bill.amount || 0));
 	const showDate = bill.date || new Date().toLocaleDateString('en-IN');
 	
 	const paymentModeDisplay = bill.paymentMode || 'Cash';
-	const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg';
+	
+	// Load invoice header configuration - Admin changes have FIRST priority
+	const { getHeaderConfig, getDefaultHeaderConfig } = await import('@/lib/headerConfig');
+	const headerConfig = await getHeaderConfig('invoice');
+	const defaultConfig = getDefaultHeaderConfig('invoice');
+
+	// Priority: 1. Admin config, 2. Default config
+	const mainTitle = headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE';
+	const subtitle = headerConfig?.subtitle || defaultConfig.subtitle || 'Sports Business Solutions Pvt. Ltd.';
+	const contactInfo =
+		headerConfig?.contactInfo ||
+		defaultConfig.contactInfo ||
+		'Sri Kanteerava Outdoor Stadium, Bangalore | Phone: +91 97311 28396';
+
+	// Logos: Admin config has priority, fallback to default logo
+	const leftLogoUrl = headerConfig?.leftLogo || (typeof window !== 'undefined' ? `${window.location.origin}/logo.jpg` : '/logo.jpg');
+	const rightLogoUrl = headerConfig?.rightLogo || '';
 
 	return `
 		<!DOCTYPE html>
@@ -588,14 +622,15 @@ function generateReceiptHtml(bill: BillingRecord, receiptNo: string) {
 			<div class="receipt-box">
 				<div class="header">
 					<div class="header-left">
-						<img src="${logoUrl}" alt="Company Logo" style="width: 100px; height: auto;">
+						${leftLogoUrl ? `<img src="${leftLogoUrl}" alt="Company Logo" style="width: 100px; height: auto;">` : ''}
 						<div class="company-info">
-							<h2>Centre For Sports Science</h2>
-							<p>Sports & Business Solutions Pvt. Ltd.</p>
-							<p>Sri Kanteerava Outdoor Stadium · Bangalore · +91 97311 28396</p>
+							<h2>${escapeHtml(mainTitle)}</h2>
+							${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}
+							${contactInfo ? `<p>${escapeHtml(contactInfo)}</p>` : ''}
 						</div>
 					</div>
 					<div class="header-right">
+						${rightLogoUrl ? `<img src="${rightLogoUrl}" alt="Right Logo" style="max-width: 100px; max-height: 80px; object-fit: contain; margin-bottom: 10px;">` : ''}
 						<h2>Receipt</h2>
 						<p>Receipt No: ${escapeHtml(receiptNo)}</p>
 						<p>Date: ${escapeHtml(showDate)}</p>
@@ -675,6 +710,7 @@ export default function Billing() {
 	const [selectedBill, setSelectedBill] = useState<BillingRecord | null>(null);
 	const [showPayModal, setShowPayModal] = useState(false);
 	const [showPaymentSlipModal, setShowPaymentSlipModal] = useState(false);
+	const [receiptHtml, setReceiptHtml] = useState('');
 	const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI/Card'>('Cash');
 	const [utr, setUtr] = useState('');
 	const [filterRange, setFilterRange] = useState<string>('30');
@@ -908,20 +944,10 @@ export default function Billing() {
 							billAmount = standardAmount;
 						}
 					} else if (patientType === 'Dyes') {
-						// Dyes: Only create bill if count >= 500
-						// Count existing billing records for this patient (appointments with billing info)
-						const existingBillCount = appointments.filter(
-							a => a.patientId === appt.patientId && a.billing
-						).length;
-						
-						if (existingBillCount >= 500) {
-							shouldCreateBill = true;
-							billAmount = standardAmount;
-						} else {
-							// Skip creating bill if count < 500
-							console.log(`Skipping bill for Dyes patient ${appt.patientId}: count is ${existingBillCount} (< 500)`);
-							continue;
-						}
+						// Dyes: Create bill for every completed session (same as other patient types)
+						// Sessions are decided by clinical team, billing amount is decided by frontdesk
+						shouldCreateBill = true;
+						billAmount = standardAmount;
 					} else if (patientType === 'Gethhma') {
 						// Gethhma: Treat as "Paid" without concession
 						shouldCreateBill = true;
@@ -1291,7 +1317,7 @@ export default function Billing() {
 			return;
 		}
 
-		const generatePreview = () => {
+		const generatePreview = async () => {
 			const modifiedBill: BillingRecord = {
 				...selectedBill,
 				patient: editableInvoice.patientName,
@@ -1301,7 +1327,7 @@ export default function Billing() {
 				appointmentId: editableInvoice.referenceNo || selectedBill.appointmentId,
 			};
 
-			const html = generateInvoiceHtml(modifiedBill, editableInvoice.invoiceNo, {
+			const html = await generateInvoiceHtml(modifiedBill, editableInvoice.invoiceNo, {
 				patientName: editableInvoice.patientName,
 				patientAddress: editableInvoice.patientAddress,
 				patientCity: editableInvoice.patientCity,
@@ -1330,7 +1356,7 @@ export default function Billing() {
 				appointmentId: editableInvoice.referenceNo || selectedBill.appointmentId,
 			};
 
-			const html = generateInvoiceHtml(modifiedBill, editableInvoice.invoiceNo, {
+			const html = await generateInvoiceHtml(modifiedBill, editableInvoice.invoiceNo, {
 				patientName: editableInvoice.patientName,
 				patientAddress: editableInvoice.patientAddress,
 				patientCity: editableInvoice.patientCity,
@@ -1412,16 +1438,19 @@ export default function Billing() {
 		}
 	};
 
-	const handleViewPaymentSlip = (bill: BillingRecord) => {
+	const handleViewPaymentSlip = async (bill: BillingRecord) => {
 		setSelectedBill(bill);
 		setShowPaymentSlipModal(true);
+		const receiptNo = bill.billingId || `BILL-${bill.id?.slice(0, 8) || 'NA'}`;
+		const html = await generateReceiptHtml(bill, receiptNo);
+		setReceiptHtml(html);
 	};
 
-	const handlePrintPaymentSlip = () => {
+	const handlePrintPaymentSlip = async () => {
 		if (!selectedBill) return;
 		
 		const receiptNo = selectedBill.billingId || `BILL-${selectedBill.id?.slice(0, 8) || 'NA'}`;
-		const html = generateReceiptHtml(selectedBill, receiptNo);
+		const html = await generateReceiptHtml(selectedBill, receiptNo);
 		const printWindow = window.open('', '_blank');
 		if (!printWindow) return;
 		printWindow.document.write(html);
@@ -2475,7 +2504,14 @@ export default function Billing() {
 							</button>
 						</header>
 						<div className="px-6 py-6">
-							<div dangerouslySetInnerHTML={{ __html: generateReceiptHtml(selectedBill, selectedBill.billingId || `BILL-${selectedBill.id?.slice(0, 8) || 'NA'}`) }} />
+							{receiptHtml ? (
+								<div dangerouslySetInnerHTML={{ __html: receiptHtml }} />
+							) : (
+								<div className="text-center py-12">
+									<div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-slate-900 border-r-transparent"></div>
+									<p className="mt-4 text-sm text-slate-600">Loading receipt...</p>
+								</div>
+							)}
 						</div>
 						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
 							<button

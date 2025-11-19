@@ -193,7 +193,8 @@ export async function generatePhysiotherapyReportPDF(
 	const headerConfig = await getHeaderConfig(headerType);
 	const defaultConfig = getDefaultHeaderConfig(headerType);
 	
-	// Use configured values or fall back to defaults
+	// Priority: 1. Admin config, 2. Default config
+	// Admin changes have FIRST priority - use configured values or fall back to defaults
 	const headerSettings = {
 		mainTitle: headerConfig?.mainTitle || defaultConfig.mainTitle || 'CENTRE FOR SPORTS SCIENCE',
 		subtitle: headerConfig?.subtitle || defaultConfig.subtitle || 'PHYSIOTHERAPY CONSULTATION & FOLLOW-UP REPORT',
@@ -206,12 +207,58 @@ export async function generatePhysiotherapyReportPDF(
 
 	const doc = new jsPDF('p', 'mm', 'a4');
 	const pageWidth = 210; // A4 width in mm
+	const pageHeight = 297; // A4 height in mm
 	const pageMargin = 10; // Left and right margin
+	const footerHeight = 15; // Space reserved for footer
 	const logoWidth = 35;
 	const logoHeight = 18;
 	const leftLogoX = pageMargin; // Left logo aligned to left margin
 	const rightLogoX = pageWidth - pageMargin - logoWidth; // Right logo aligned to right margin
 	const pageCenterX = pageWidth / 2; // Center of full page width (105mm)
+	
+	// Track which pages have footers to avoid duplicates
+	const pagesWithFooter = new Set<number>();
+	
+	// Set up footer callback for all pages
+	const addFooter = (pageData: any) => {
+		// Get page number from pageData (from autoTable) or from doc internal
+		let pageNumber: number;
+		let totalPages: number;
+		
+		if (pageData && pageData.pageNumber !== undefined) {
+			// From autoTable callback
+			pageNumber = pageData.pageNumber;
+			totalPages = pageData.pageCount || (doc as any).internal.getNumberOfPages();
+		} else {
+			// Manual page addition - use internal API
+			pageNumber = (doc as any).internal.getCurrentPageInfo().pageNumber;
+			totalPages = (doc as any).internal.getNumberOfPages();
+		}
+		
+		// Skip if footer already added to this page
+		if (pagesWithFooter.has(pageNumber)) {
+			return;
+		}
+		pagesWithFooter.add(pageNumber);
+		
+		const footerY = pageHeight - 8; // Position footer 8mm from bottom
+		
+		// Add footer line
+		doc.setDrawColor(200, 200, 200);
+		doc.setLineWidth(0.1);
+		doc.line(pageMargin, footerY - 2, pageWidth - pageMargin, footerY - 2);
+		
+		// Add page number
+		doc.setFontSize(8);
+		doc.setFont('helvetica', 'normal');
+		doc.setTextColor(100, 100, 100);
+		doc.text(
+			`Page ${pageNumber} of ${totalPages}`,
+			pageCenterX,
+			footerY,
+			{ align: 'center' }
+		);
+	};
 
 	// All elements (logo, text, logo) aligned in single row at same height
 	const headerY = 10; // Starting Y position - same for all elements
@@ -392,9 +439,9 @@ export async function generatePhysiotherapyReportPDF(
 		['Patient Name', data.patientName],
 	];
 	
-	// Add Organization Type right after Patient Name if available
+	// Add Type of Organization right after Patient Name if available
 	if (data.patientType) {
-		patientInfoBody.push(['Organization Type', data.patientType]);
+		patientInfoBody.push(['Type of Organization', data.patientType]);
 	}
 	
 	// Add remaining patient information
@@ -421,6 +468,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -443,6 +492,8 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -466,6 +517,8 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -489,6 +542,8 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -508,6 +563,8 @@ export async function generatePhysiotherapyReportPDF(
 		headStyles,
 		styles: baseStyles,
 		columnStyles: { 0: { cellWidth: 60 } },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -523,6 +580,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -539,6 +598,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 80 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -558,6 +619,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -584,6 +647,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 		}
@@ -602,6 +667,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: 40 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -614,6 +681,8 @@ export async function generatePhysiotherapyReportPDF(
 		body: [[buildCurrentStatus(data)]],
 		headStyles,
 		styles: { ...baseStyles, cellPadding: 3 },
+		margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+		didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 6;
 	}
@@ -630,6 +699,8 @@ export async function generatePhysiotherapyReportPDF(
 			headStyles,
 			styles: baseStyles,
 			columnStyles: { 0: { cellWidth: 60 } },
+			margin: { top: y, right: pageMargin, bottom: footerHeight, left: pageMargin },
+			didDrawPage: addFooter,
 		});
 		y = (doc as any).lastAutoTable.finalY + 10;
 	} else if (includeSection('nextFollowUp')) {
@@ -637,16 +708,26 @@ export async function generatePhysiotherapyReportPDF(
 	}
 
 	if (includeSection('signature')) {
+		// Ensure signature is not too close to footer - leave at least 15mm space
+		const signatureY = Math.min(y, pageHeight - footerHeight - 10);
 		doc.setFont('helvetica', 'bold');
 		doc.setFontSize(10);
-		doc.text('Physiotherapist Signature:', 12, y);
+		doc.text('Physiotherapist Signature:', 12, signatureY);
 		doc.setFont('helvetica', 'normal');
-		doc.text(data.physioName || '', 65, y);
+		doc.text(data.physioName || '', 65, signatureY);
 
 		doc.setFont('helvetica', 'bold');
-		doc.text('Reg. No:', 150, y);
+		doc.text('Reg. No:', 150, signatureY);
 		doc.setFont('helvetica', 'normal');
-		doc.text(data.physioRegNo || '', 170, y);
+		doc.text(data.physioRegNo || '', 170, signatureY);
+	}
+
+	// Add footer to all pages that don't have it yet (final pass)
+	// This ensures all pages have footers even if autoTable didn't trigger the callback
+	const totalPages = (doc as any).internal.getNumberOfPages();
+	for (let i = 1; i <= totalPages; i++) {
+		(doc as any).setPage(i);
+		addFooter({ pageNumber: i, pageCount: totalPages });
 	}
 
 	if (options?.forPrint) {
