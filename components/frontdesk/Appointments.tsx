@@ -14,6 +14,7 @@ import { checkAppointmentConflict, checkAvailabilityConflict } from '@/lib/appoi
 import { normalizeSessionAllowance } from '@/lib/sessionAllowance';
 import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
 import type { RecordSessionUsageResult } from '@/lib/sessionAllowanceClient';
+import { useAuth } from '@/contexts/AuthContext';
 
 type AppointmentStatusFilter = 'all' | AdminAppointmentStatus;
 
@@ -91,6 +92,7 @@ function formatDateLabel(value: string) {
 
 export default function Appointments() {
 	const searchParams = useSearchParams();
+	const { user } = useAuth();
 	const [appointments, setAppointments] = useState<FrontdeskAppointment[]>([]);
 	const [patients, setPatients] = useState<PatientRecordWithSessions[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -178,6 +180,9 @@ export default function Appointments() {
 						sessionAllowance: data.sessionAllowance
 							? normalizeSessionAllowance(data.sessionAllowance as Record<string, unknown>)
 							: undefined,
+						assignedFrontdeskId: data.assignedFrontdeskId ? String(data.assignedFrontdeskId) : undefined,
+						assignedFrontdeskName: data.assignedFrontdeskName ? String(data.assignedFrontdeskName) : undefined,
+						assignedFrontdeskEmail: data.assignedFrontdeskEmail ? String(data.assignedFrontdeskEmail) : undefined,
 					} as PatientRecordWithSessions;
 				});
 				setPatients(mapped);
@@ -224,6 +229,14 @@ export default function Appointments() {
 	}, []);
 
 
+	const frontdeskAssignments = useMemo(() => {
+		const map = new Map<string, string | undefined>();
+		patients.forEach(patient => {
+			map.set(patient.patientId, patient.assignedFrontdeskId);
+		});
+		return map;
+	}, [patients]);
+
 	// Group appointments by patient
 	const groupedByPatient = useMemo(() => {
 		const query = searchTerm.trim().toLowerCase();
@@ -236,7 +249,10 @@ export default function Appointments() {
 					appointment.patientId.toLowerCase().includes(query) ||
 					appointment.doctor.toLowerCase().includes(query) ||
 					appointment.appointmentId.toLowerCase().includes(query);
-				return matchesStatus && matchesQuery;
+				const matchesAssignment =
+					!user?.uid ||
+					frontdeskAssignments.get(appointment.patientId) === user.uid;
+				return matchesStatus && matchesQuery && matchesAssignment;
 			});
 
 		// Group by patientId
@@ -270,7 +286,7 @@ export default function Appointments() {
 			const bDate = new Date(`${b.appointments[0].date}T${b.appointments[0].time}`).getTime();
 			return bDate - aDate;
 		});
-	}, [appointments, searchTerm, statusFilter]);
+	}, [appointments, searchTerm, statusFilter, frontdeskAssignments, user?.uid]);
 
 	// Get appointments for selected patient
 	const selectedPatientAppointments = useMemo(() => {
@@ -729,6 +745,12 @@ export default function Appointments() {
 					};
 					if (!selectedPatient.status || selectedPatient.status === 'pending') {
 						patientUpdate.status = 'ongoing';
+					}
+
+					if (user?.uid && !selectedPatient.assignedFrontdeskId) {
+						patientUpdate.assignedFrontdeskId = user.uid;
+						patientUpdate.assignedFrontdeskName = user.displayName || user.email || 'Front Desk';
+						patientUpdate.assignedFrontdeskEmail = user.email ?? null;
 					}
 
 					await updateDoc(patientRef, patientUpdate);

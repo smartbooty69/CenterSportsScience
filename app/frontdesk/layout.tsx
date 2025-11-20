@@ -56,6 +56,37 @@ export default function FrontdeskLayout({ children }: { children: React.ReactNod
 		setActivePage(page);
 	};
 
+	// Listen for hash changes and navigation events
+	useEffect(() => {
+		const handleHashChange = () => {
+			const hash = window.location.hash.replace('#', '');
+			if (hash && ['dashboard', 'patients', 'calendar', 'billing', 'reports'].includes(hash)) {
+				setActivePage(hash as FrontdeskPage);
+			}
+		};
+
+		// Check initial hash
+		handleHashChange();
+
+		// Listen for hash changes
+		window.addEventListener('hashchange', handleHashChange);
+		
+		// Listen for custom navigation events
+		const handleCustomNav = (event: CustomEvent) => {
+			const page = event.detail?.page;
+			if (page && ['dashboard', 'patients', 'calendar', 'billing', 'reports'].includes(page)) {
+				setActivePage(page as FrontdeskPage);
+			}
+		};
+		
+		window.addEventListener('navigateToPage', handleCustomNav as EventListener);
+
+		return () => {
+			window.removeEventListener('hashchange', handleHashChange);
+			window.removeEventListener('navigateToPage', handleCustomNav as EventListener);
+		};
+	}, []);
+
 	const renderPage = () => {
 		switch (activePage) {
 			case 'dashboard':

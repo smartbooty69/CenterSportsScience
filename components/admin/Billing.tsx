@@ -50,6 +50,11 @@ interface BillingRecord {
 	patientId: string;
 	doctor?: string;
 	amount: number;
+	packageAmount?: number;
+	installmentCount?: number;
+	installmentAmount?: number;
+	installmentsPaid?: number;
+	amountPaid?: number;
 	date: string;
 	status: 'Pending' | 'Completed';
 	paymentMode?: string;
@@ -59,6 +64,18 @@ interface BillingRecord {
 	invoiceNo?: string;
 	invoiceGeneratedAt?: string;
 }
+
+const formatInstallmentPlan = (bill: BillingRecord) => {
+	const total = bill.installmentCount && bill.installmentCount > 0 ? bill.installmentCount : 1;
+	if (!bill.amount) return '—';
+	if (total <= 1) return `Single payment • ${rupee(bill.amount)}`;
+	const paid = Math.min(bill.installmentsPaid ?? 0, total);
+	const perInstallment =
+		bill.installmentAmount && bill.installmentAmount > 0
+			? bill.installmentAmount
+			: bill.amount / total;
+	return `${total} x ${rupee(perInstallment)} • ${paid}/${total} paid`;
+};
 
 const dateOptions: Array<{ label: string; value: DateFilter }> = [
 	{ value: 'all', label: 'All Time' },
@@ -70,6 +87,27 @@ const dateOptions: Array<{ label: string; value: DateFilter }> = [
 
 const rupee = (value: number) =>
 	new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value);
+
+const getInstallmentInfo = (bill: BillingRecord) => {
+	const total = bill.installmentCount && bill.installmentCount > 0 ? bill.installmentCount : 1;
+	const paid = Math.min(bill.installmentsPaid ?? 0, total);
+	const amountPerInstallment =
+		bill.installmentAmount && bill.installmentAmount > 0
+			? bill.installmentAmount
+			: total > 0
+				? bill.amount / total
+				: bill.amount;
+	const remaining = Math.max(total - paid, 0);
+	const nextInstallment = paid < total ? paid + 1 : total;
+
+	return {
+		total,
+		paid,
+		amountPerInstallment,
+		remaining,
+		nextInstallment,
+	};
+};
 
 const parseDate = (value?: string) => {
 	if (!value) return null;
@@ -677,6 +715,7 @@ export default function Billing() {
 	const [showPaymentSlipModal, setShowPaymentSlipModal] = useState(false);
 	const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI/Card'>('Cash');
 	const [utr, setUtr] = useState('');
+	const [selectedInstallmentNumber, setSelectedInstallmentNumber] = useState<number | null>(null);
 	const [filterRange, setFilterRange] = useState<string>('30');
 
 	// Load appointments from Firestore
@@ -828,6 +867,36 @@ export default function Billing() {
 						patientId: data.patientId ? String(data.patientId) : '',
 						doctor: data.doctor ? String(data.doctor) : undefined,
 						amount: data.amount ? Number(data.amount) : 0,
+						packageAmount:
+							typeof data.packageAmount === 'number'
+								? data.packageAmount
+								: data.packageAmount
+									? Number(data.packageAmount)
+									: undefined,
+						installmentCount:
+							typeof data.installmentCount === 'number'
+								? data.installmentCount
+								: data.installmentCount
+									? Number(data.installmentCount)
+									: undefined,
+						installmentAmount:
+							typeof data.installmentAmount === 'number'
+								? data.installmentAmount
+								: data.installmentAmount
+									? Number(data.installmentAmount)
+									: undefined,
+						installmentsPaid:
+							typeof data.installmentsPaid === 'number'
+								? data.installmentsPaid
+								: data.installmentsPaid
+									? Number(data.installmentsPaid)
+									: undefined,
+						amountPaid:
+							typeof data.amountPaid === 'number'
+								? data.amountPaid
+								: data.amountPaid
+									? Number(data.amountPaid)
+									: undefined,
 						date: data.date ? String(data.date) : '',
 						status: (data.status as 'Pending' | 'Completed') || 'Pending',
 						paymentMode: data.paymentMode ? String(data.paymentMode) : undefined,
@@ -1368,10 +1437,24 @@ export default function Billing() {
 	};
 
 	const handlePay = (bill: BillingRecord) => {
+		const info = getInstallmentInfo(bill);
+		if (info.remaining <= 0) {
+			alert('All installments for this bill have already been marked as paid.');
+			return;
+		}
 		setSelectedBill(bill);
 		setShowPayModal(true);
 		setPaymentMode('Cash');
 		setUtr('');
+		setSelectedInstallmentNumber(info.nextInstallment);
+	};
+
+	const handleClosePayModal = () => {
+		setShowPayModal(false);
+		setSelectedBill(null);
+		setPaymentMode('Cash');
+		setUtr('');
+		setSelectedInstallmentNumber(null);
 	};
 
 	const handleSubmitPayment = async () => {
@@ -1381,11 +1464,28 @@ export default function Billing() {
 			return;
 		}
 
+		const { total, paid, amountPerInstallment } = getInstallmentInfo(selectedBill);
+		const targetInstallment = selectedInstallmentNumber ?? (paid < total ? paid + 1 : total);
+		const normalizedTarget = Math.min(Math.max(targetInstallment, paid + 1), total);
+		const installmentsToMark = Math.max(0, normalizedTarget - paid);
+
+		if (installmentsToMark <= 0) {
+			alert('All installments for this bill have already been marked as paid.');
+			return;
+		}
+
+		const paymentAmount = Number((installmentsToMark * amountPerInstallment).toFixed(2));
+		const newPaid = paid + installmentsToMark;
+		const newAmountPaid = Number(((selectedBill.amountPaid ?? 0) + paymentAmount).toFixed(2));
+		const newStatus: 'Pending' | 'Completed' = newPaid >= total ? 'Completed' : 'Pending';
+
 		try {
 			await updateDoc(doc(db, 'billing', selectedBill.id!), {
-				status: 'Completed',
-				paymentMode: paymentMode,
+				status: newStatus,
+				paymentMode,
 				utr: paymentMode === 'UPI/Card' ? utr.trim() : null,
+				installmentsPaid: newPaid,
+				amountPaid: newAmountPaid,
 				updatedAt: serverTimestamp(),
 			});
 
@@ -1395,17 +1495,14 @@ export default function Billing() {
 				const appointmentSnapshot = await getDocs(appointmentQuery);
 				if (!appointmentSnapshot.empty) {
 					await updateDoc(doc(db, 'appointments', appointmentSnapshot.docs[0].id), {
-						'billing.status': 'Completed',
+						'billing.status': newStatus,
 						'billing.paymentMode': paymentMode,
 						'billing.utr': paymentMode === 'UPI/Card' ? utr.trim() : null,
 					});
 				}
 			}
 
-			setShowPayModal(false);
-			setSelectedBill(null);
-			setPaymentMode('Cash');
-			setUtr('');
+			handleClosePayModal();
 		} catch (error) {
 			console.error('Failed to update payment', error);
 			alert(`Failed to process payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -2281,6 +2378,7 @@ export default function Billing() {
 									<th className="px-3 py-2 font-semibold">Patient ID</th>
 									<th className="px-3 py-2 font-semibold">Doctor</th>
 									<th className="px-3 py-2 font-semibold">Amount (₹)</th>
+									<th className="px-3 py-2 font-semibold">Plan</th>
 									<th className="px-3 py-2 font-semibold">Date</th>
 									<th className="px-3 py-2 font-semibold text-right">Action</th>
 								</tr>
@@ -2288,7 +2386,7 @@ export default function Billing() {
 							<tbody className="divide-y divide-amber-100">
 								{pending.length === 0 ? (
 									<tr>
-										<td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+										<td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-500">
 											No pending payments.
 										</td>
 									</tr>
@@ -2299,6 +2397,7 @@ export default function Billing() {
 											<td className="px-3 py-3 text-slate-600">{bill.patientId}</td>
 											<td className="px-3 py-3 text-slate-600">{bill.doctor || '—'}</td>
 											<td className="px-3 py-3 text-slate-700">Rs. {bill.amount.toFixed(2)}</td>
+											<td className="px-3 py-3 text-slate-600">{formatInstallmentPlan(bill)}</td>
 											<td className="px-3 py-3 text-slate-600">{bill.date || '—'}</td>
 											<td className="px-3 py-3 text-right">
 												<button
@@ -2340,6 +2439,7 @@ export default function Billing() {
 									<th className="px-3 py-2 font-semibold">Patient ID</th>
 									<th className="px-3 py-2 font-semibold">Doctor</th>
 									<th className="px-3 py-2 font-semibold">Amount (₹)</th>
+									<th className="px-3 py-2 font-semibold">Plan</th>
 									<th className="px-3 py-2 font-semibold">Payment Mode</th>
 									<th className="px-3 py-2 font-semibold text-right">Actions</th>
 								</tr>
@@ -2347,7 +2447,7 @@ export default function Billing() {
 							<tbody className="divide-y divide-emerald-100">
 								{completed.length === 0 ? (
 									<tr>
-										<td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+										<td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-500">
 											No completed payments.
 										</td>
 									</tr>
@@ -2358,6 +2458,7 @@ export default function Billing() {
 											<td className="px-3 py-3 text-slate-600">{bill.patientId}</td>
 											<td className="px-3 py-3 text-slate-600">{bill.doctor || '—'}</td>
 											<td className="px-3 py-3 text-slate-700">Rs. {bill.amount.toFixed(2)}</td>
+											<td className="px-3 py-3 text-slate-600">{formatInstallmentPlan(bill)}</td>
 											<td className="px-3 py-3 text-slate-600">{bill.paymentMode || '—'}</td>
 											<td className="px-3 py-3">
 												<div className="flex items-center justify-end gap-2">
@@ -2394,10 +2495,7 @@ export default function Billing() {
 							<h2 className="text-lg font-semibold text-slate-900">Mark Payment as Completed</h2>
 							<button
 								type="button"
-								onClick={() => {
-									setShowPayModal(false);
-									setSelectedBill(null);
-								}}
+								onClick={handleClosePayModal}
 								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none"
 								aria-label="Close"
 							>
@@ -2428,18 +2526,69 @@ export default function Billing() {
 									/>
 								</div>
 							)}
-							<div className="rounded-lg bg-slate-50 p-4">
-								<p className="text-sm text-slate-600">Patient: <span className="font-medium text-slate-900">{selectedBill.patient}</span></p>
-								<p className="text-sm text-slate-600 mt-1">Amount: <span className="font-medium text-slate-900">Rs. {selectedBill.amount.toFixed(2)}</span></p>
-							</div>
+							{(() => {
+								const { total, paid } = getInstallmentInfo(selectedBill);
+								if (total <= 1 || paid >= total) return null;
+								return (
+									<div className="mb-4">
+										<label className="block text-sm font-medium text-slate-700 mb-2">Installment</label>
+										<select
+											value={selectedInstallmentNumber ?? ''}
+											onChange={event => setSelectedInstallmentNumber(Number(event.target.value))}
+											className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+										>
+											{Array.from({ length: total }, (_, index) => index + 1).map(number => {
+												const alreadyPaid = (selectedBill.installmentsPaid ?? 0) >= number;
+												return (
+													<option key={number} value={number} disabled={alreadyPaid}>
+														Installment {number} {alreadyPaid ? '(Paid)' : ''}
+													</option>
+												);
+											})}
+										</select>
+									</div>
+								);
+							})()}
+							{(() => {
+								const { total, paid, amountPerInstallment } = getInstallmentInfo(selectedBill);
+								const target = selectedInstallmentNumber ?? paid + 1;
+								const installmentsToMark = Math.max(0, Math.min(target, total) - paid);
+								const charge = Number((installmentsToMark * amountPerInstallment).toFixed(2));
+								return (
+									<div className="rounded-lg bg-slate-50 p-4 space-y-1.5 text-sm text-slate-700">
+										<p>
+											Patient:{' '}
+											<span className="font-medium text-slate-900">{selectedBill.patient}</span>
+										</p>
+										<p>
+											Plan:{' '}
+											<span className="font-medium text-slate-900">{formatInstallmentPlan(selectedBill)}</span>
+										</p>
+										<p>
+											Installments paid: <strong>{paid}</strong> / {total}
+										</p>
+										<p>
+											Remaining after this payment:{' '}
+											<strong>{Math.max(total - (paid + installmentsToMark), 0)}</strong>
+										</p>
+										<p>
+											Charge this payment:{' '}
+											<strong>
+												Rs.{' '}
+												{charge.toLocaleString('en-IN', {
+													minimumFractionDigits: 2,
+													maximumFractionDigits: 2,
+												})}
+											</strong>
+										</p>
+									</div>
+								);
+							})()}
 						</div>
 						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
 							<button
 								type="button"
-								onClick={() => {
-									setShowPayModal(false);
-									setSelectedBill(null);
-								}}
+								onClick={handleClosePayModal}
 								className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-800 focus-visible:outline-none"
 							>
 								Cancel

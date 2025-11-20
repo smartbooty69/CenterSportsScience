@@ -8,7 +8,7 @@ interface AppointmentConflict {
 }
 
 interface AvailabilityCheck {
-	appointments: Array<{ id: string; date: string; time: string; status: string }>;
+	appointments: Array<{ id: string; date: string; time: string; status: string; duration?: number }>;
 	conflicts: AppointmentConflict[];
 	hasConflicts: boolean;
 }

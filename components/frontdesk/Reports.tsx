@@ -113,6 +113,7 @@ export default function Reports() {
 	const strengthConditioningUnsubscribeRef = useRef<(() => void) | null>(null);
 	const currentPatientIdRef = useRef<string | null>(null);
 
+
 	// Load patients from Firestore
 	useEffect(() => {
 		const unsubscribe = onSnapshot(
@@ -359,6 +360,62 @@ export default function Reports() {
 			setLoadingStrengthConditioning(false);
 		}
 	};
+
+	// Check for patient ID from sessionStorage (when navigating from Patients page)
+	useEffect(() => {
+		const checkSessionStorage = () => {
+			const storedPatientId = sessionStorage.getItem('selectedPatientId');
+			const reportView = sessionStorage.getItem('reportView');
+			
+			if (storedPatientId && patients.length > 0) {
+				// Find the patient
+				const patient = patients.find(p => (p.patientId === storedPatientId) || (p.id === storedPatientId));
+				if (patient) {
+					// Clear sessionStorage before opening modal
+					sessionStorage.removeItem('selectedPatientId');
+					sessionStorage.removeItem('reportView');
+					
+					// Small delay to ensure component is ready
+					setTimeout(() => {
+						if (reportView === 'strength-conditioning') {
+							handleViewStrengthConditioning(patient.patientId || patient.id || storedPatientId);
+						} else {
+							handleView(patient.patientId || patient.id || storedPatientId);
+						}
+					}, 100);
+				}
+			}
+		};
+		
+		// Check when patients are loaded
+		if (patients.length > 0) {
+			checkSessionStorage();
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [patients]);
+	
+	// Also check on component mount (in case patients are already loaded)
+	useEffect(() => {
+		const storedPatientId = sessionStorage.getItem('selectedPatientId');
+		const reportView = sessionStorage.getItem('reportView');
+		
+		if (storedPatientId && patients.length > 0) {
+			const patient = patients.find(p => (p.patientId === storedPatientId) || (p.id === storedPatientId));
+			if (patient) {
+				sessionStorage.removeItem('selectedPatientId');
+				sessionStorage.removeItem('reportView');
+				
+				setTimeout(() => {
+					if (reportView === 'strength-conditioning') {
+						handleViewStrengthConditioning(patient.patientId || patient.id || storedPatientId);
+					} else {
+						handleView(patient.patientId || patient.id || storedPatientId);
+					}
+				}, 100);
+			}
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	// Cleanup subscription when modal closes
 	useEffect(() => {

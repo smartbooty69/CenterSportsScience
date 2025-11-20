@@ -131,6 +131,7 @@ export function generateSMSMessage(template: SMSTemplate, data: Record<string, u
 
 /**
  * Format phone number for SMS (E.164 format)
+ * Automatically prepends "91" (India country code) if not already present
  */
 export function formatPhoneNumber(phone: string): string | null {
 	// Remove all non-digit characters
@@ -139,27 +140,25 @@ export function formatPhoneNumber(phone: string): string | null {
 	// If it starts with 0, remove it (common in some countries)
 	const cleaned = digits.startsWith('0') ? digits.slice(1) : digits;
 	
-	// Check if it's a valid length (7-15 digits)
-	if (cleaned.length < 7 || cleaned.length > 15) {
+	// Check if it's a valid length (10-15 digits)
+	if (cleaned.length < 10 || cleaned.length > 15) {
 		return null;
 	}
 	
-	// If it doesn't start with +, assume it's a US number and add +1
-	// For international numbers, they should already include country code
-	if (!phone.startsWith('+')) {
-		// If it's 10 digits, assume US number
-		if (cleaned.length === 10) {
-			return `+1${cleaned}`;
+	// Check if it already starts with 91 (India country code)
+	let finalDigits = cleaned;
+	if (!cleaned.startsWith('91')) {
+		// Prepend 91 if not already present
+		finalDigits = `91${cleaned}`;
+		
+		// After prepending 91, check if total length is still valid (should be 12-15 digits)
+		if (finalDigits.length < 12 || finalDigits.length > 15) {
+			return null;
 		}
-		// If it's 11 digits and starts with 1, assume US number
-		if (cleaned.length === 11 && cleaned.startsWith('1')) {
-			return `+${cleaned}`;
-		}
-		// Otherwise, return as is (user should provide country code)
-		return `+${cleaned}`;
 	}
 	
-	return phone;
+	// Return in E.164 format with +
+	return `+${finalDigits}`;
 }
 
 /**

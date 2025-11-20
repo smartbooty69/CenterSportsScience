@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, onSnapshot, updateDoc, deleteDoc, query, where, getDocs, writeBatch, addDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { collection, doc, onSnapshot, updateDoc, deleteDoc, query, where, getDocs, writeBatch, addDoc, serverTimestamp, orderBy, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import {
 	type AdminGenderOption,
@@ -14,9 +14,159 @@ import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
 import { checkAppointmentConflict } from '@/lib/appointmentUtils';
 import { createInitialSessionAllowance } from '@/lib/sessionAllowance';
+import { useAuth } from '@/contexts/AuthContext';
+import ReportModal from '@/components/frontdesk/ReportModal';
 
 type PaymentTypeOption = 'with' | 'without';
 type PatientTypeOption = 'DYES' | 'VIP' | 'GETHNA' | 'PAID' | '';
+
+// ROM constants for report display
+const ROM_MOTIONS: Record<string, Array<{ motion: string }>> = {
+	Neck: [{ motion: 'Flexion' }, { motion: 'Extension' }, { motion: 'Lateral Flexion' }, { motion: 'Rotation' }],
+	Hip: [
+		{ motion: 'Flexion' },
+		{ motion: 'Extension' },
+		{ motion: 'Abduction' },
+		{ motion: 'Adduction' },
+		{ motion: 'Internal Rotation' },
+		{ motion: 'External Rotation' },
+	],
+	Shoulder: [
+		{ motion: 'Flexion' },
+		{ motion: 'Extension' },
+		{ motion: 'Abduction' },
+		{ motion: 'Adduction' },
+		{ motion: 'Internal Rotation' },
+		{ motion: 'External Rotation' },
+	],
+	Elbow: [{ motion: 'Flexion' }, { motion: 'Extension' }],
+	Forearm: [{ motion: 'Supination' }, { motion: 'Pronation' }],
+	Wrist: [
+		{ motion: 'Flexion' },
+		{ motion: 'Extension' },
+		{ motion: 'Radial Deviation' },
+		{ motion: 'Ulnar Deviation' },
+	],
+	Knee: [{ motion: 'Flexion' }, { motion: 'Extension' }],
+	Ankle: [
+		{ motion: 'Dorsiflexion' },
+		{ motion: 'Plantarflexion' },
+		{ motion: 'Inversion' },
+		{ motion: 'Eversion' },
+	],
+	Toes: [{ motion: 'Flexion' }, { motion: 'Extension' }],
+};
+
+const ROM_HAS_SIDE: Record<string, boolean> = {
+	Shoulder: true,
+	Elbow: true,
+	Forearm: true,
+	Wrist: true,
+	Knee: true,
+	Ankle: true,
+	Toes: true,
+};
+
+// Helper functions for report display
+function getMedicalHistoryText(p: any): string {
+	const items: string[] = [];
+	if (p.med_xray) items.push('X RAYS');
+	if (p.med_mri) items.push('MRI');
+	if (p.med_report) items.push('Reports');
+	if (p.med_ct) items.push('CT Scans');
+	return items.join(', ') || 'N/A';
+}
+
+function getPersonalHistoryText(p: any): string {
+	const items: string[] = [];
+	if (p.per_smoking) items.push('Smoking');
+	if (p.per_drinking) items.push('Drinking');
+	if (p.per_alcohol) items.push('Alcohol');
+	if (p.per_drugs) {
+		items.push('Drugs: ' + (p.drugsText || ''));
+	}
+	return items.join(', ') || 'N/A';
+}
+
+function renderRomView(romData: Record<string, any> | undefined) {
+	if (!romData || !Object.keys(romData).length) {
+		return <p className="text-sm italic text-slate-500">No ROM joints recorded.</p>;
+	}
+
+	return (
+		<div className="space-y-4">
+			{Object.keys(romData).map(joint => (
+				<div key={joint} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+					<h6 className="mb-3 text-sm font-semibold text-sky-600">{joint}</h6>
+					{renderRomTable(joint, romData[joint])}
+				</div>
+			))}
+		</div>
+	);
+}
+
+function renderRomTable(joint: string, data: any) {
+	if (!ROM_HAS_SIDE[joint]) {
+		return (
+			<table className="min-w-full divide-y divide-slate-200 border border-slate-300 text-left text-sm">
+				<thead className="bg-slate-100">
+					<tr>
+						<th className="px-3 py-2 font-semibold text-slate-700">Motion</th>
+						<th className="px-3 py-2 font-semibold text-slate-700">Value</th>
+					</tr>
+				</thead>
+				<tbody className="divide-y divide-slate-200 bg-white">
+					{ROM_MOTIONS[joint]?.map(({ motion }) => {
+						const val = data[motion];
+						if (!val) return null;
+						return (
+							<tr key={motion}>
+								<td className="px-3 py-2 text-slate-700">{motion}</td>
+								<td className="px-3 py-2 font-medium text-slate-900">{val}</td>
+							</tr>
+						);
+					})}
+				</tbody>
+			</table>
+		);
+	}
+
+	return (
+		<table className="min-w-full divide-y divide-slate-200 border border-slate-300 text-left text-sm">
+			<thead className="bg-slate-100">
+				<tr>
+					<th colSpan={2} className="px-3 py-2 text-center font-semibold text-slate-700">
+						Left
+					</th>
+					<th colSpan={2} className="px-3 py-2 text-center font-semibold text-slate-700">
+						Right
+					</th>
+				</tr>
+				<tr>
+					<th className="px-3 py-2 font-semibold text-slate-700">Motion</th>
+					<th className="px-3 py-2 font-semibold text-slate-700">Value</th>
+					<th className="px-3 py-2 font-semibold text-slate-700">Motion</th>
+					<th className="px-3 py-2 font-semibold text-slate-700">Value</th>
+				</tr>
+			</thead>
+			<tbody className="divide-y divide-slate-200 bg-white">
+				{ROM_MOTIONS[joint]?.map(({ motion }) => {
+					const lv = data.left?.[motion] || '';
+					const rv = data.right?.[motion] || '';
+					if (!lv && !rv) return null;
+					return (
+						<tr key={motion}>
+							<td className="px-3 py-2 text-slate-700">{motion}</td>
+							<td className="px-3 py-2 font-medium text-slate-900">{lv}</td>
+							<td className="px-3 py-2 text-slate-700">{motion}</td>
+							<td className="px-3 py-2 font-medium text-slate-900">{rv}</td>
+						</tr>
+					);
+				})}
+			</tbody>
+		</table>
+	);
+}
 
 interface FrontdeskPatient {
 	id?: string;
@@ -36,6 +186,12 @@ interface FrontdeskPatient {
 	assignedDoctor?: string;
 	totalSessionsRequired?: number;
 	remainingSessions?: number;
+	assignedFrontdeskId?: string;
+	assignedFrontdeskName?: string;
+	assignedFrontdeskEmail?: string;
+	packageAmount?: number | null;
+	installmentCount?: number | null;
+	readyForNewAppointment?: boolean;
 }
 
 interface DayAvailability {
@@ -69,6 +225,25 @@ interface AppointmentRecord {
 	status: AdminAppointmentStatus;
 }
 
+interface BillingRecord {
+	id?: string;
+	billingId: string;
+	appointmentId?: string;
+	patient: string;
+	patientId: string;
+	doctor?: string;
+	amount: number;
+	date: string;
+	status: 'Pending' | 'Completed';
+	paymentMode?: string;
+	utr?: string;
+	packageAmount?: number | null;
+	installmentCount?: number | null;
+	installmentAmount?: number | null;
+	installmentsPaid?: number;
+	amountPaid?: number;
+}
+
 interface BookingFormState {
 	patientId: string;
 	doctor: string;
@@ -86,8 +261,13 @@ interface RegisterFormState {
 	email: string;
 	address: string;
 	patientType: PatientTypeOption;
+}
+
+interface PackageSetupFormState {
 	paymentType: PaymentTypeOption | '';
 	paymentDescription: string;
+	packageAmount: string;
+	installmentCount: string;
 }
 
 interface RegisterNotice {
@@ -133,9 +313,19 @@ const PAYMENT_OPTIONS: Array<{ value: PaymentTypeOption; label: string }> = [
 	{ value: 'without', label: 'Without Concession' },
 ];
 
+const INSTALLMENT_OPTIONS = [
+	{ value: '1', label: '1 installment (full payment)' },
+	{ value: '2', label: '2 installments' },
+	{ value: '3', label: '3 installments' },
+	{ value: '4', label: '4 installments' },
+	{ value: '6', label: '6 installments' },
+	{ value: '12', label: '12 installments' },
+];
+
 const PHONE_REGEX = /^[0-9]{10,15}$/;
 const SLOT_INTERVAL_MINUTES = 30;
 const MAX_BLOCK_DURATION_MINUTES = 120;
+const APPOINTMENT_BOOKING_CHARGE = 500;
 
 const REGISTER_FORM_INITIAL_STATE: RegisterFormState = {
 	fullName: '',
@@ -145,8 +335,13 @@ const REGISTER_FORM_INITIAL_STATE: RegisterFormState = {
 	email: '',
 	address: '',
 	patientType: '' as PatientTypeOption,
+};
+
+const PACKAGE_FORM_INITIAL_STATE: PackageSetupFormState = {
 	paymentType: '',
 	paymentDescription: '',
+	packageAmount: '',
+	installmentCount: '',
 };
 
 async function generatePatientId(): Promise<string> {
@@ -203,6 +398,7 @@ function formatDurationLabel(minutes: number) {
 }
 
 export default function Patients() {
+	const { user } = useAuth();
 	const [patients, setPatients] = useState<FrontdeskPatient[]>([]);
 	const [appointments, setAppointments] = useState<AppointmentRecord[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -245,6 +441,26 @@ export default function Patients() {
 	const [registerSubmitting, setRegisterSubmitting] = useState(false);
 	const [registerNotice, setRegisterNotice] = useState<RegisterNotice | null>(null);
 	const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+	const [viewingPatient, setViewingPatient] = useState<FrontdeskPatient | null>(null);
+	const [billing, setBilling] = useState<BillingRecord[]>([]);
+	const [showPaymentModal, setShowPaymentModal] = useState(false);
+	const [selectedPaymentBill, setSelectedPaymentBill] = useState<BillingRecord | null>(null);
+	const [paymentMode, setPaymentMode] = useState('Cash');
+	const [utr, setUtr] = useState('');
+	const [processingPayment, setProcessingPayment] = useState(false);
+	const [showPackageModal, setShowPackageModal] = useState(false);
+	const [packageModalPatient, setPackageModalPatient] = useState<FrontdeskPatient | null>(null);
+	const [packageForm, setPackageForm] = useState<PackageSetupFormState>(PACKAGE_FORM_INITIAL_STATE);
+	const [packageFormErrors, setPackageFormErrors] = useState<
+		Partial<Record<keyof PackageSetupFormState, string>>
+	>({});
+	const [packageSubmitting, setPackageSubmitting] = useState(false);
+	
+	// Report viewing state
+	const [showReportModal, setShowReportModal] = useState(false);
+	const [reportModalPatientId, setReportModalPatientId] = useState<string | null>(null);
+	const [reportModalInitialTab, setReportModalInitialTab] = useState<'report' | 'strength-conditioning'>('report');
+	
 
 	useEffect(() => {
 		function handleGlobalClick(event: MouseEvent) {
@@ -282,6 +498,21 @@ export default function Patients() {
 						paymentType: (data.paymentType as PaymentTypeOption) || 'without',
 						paymentDescription: data.paymentDescription ? String(data.paymentDescription) : undefined,
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
+						assignedFrontdeskId: data.assignedFrontdeskId ? String(data.assignedFrontdeskId) : undefined,
+						assignedFrontdeskName: data.assignedFrontdeskName ? String(data.assignedFrontdeskName) : undefined,
+						assignedFrontdeskEmail: data.assignedFrontdeskEmail ? String(data.assignedFrontdeskEmail) : undefined,
+						packageAmount:
+							typeof data.packageAmount === 'number'
+								? data.packageAmount
+								: data.packageAmount
+									? Number(data.packageAmount)
+									: null,
+						installmentCount:
+							typeof data.installmentCount === 'number'
+								? data.installmentCount
+								: data.installmentCount
+									? Number(data.installmentCount)
+									: null,
 						totalSessionsRequired:
 							typeof data.totalSessionsRequired === 'number'
 								? data.totalSessionsRequired
@@ -294,6 +525,7 @@ export default function Patients() {
 								: data.remainingSessions
 									? Number(data.remainingSessions)
 									: undefined,
+						readyForNewAppointment: data.readyForNewAppointment === true,
 					} as FrontdeskPatient;
 				});
 				setPatients(mapped);
@@ -373,6 +605,68 @@ export default function Patients() {
 		return () => unsubscribe();
 	}, []);
 
+	// Load billing records
+	useEffect(() => {
+		const unsubscribe = onSnapshot(
+			collection(db, 'billing'),
+			(snapshot: QuerySnapshot) => {
+				const mapped = snapshot.docs.map(docSnap => {
+					const data = docSnap.data();
+					return {
+						id: docSnap.id,
+						billingId: data.billingId ? String(data.billingId) : '',
+						appointmentId: data.appointmentId ? String(data.appointmentId) : undefined,
+						patient: data.patient ? String(data.patient) : '',
+						patientId: data.patientId ? String(data.patientId) : '',
+						doctor: data.doctor ? String(data.doctor) : undefined,
+						amount: typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0,
+						date: data.date ? String(data.date) : '',
+						status: (data.status as 'Pending' | 'Completed') || 'Pending',
+						paymentMode: data.paymentMode ? String(data.paymentMode) : undefined,
+						utr: data.utr ? String(data.utr) : undefined,
+						packageAmount:
+							typeof data.packageAmount === 'number'
+								? data.packageAmount
+								: data.packageAmount
+									? Number(data.packageAmount)
+									: null,
+						installmentCount:
+							typeof data.installmentCount === 'number'
+								? data.installmentCount
+								: data.installmentCount
+									? Number(data.installmentCount)
+									: null,
+						installmentAmount:
+							typeof data.installmentAmount === 'number'
+								? data.installmentAmount
+								: data.installmentAmount
+									? Number(data.installmentAmount)
+									: null,
+						installmentsPaid:
+							typeof data.installmentsPaid === 'number'
+								? data.installmentsPaid
+								: data.installmentsPaid
+									? Number(data.installmentsPaid)
+									: 0,
+						amountPaid:
+							typeof data.amountPaid === 'number'
+								? data.amountPaid
+								: data.amountPaid
+									? Number(data.amountPaid)
+									: 0,
+					} as BillingRecord;
+				});
+				setBilling(mapped);
+			},
+			error => {
+				console.error('Failed to load billing', error);
+				setBilling([]);
+			}
+		);
+
+		return () => unsubscribe();
+	}, []);
+
 	const filteredPatients = useMemo(() => {
 		const query = searchTerm.trim().toLowerCase();
 		return patients.filter(patient => {
@@ -391,6 +685,438 @@ export default function Patients() {
 	// Button should only show for patients who haven't done their first booking
 	const patientHasAppointments = (patientId: string) => {
 		return appointments.some(apt => apt.patientId === patientId);
+	};
+
+	// Check if patient has a pending consultation (not completed)
+	const hasPendingConsultation = (patientId: string): boolean => {
+		const consultationBill = getConsultationBill(patientId);
+		return consultationBill?.status === 'Pending';
+	};
+
+	// Check if patient can book a new consultation
+	// Only allow if no consultation exists, or if patient has been reset via "New Appointment"
+	const canBookNewConsultation = (patientId: string, patient?: FrontdeskPatient): boolean => {
+		const consultationBill = getConsultationBill(patientId);
+		// If no consultation bill exists, can book
+		if (!consultationBill) return true;
+		
+		// If consultation is completed, only allow booking if patient was reset via "New Appointment"
+		if (consultationBill.status === 'Completed') {
+			// Check if patient has the readyForNewAppointment flag (set when "New Appointment" is clicked)
+			if (patient?.readyForNewAppointment === true) {
+				return true;
+			}
+			// Consultation completed but not reset - don't allow booking
+			return false;
+		}
+		
+		// If consultation is pending, can't book
+		return false;
+	};
+
+	const getConsultationBill = (patientId: string): BillingRecord | null => {
+		// First, try to find a pending consultation bill (most recent)
+		const pendingConsultationBills = billing
+			.filter(
+				bill =>
+					bill.patientId === patientId &&
+					bill.amount === APPOINTMENT_BOOKING_CHARGE &&
+					bill.status === 'Pending'
+			)
+			.sort((a, b) => {
+				// Sort by date, most recent first
+				const dateA = new Date(a.date ?? '').getTime();
+				const dateB = new Date(b.date ?? '').getTime();
+				return dateB - dateA;
+			});
+
+		if (pendingConsultationBills.length > 0) {
+			return pendingConsultationBills[0];
+		}
+
+		// If no pending bills, find the most recent completed consultation bill
+		const completedConsultationBills = billing
+			.filter(
+				bill =>
+					bill.patientId === patientId &&
+					bill.amount === APPOINTMENT_BOOKING_CHARGE &&
+					bill.status === 'Completed'
+			)
+			.sort((a, b) => {
+				// Sort by date, most recent first
+				const dateA = new Date(a.date ?? '').getTime();
+				const dateB = new Date(b.date ?? '').getTime();
+				return dateB - dateA;
+			});
+
+		if (completedConsultationBills.length > 0) {
+			return completedConsultationBills[0];
+		}
+
+		// Fallback: find by first appointment (for backward compatibility)
+		const patientAppointments = appointments.filter(apt => apt.patientId === patientId);
+		if (patientAppointments.length === 0) return null;
+
+		const sortedAppointments = [...patientAppointments].sort((a, b) => {
+			const dateA = new Date(`${a.date ?? ''}T${a.time ?? '00:00'}`).getTime();
+			const dateB = new Date(`${b.date ?? ''}T${b.time ?? '00:00'}`).getTime();
+			return dateA - dateB;
+		});
+
+		const firstAppointment = sortedAppointments[0];
+		if (!firstAppointment.appointmentId) return null;
+
+		const consultationBill =
+			billing.find(
+				bill =>
+					bill.appointmentId === firstAppointment.appointmentId &&
+					bill.patientId === patientId &&
+					bill.amount === APPOINTMENT_BOOKING_CHARGE
+			) ?? null;
+
+		return consultationBill;
+	};
+
+	// Check if patient has pending consultation payment
+	const getPendingConsultationBill = (patientId: string): BillingRecord | null => {
+		const consultationBill = getConsultationBill(patientId);
+		if (consultationBill && consultationBill.status === 'Pending') {
+			return consultationBill;
+		}
+		return null;
+	};
+
+	const patientHasPackagePlan = (patientId: string, patient?: FrontdeskPatient) => {
+		// Check if patient has package fields set (current cycle)
+		// After "New Appointment", package fields are reset, so this will return false even if old bills exist
+		// This is the primary check - if patient has packageAmount set, they have a package plan
+		if (patient && (patient.packageAmount != null && patient.packageAmount > 0)) {
+			return true;
+		}
+		// If patient object is provided and packageAmount is explicitly null/0, they don't have a package plan
+		// (even if old bills exist from previous cycles)
+		if (patient && (patient.packageAmount == null || patient.packageAmount === 0)) {
+			return false;
+		}
+		// Fallback: if patient object not available, check if there are any package bills
+		// This is only for backward compatibility when patient object is not passed
+		return billing.some(
+			bill => bill.patientId === patientId && typeof bill.packageAmount === 'number' && bill.packageAmount > 0
+		);
+	};
+
+	// Check if patient has pending package payment
+	const getPendingPackageBill = (patientId: string, patient?: FrontdeskPatient): BillingRecord | null => {
+		// If patient has no package fields set, don't show package buttons
+		if (patient && (patient.packageAmount == null || patient.packageAmount === 0)) {
+			return null;
+		}
+
+		// Find all pending package bills and return the most recent one
+		const pendingPackageBills = billing
+			.filter(bill => {
+				if (
+					bill.patientId === patientId &&
+					bill.billingId.startsWith('PKG-') &&
+					bill.packageAmount != null &&
+					typeof bill.packageAmount === 'number' &&
+					bill.packageAmount > 0
+				) {
+					// For installments, check if all are paid
+					if (bill.installmentCount != null && bill.installmentCount > 1) {
+						const installmentsPaid = bill.installmentsPaid ?? 0;
+						return installmentsPaid < bill.installmentCount;
+					}
+					// For single payment, check status
+					return bill.status === 'Pending';
+				}
+				return false;
+			})
+			.sort((a, b) => {
+				// Sort by date, most recent first
+				const dateA = new Date(a.date ?? '').getTime();
+				const dateB = new Date(b.date ?? '').getTime();
+				return dateB - dateA;
+			});
+
+		return pendingPackageBills.length > 0 ? pendingPackageBills[0] : null;
+	};
+
+	// Check if patient has a fully paid package
+	const getPaidPackageBill = (patientId: string, patient?: FrontdeskPatient): BillingRecord | null => {
+		// If patient has no package fields set, don't show package buttons
+		if (patient && (patient.packageAmount == null || patient.packageAmount === 0)) {
+			return null;
+		}
+
+		// Find all paid package bills and return the most recent one
+		const paidPackageBills = billing
+			.filter(bill => {
+				if (
+					bill.patientId === patientId &&
+					bill.billingId.startsWith('PKG-') &&
+					bill.packageAmount != null &&
+					typeof bill.packageAmount === 'number' &&
+					bill.packageAmount > 0
+				) {
+					// For installments, check if all are paid
+					if (bill.installmentCount != null && bill.installmentCount > 1) {
+						const installmentsPaid = bill.installmentsPaid ?? 0;
+						return installmentsPaid >= bill.installmentCount;
+					}
+					// For single payment, check status
+					return bill.status === 'Completed';
+				}
+				return false;
+			})
+			.sort((a, b) => {
+				// Sort by date, most recent first
+				const dateA = new Date(a.date ?? '').getTime();
+				const dateB = new Date(b.date ?? '').getTime();
+				return dateB - dateA;
+			});
+
+		return paidPackageBills.length > 0 ? paidPackageBills[0] : null;
+	};
+
+	const handlePayConsultation = (patient: FrontdeskPatient) => {
+		const pendingBill = getPendingConsultationBill(patient.patientId);
+		if (!pendingBill) {
+			alert('No pending consultation payment found for this patient.');
+			return;
+		}
+		setSelectedPaymentBill(pendingBill);
+		setPaymentMode('Cash');
+		setUtr('');
+		setShowPaymentModal(true);
+		setOpenMenuId(null);
+	};
+
+	const handlePayPackage = (patient: FrontdeskPatient) => {
+		const pendingBill = getPendingPackageBill(patient.patientId);
+		if (!pendingBill) {
+			alert('No pending package payment found for this patient.');
+			return;
+		}
+		setSelectedPaymentBill(pendingBill);
+		setPaymentMode('Cash');
+		setUtr('');
+		setShowPaymentModal(true);
+		setOpenMenuId(null);
+	};
+
+	const handleClosePaymentModal = () => {
+		setShowPaymentModal(false);
+		setSelectedPaymentBill(null);
+		setPaymentMode('Cash');
+		setUtr('');
+	};
+
+	const handleSubmitPayment = async () => {
+		if (!selectedPaymentBill || !selectedPaymentBill.id) return;
+
+		if (paymentMode === 'UPI/Card' && !utr.trim()) {
+			alert('Please enter UTR/Transaction ID for UPI/Card payment.');
+			return;
+		}
+
+		setProcessingPayment(true);
+		try {
+			const billingRef = doc(db, 'billing', selectedPaymentBill.id);
+			
+			// Check if this is a package payment with installments
+			const isPackagePayment = selectedPaymentBill.billingId.startsWith('PKG-');
+			const hasInstallments = 
+				isPackagePayment &&
+				selectedPaymentBill.installmentCount != null &&
+				selectedPaymentBill.installmentCount > 1 &&
+				selectedPaymentBill.installmentAmount != null;
+
+			if (hasInstallments) {
+				// Handle installment payment
+				const currentInstallmentsPaid = selectedPaymentBill.installmentsPaid ?? 0;
+				const currentAmountPaid = selectedPaymentBill.amountPaid ?? 0;
+				const installmentAmount = selectedPaymentBill.installmentAmount ?? 0;
+				const totalInstallments = selectedPaymentBill.installmentCount ?? 1;
+				
+				const newInstallmentsPaid = currentInstallmentsPaid + 1;
+				const newAmountPaid = currentAmountPaid + installmentAmount;
+				const allInstallmentsPaid = newInstallmentsPaid >= totalInstallments;
+
+				await updateDoc(billingRef, {
+					installmentsPaid: newInstallmentsPaid,
+					amountPaid: newAmountPaid,
+					status: allInstallmentsPaid ? 'Completed' : 'Pending',
+					paymentMode: allInstallmentsPaid ? paymentMode : (selectedPaymentBill.paymentMode || paymentMode),
+					utr: allInstallmentsPaid && paymentMode === 'UPI/Card' ? utr.trim() : (selectedPaymentBill.utr || (paymentMode === 'UPI/Card' ? utr.trim() : null)),
+					updatedAt: serverTimestamp(),
+				});
+
+				if (allInstallmentsPaid) {
+					alert(`Payment processed successfully! All ${totalInstallments} installments have been paid.`);
+				} else {
+					alert(`Installment ${newInstallmentsPaid} of ${totalInstallments} paid successfully. Amount: ₹${installmentAmount}`);
+				}
+			} else {
+				// Handle full payment (consultation or single payment package)
+				await updateDoc(billingRef, {
+					status: 'Completed',
+					paymentMode,
+					utr: paymentMode === 'UPI/Card' ? utr.trim() : null,
+					updatedAt: serverTimestamp(),
+				});
+				alert('Payment processed successfully!');
+			}
+			
+			handleClosePaymentModal();
+		} catch (error) {
+			console.error('Failed to process payment', error);
+			alert(`Failed to process payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		} finally {
+			setProcessingPayment(false);
+		}
+	};
+
+	const handleOpenPackageModal = (patient: FrontdeskPatient) => {
+		setPackageModalPatient(patient);
+		setPackageForm({
+			paymentType: patient.paymentType ?? '',
+			paymentDescription: patient.paymentDescription ?? '',
+			packageAmount: patient.packageAmount ? String(patient.packageAmount) : '',
+			installmentCount: patient.installmentCount ? String(patient.installmentCount) : '',
+		});
+		setPackageFormErrors({});
+		setShowPackageModal(true);
+	};
+
+	const handleClosePackageModal = () => {
+		setShowPackageModal(false);
+		setPackageModalPatient(null);
+		setPackageForm(PACKAGE_FORM_INITIAL_STATE);
+		setPackageFormErrors({});
+	};
+
+	const handlePackageFormChange =
+		(field: keyof PackageSetupFormState) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+			const { value } = event.target;
+			setPackageForm(prev => ({
+				...prev,
+				[field]: value,
+			}));
+			setPackageFormErrors(prev => ({
+				...prev,
+				[field]: undefined,
+			}));
+		};
+
+	const validatePackageForm = () => {
+		const errors: Partial<Record<keyof PackageSetupFormState, string>> = {};
+		if (!packageForm.paymentType) {
+			errors.paymentType = 'Please select a payment type.';
+		}
+		const packageAmountValue = Number(packageForm.packageAmount);
+		if (!packageForm.packageAmount.trim()) {
+			errors.packageAmount = 'Please enter the package amount.';
+		} else if (Number.isNaN(packageAmountValue) || packageAmountValue <= 0) {
+			errors.packageAmount = 'Package amount must be greater than 0.';
+		}
+		if (!packageForm.installmentCount) {
+			errors.installmentCount = 'Please select the number of installments.';
+		}
+		setPackageFormErrors(errors);
+		return Object.keys(errors).length === 0;
+	};
+
+	const handleSubmitPackageSetup = async () => {
+		if (!packageModalPatient || !packageModalPatient.id) {
+			alert('Unable to find the patient record.');
+			return;
+		}
+
+		if (!validatePackageForm() || packageSubmitting) return;
+
+		const packageAmountValue = Number(packageForm.packageAmount);
+		const rawInstallmentCount = Number(packageForm.installmentCount);
+		const installmentCountValue = Number.isNaN(rawInstallmentCount) || rawInstallmentCount <= 0 ? 1 : rawInstallmentCount;
+		const installmentAmountValue =
+			packageAmountValue && installmentCountValue
+				? Number((packageAmountValue / installmentCountValue).toFixed(2))
+				: packageAmountValue;
+		const paymentDescriptionValue = packageForm.paymentDescription.trim();
+		const normalizedDescription = paymentDescriptionValue || undefined;
+
+		setPackageSubmitting(true);
+		try {
+			const patientRef = doc(db, 'patients', packageModalPatient.id);
+			await updateDoc(patientRef, {
+				paymentType: packageForm.paymentType as PaymentTypeOption,
+				paymentDescription: paymentDescriptionValue || null,
+				packageAmount: packageAmountValue,
+				installmentCount: installmentCountValue,
+			});
+
+			const billingId = `PKG-${packageModalPatient.patientId}-${Date.now()}`;
+			await addDoc(collection(db, 'billing'), {
+				billingId,
+				patient: packageModalPatient.name,
+				patientId: packageModalPatient.patientId,
+				amount: packageAmountValue,
+				packageAmount: packageAmountValue,
+				installmentCount: installmentCountValue,
+				installmentAmount: installmentAmountValue,
+				installmentsPaid: 0,
+				amountPaid: 0,
+				date: new Date().toISOString().split('T')[0],
+				status: 'Pending',
+				paymentMode: null,
+				utr: null,
+				createdAt: serverTimestamp(),
+				updatedAt: serverTimestamp(),
+			});
+
+			setPatients(prev =>
+				prev.map(p =>
+					p.id === packageModalPatient.id
+						? {
+								...p,
+								paymentType: packageForm.paymentType as PaymentTypeOption,
+								paymentDescription: normalizedDescription,
+								packageAmount: packageAmountValue,
+								installmentCount: installmentCountValue,
+						  }
+						: p
+				)
+			);
+
+			setPackageModalPatient(prev =>
+				prev
+					? {
+							...prev,
+							paymentType: packageForm.paymentType as PaymentTypeOption,
+							paymentDescription: normalizedDescription,
+							packageAmount: packageAmountValue,
+							installmentCount: installmentCountValue,
+					  }
+					: prev
+			);
+
+			alert('Package details saved. Billing entry created.');
+			handleClosePackageModal();
+		} catch (error) {
+			console.error('Failed to save package details', error);
+			alert('Failed to save package information. Please try again.');
+		} finally {
+			setPackageSubmitting(false);
+		}
+	};
+
+	const handleViewPatientDetails = (patient: FrontdeskPatient) => {
+		setViewingPatient(patient);
+		setOpenMenuId(null);
+	};
+
+	const handleClosePatientDetails = () => {
+		setViewingPatient(null);
 	};
 
 	const selectedBookingPatient = useMemo(() => {
@@ -558,9 +1284,20 @@ export default function Patients() {
 	};
 
 	const handleBookFirstAppointment = (patientId: string) => {
-		if (patientHasAppointments(patientId)) {
+		const patient = patients.find(p => p.patientId === patientId);
+		
+		// Check if there's a pending consultation - if so, don't allow new booking
+		if (hasPendingConsultation(patientId)) {
 			alert(
-				'This patient already has an appointment. Subsequent appointments should be booked through the Clinical Dashboard.'
+				'This patient has a pending consultation payment. Please complete the payment before booking a new consultation.'
+			);
+			return;
+		}
+
+		// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
+		if (!canBookNewConsultation(patientId, patient)) {
+			alert(
+				'This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.'
 			);
 			return;
 		}
@@ -637,9 +1374,6 @@ const validateRegisterForm = () => {
 	if (!registerForm.patientType) {
 		errors.patientType = 'Please select Type of Organization.';
 	}
-	if (registerForm.patientType === 'PAID' && !registerForm.paymentType) {
-		errors.paymentType = 'Please select payment type.';
-	}
 
 	setRegisterFormErrors(errors);
 	return Object.keys(errors).length === 0;
@@ -654,7 +1388,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 		const patientId = await generatePatientId();
 		const trimmedEmail = registerForm.email.trim();
 		const trimmedPhone = registerForm.phone.trim();
-
 		const patientData = {
 			patientId,
 			name: registerForm.fullName.trim(),
@@ -667,12 +1400,10 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			status: 'pending' as AdminPatientStatus,
 			registeredAt: serverTimestamp(),
 			patientType: registerForm.patientType as PatientTypeOption,
-			paymentType:
-				registerForm.patientType === 'PAID'
-					? (registerForm.paymentType as PaymentTypeOption)
-					: ('without' as PaymentTypeOption),
-			paymentDescription:
-				registerForm.patientType === 'PAID' ? registerForm.paymentDescription.trim() || null : null,
+			paymentType: 'without' as PaymentTypeOption,
+			paymentDescription: null,
+			packageAmount: null,
+			installmentCount: null,
 			sessionAllowance: registerForm.patientType === 'DYES' ? createInitialSessionAllowance() : null,
 		};
 
@@ -757,8 +1488,15 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			return;
 		}
 
-		if (patientHasAppointments(selectedPatient.patientId)) {
-			alert('This patient already has an appointment. Please use the Clinical Dashboard for future bookings.');
+		// Check if there's a pending consultation - if so, don't allow new booking
+		if (hasPendingConsultation(selectedPatient.patientId)) {
+			alert('This patient has a pending consultation payment. Please complete the payment before booking a new consultation.');
+			return;
+		}
+
+		// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
+		if (!canBookNewConsultation(selectedPatient.patientId, selectedPatient)) {
+			alert('This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.');
 			return;
 		}
 
@@ -812,6 +1550,30 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 				createdAt: serverTimestamp(),
 			});
 
+			try {
+				const billingId = `BILL-${appointmentId}`;
+				await addDoc(collection(db, 'billing'), {
+					billingId,
+					appointmentId,
+					patient: selectedPatient.name,
+					patientId: selectedPatient.patientId,
+					doctor: bookingForm.doctor,
+					amount: APPOINTMENT_BOOKING_CHARGE,
+					installmentCount: 1,
+					installmentAmount: APPOINTMENT_BOOKING_CHARGE,
+					installmentsPaid: 0,
+					amountPaid: 0,
+					date: bookingForm.date,
+					status: 'Pending',
+					paymentMode: null,
+					utr: null,
+					createdAt: serverTimestamp(),
+					updatedAt: serverTimestamp(),
+				});
+			} catch (billingError) {
+				console.error('Failed to create booking charge', billingError);
+			}
+
 			if (typeof selectedPatient.totalSessionsRequired === 'number') {
 				const completedCount = appointments.filter(
 					a => a.patientId === bookingForm.patientId && a.status === 'completed'
@@ -837,12 +1599,26 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 					const patientRef = doc(db, 'patients', selectedPatient.id);
 					const patientUpdate: Record<string, unknown> = {
 						assignedDoctor: bookingForm.doctor,
+						readyForNewAppointment: false, // Clear the flag when new appointment is created
 					};
 					if (!selectedPatient.status || selectedPatient.status === 'pending') {
 						patientUpdate.status = 'ongoing';
 					}
 
+					if (user?.uid && !selectedPatient.assignedFrontdeskId) {
+						patientUpdate.assignedFrontdeskId = user.uid;
+						patientUpdate.assignedFrontdeskName = user.displayName || user.email || 'Front Desk';
+						patientUpdate.assignedFrontdeskEmail = user.email ?? null;
+					}
+
 					await updateDoc(patientRef, patientUpdate);
+					
+					// Update local state
+					setPatients(prev =>
+						prev.map(p =>
+							p.id === selectedPatient.id ? { ...p, readyForNewAppointment: false } : p
+						)
+					);
 				} catch (patientUpdateError) {
 					console.error('Failed to update patient assignment', patientUpdateError);
 				}
@@ -1123,6 +1899,268 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 		}
 	};
 
+	const handleNewAppointment = async (patient: FrontdeskPatient) => {
+		if (!patient.id) return;
+
+		const confirmed = window.confirm(
+			`Reset patient "${patient.name}" (ID: ${patient.patientId}) for a new appointment? This will reset package-related fields but will keep all billing records, reports, and history.`
+		);
+		if (!confirmed) return;
+
+		try {
+			// Reset patient's package-related fields and mark as ready for new appointment
+			const patientRef = doc(db, 'patients', patient.id);
+			await updateDoc(patientRef, {
+				paymentType: 'without' as PaymentTypeOption,
+				paymentDescription: null,
+				packageAmount: null,
+				installmentCount: null,
+				readyForNewAppointment: true, // Flag to indicate patient was reset
+			});
+
+			// Update local state immediately
+			setPatients(prev =>
+				prev.map(p =>
+					p.id === patient.id
+						? {
+								...p,
+								paymentType: 'without' as PaymentTypeOption,
+								paymentDescription: undefined,
+								packageAmount: null,
+								installmentCount: null,
+								readyForNewAppointment: true,
+						  }
+						: p
+				)
+			);
+
+			setOpenMenuId(null);
+			alert(`Patient "${patient.name}" has been reset for a new appointment. Package fields have been cleared.`);
+		} catch (error) {
+			console.error('Failed to reset patient for new appointment', error);
+			alert(`Failed to reset patient: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		}
+	};
+
+	// Handle opening report modal
+	const handleOpenReportModal = (patientId: string, initialTab: 'report' | 'strength-conditioning' = 'report') => {
+		if (!patientId) {
+			console.error('Cannot open report: patientId is empty');
+			return;
+		}
+		
+		setReportModalPatientId(patientId);
+		setReportModalInitialTab(initialTab);
+		setShowReportModal(true);
+	};
+
+	// Handle closing report modal
+	const handleCloseReportModal = () => {
+		setShowReportModal(false);
+		setReportModalPatientId(null);
+	};
+
+	// Handle PDF download for report
+	const handleDownloadReportPDF = async (sections?: ReportSection[]) => {
+		if (!reportPatientData) return;
+		
+		const age = reportPatientData.dob ? new Date().getFullYear() - new Date(reportPatientData.dob).getFullYear() : undefined;
+		await generatePhysiotherapyReportPDF({
+			patientName: reportPatientData.name,
+			patientId: reportPatientData.patientId,
+			referredBy: reportPatientData.assignedDoctor || reportPatientData.referredBy || '',
+			age: age ? String(age) : '',
+			gender: reportPatientData.gender || '',
+			dateOfConsultation: reportPatientData.dateOfConsultation || new Date().toISOString().split('T')[0],
+			contact: reportPatientData.phone || '',
+			email: reportPatientData.email || '',
+			complaints: reportPatientData.complaints || '',
+			presentHistory: reportPatientData.presentHistory || '',
+			pastHistory: reportPatientData.pastHistory || '',
+			surgicalHistory: reportPatientData.surgicalHistory || '',
+			medicalHistory: getMedicalHistoryText(reportPatientData),
+			sleepCycle: reportPatientData.sleepCycle || '',
+			hydration: reportPatientData.hydration || '4',
+			nutrition: reportPatientData.nutrition || '',
+			chiefComplaint: reportPatientData.chiefComplaint || reportPatientData.complaints || '',
+			onsetType: reportPatientData.onsetType || '',
+			duration: reportPatientData.duration || '',
+			mechanismOfInjury: reportPatientData.mechanismOfInjury || '',
+			painType: reportPatientData.painType || reportPatientData.typeOfPain || '',
+			painIntensity: reportPatientData.painIntensity || reportPatientData.vasScale || '',
+			aggravatingFactor: reportPatientData.aggravatingFactor || '',
+			relievingFactor: reportPatientData.relievingFactor || '',
+			siteSide: reportPatientData.siteSide || '',
+			onset: reportPatientData.onset || '',
+			natureOfInjury: reportPatientData.natureOfInjury || '',
+			typeOfPain: reportPatientData.typeOfPain || '',
+			vasScale: reportPatientData.vasScale || '5',
+			rom: reportPatientData.rom || {},
+			mmt: reportPatientData.mmt || {},
+			built: reportPatientData.built || '',
+			posture: reportPatientData.posture || '',
+			postureManualNotes: reportPatientData.postureManualNotes || '',
+			gaitAnalysis: reportPatientData.gaitAnalysis || '',
+			gaitManualNotes: reportPatientData.gaitManualNotes || '',
+			mobilityAids: reportPatientData.mobilityAids || '',
+			localObservation: reportPatientData.localObservation || '',
+			swelling: reportPatientData.swelling || '',
+			muscleWasting: reportPatientData.muscleWasting || '',
+			tenderness: reportPatientData.tenderness || '',
+			warmth: reportPatientData.warmth || '',
+			scar: reportPatientData.scar || '',
+			crepitus: reportPatientData.crepitus || '',
+			odema: reportPatientData.odema || '',
+			treatmentProvided: reportPatientData.treatmentProvided || '',
+			progressNotes: reportPatientData.progressNotes || '',
+			physioName: reportPatientData.physioName || '',
+			physioId: reportPatientData.physioId || '',
+		}, sections);
+	};
+
+	// Handle PDF download for strength and conditioning
+	const handleDownloadStrengthConditioningPDF = async () => {
+		if (!reportPatientData || !strengthConditioningData) return;
+		
+		await generateStrengthConditioningPDF({
+			patient: {
+				name: reportPatientData.name,
+				patientId: reportPatientData.patientId,
+				dob: reportPatientData.dob || '',
+				gender: reportPatientData.gender || '',
+				phone: reportPatientData.phone || '',
+				email: reportPatientData.email || '',
+			},
+			therapistName: strengthConditioningData.therapistName || '',
+			scapularDyskinesiaTest: strengthConditioningData.scapularDyskinesiaTest || '',
+			upperLimbFlexibilityRight: strengthConditioningData.upperLimbFlexibilityRight || '',
+			upperLimbFlexibilityLeft: strengthConditioningData.upperLimbFlexibilityLeft || '',
+			shoulderInternalRotationRight: strengthConditioningData.shoulderInternalRotationRight || '',
+			shoulderInternalRotationLeft: strengthConditioningData.shoulderInternalRotationLeft || '',
+			shoulderExternalRotationRight: strengthConditioningData.shoulderExternalRotationRight || '',
+			shoulderExternalRotationLeft: strengthConditioningData.shoulderExternalRotationLeft || '',
+			thoracicRotation: strengthConditioningData.thoracicRotation || '',
+			sitAndReachTest: strengthConditioningData.sitAndReachTest || '',
+			singleLegSquatRight: strengthConditioningData.singleLegSquatRight || '',
+			singleLegSquatLeft: strengthConditioningData.singleLegSquatLeft || '',
+			weightBearingLungeTestRight: strengthConditioningData.weightBearingLungeTestRight || '',
+			weightBearingLungeTestLeft: strengthConditioningData.weightBearingLungeTestLeft || '',
+			hamstringsFlexibilityRight: strengthConditioningData.hamstringsFlexibilityRight || '',
+			hamstringsFlexibilityLeft: strengthConditioningData.hamstringsFlexibilityLeft || '',
+			quadricepsFlexibilityRight: strengthConditioningData.quadricepsFlexibilityRight || '',
+			quadricepsFlexibilityLeft: strengthConditioningData.quadricepsFlexibilityLeft || '',
+			hipExternalRotationRight: strengthConditioningData.hipExternalRotationRight || '',
+			hipExternalRotationLeft: strengthConditioningData.hipExternalRotationLeft || '',
+			hipInternalRotationRight: strengthConditioningData.hipInternalRotationRight || '',
+			hipInternalRotationLeft: strengthConditioningData.hipInternalRotationLeft || '',
+			hipExtensionRight: strengthConditioningData.hipExtensionRight || '',
+			hipExtensionLeft: strengthConditioningData.hipExtensionLeft || '',
+			activeSLRRight: strengthConditioningData.activeSLRRight || '',
+			activeSLRLeft: strengthConditioningData.activeSLRLeft || '',
+			pronePlank: strengthConditioningData.pronePlank || '',
+			sidePlankRight: strengthConditioningData.sidePlankRight || '',
+			sidePlankLeft: strengthConditioningData.sidePlankLeft || '',
+			storkStandingBalanceTestRight: strengthConditioningData.storkStandingBalanceTestRight || '',
+			storkStandingBalanceTestLeft: strengthConditioningData.storkStandingBalanceTestLeft || '',
+			deepSquat: strengthConditioningData.deepSquat || '',
+			pushup: strengthConditioningData.pushup || '',
+			fmsScore: strengthConditioningData.fmsScore || '',
+			totalFmsScore: strengthConditioningData.totalFmsScore || '',
+			summary: strengthConditioningData.summary || '',
+		});
+	};
+
+	// Handle print
+	const handlePrintReport = (sections?: ReportSection[]) => {
+		window.print();
+	};
+
+	// Load version history
+	const loadVersionHistory = async () => {
+		if (!reportModalPatientId || !reportPatientData?.patientId) return;
+
+		setLoadingVersions(true);
+		try {
+			const versionsQuery = query(
+				collection(db, 'reportVersions'),
+				where('patientId', '==', reportPatientData.patientId),
+				orderBy('version', 'desc')
+			);
+			const versionsSnapshot = await getDocs(versionsQuery);
+			const versions = versionsSnapshot.docs.map(doc => {
+				const data = doc.data();
+				const createdAt = (data.createdAt as Timestamp | undefined)?.toDate?.();
+				return {
+					id: doc.id,
+					version: data.version as number,
+					createdAt: createdAt ? createdAt.toISOString() : new Date().toISOString(),
+					createdBy: (data.createdBy as string) || 'Unknown',
+					data: (data.reportData as Partial<PatientRecordFull>) || {},
+				};
+			});
+			setVersionHistory(versions);
+		} catch (error) {
+			console.error('Failed to load report history', error);
+			alert('Failed to load report history. Please try again.');
+		} finally {
+			setLoadingVersions(false);
+		}
+	};
+
+	// Handle view version history
+	const handleViewVersionHistory = async () => {
+		setShowVersionHistory(true);
+		setViewingVersionData(null);
+		await loadVersionHistory();
+	};
+
+	// Handle view version
+	const handleViewVersion = (version: typeof versionHistory[0]) => {
+		setViewingVersionData(version.data);
+		setShowVersionHistory(false);
+	};
+
+	// Crisp report handlers
+	const handleCrispReport = () => {
+		setShowCrispReportModal(true);
+	};
+
+	const handleCrispReportPrint = async () => {
+		setShowCrispReportModal(false);
+		await handlePrintReport(selectedSections);
+	};
+
+	const handleCrispReportDownload = async () => {
+		if (!reportPatientData) return;
+		setShowCrispReportModal(false);
+		await handleDownloadReportPDF(selectedSections);
+	};
+
+	const allSections: Array<{ key: ReportSection; label: string }> = [
+		{ key: 'patientInformation', label: 'Patient Information' },
+		{ key: 'assessmentOverview', label: 'Assessment Overview' },
+		{ key: 'painAssessment', label: 'Pain Assessment' },
+		{ key: 'onObservation', label: 'On Observation' },
+		{ key: 'onPalpation', label: 'On Palpation' },
+		{ key: 'rom', label: 'ROM (Range of Motion)' },
+		{ key: 'mmt', label: 'Manual Muscle Testing' },
+		{ key: 'advancedAssessment', label: 'Advanced Assessment' },
+		{ key: 'physiotherapyManagement', label: 'Physiotherapy Management' },
+		{ key: 'followUpVisits', label: 'Follow-Up Visits' },
+		{ key: 'currentStatus', label: 'Current Status' },
+		{ key: 'nextFollowUp', label: 'Next Follow-Up Details' },
+		{ key: 'signature', label: 'Physiotherapist Signature' },
+	];
+
+	const toggleSection = (section: ReportSection) => {
+		setSelectedSections(prev =>
+			prev.includes(section)
+				? prev.filter(s => s !== section)
+				: [...prev, section]
+		);
+	};
+
+
 	const handleFormChange = (field: keyof typeof formState) => (
 		event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
 	) => {
@@ -1247,9 +2285,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 									<tr>
 										<th className="px-4 py-3 font-semibold">Patient ID</th>
 										<th className="px-4 py-3 font-semibold">Name</th>
-										<th className="px-4 py-3 font-semibold">Phone</th>
-										<th className="px-4 py-3 font-semibold">Email</th>
-										<th className="px-4 py-3 font-semibold">Status</th>
 										<th className="px-4 py-3 font-semibold">Type</th>
 										<th className="px-4 py-3 font-semibold">Registered</th>
 										<th className="px-4 py-3 font-semibold text-right">Actions</th>
@@ -1257,10 +2292,23 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 								</thead>
 								<tbody className="divide-y divide-slate-100">
 									{filteredPatients.map(patient => {
-										const hasExistingAppointment = patientHasAppointments(patient.patientId);
+										const consultationBill = getConsultationBill(patient.patientId);
+										const pendingConsultationBill = consultationBill?.status === 'Pending' ? consultationBill : null;
+										const consultationPaid = consultationBill?.status === 'Completed';
+										const canBook = canBookNewConsultation(patient.patientId, patient);
+										const pendingPackageBill = getPendingPackageBill(patient.patientId, patient);
+										const paidPackageBill = getPaidPackageBill(patient.patientId, patient);
+										// Show "Setup Package" button if:
+										// 1. No pending consultation (consultation is paid)
+										// 2. Consultation is completed
+										// 3. Patient doesn't have a package plan (packageAmount is null/0)
+										const showPackageSetupButton =
+											!pendingConsultationBill && 
+											consultationPaid && 
+											!patientHasPackagePlan(patient.patientId, patient);
 										const bookingButtonClasses = [
 											'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold',
-											hasExistingAppointment
+											!canBook || pendingConsultationBill
 												? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
 												: 'border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 focus-visible:border-emerald-300 focus-visible:bg-emerald-100 focus-visible:outline-none',
 										].join(' ');
@@ -1269,15 +2317,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 											<tr key={patient.id}>
 											<td className="px-4 py-4 text-sm font-medium text-slate-800">{patient.patientId || '—'}</td>
 											<td className="px-4 py-4 text-sm text-slate-700">{patient.name || 'Unnamed'}</td>
-											<td className="px-4 py-4 text-sm text-slate-600">{patient.phone || '—'}</td>
-											<td className="px-4 py-4 text-sm text-slate-600">{patient.email || '—'}</td>
-											<td className="px-4 py-4">
-												<span
-													className={`badge-base px-3 py-1 ${STATUS_BADGES[patient.status]}`}
-												>
-													{patient.status.charAt(0).toUpperCase() + patient.status.slice(1)}
-												</span>
-											</td>
 											<td className="px-4 py-4 text-sm text-slate-600">{patient.patientType || '—'}</td>
 											<td className="px-4 py-4 text-xs text-slate-500">{formatDateLabel(patient.registeredAt)}</td>
 											<td className="px-4 py-4 text-right">
@@ -1286,10 +2325,54 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 														type="button"
 														onClick={() => handleBookFirstAppointment(patient.patientId)}
 														className={bookingButtonClasses}
-														disabled={hasExistingAppointment}
+														disabled={!canBook || !!pendingConsultationBill}
 													>
 														<i className="fas fa-calendar-plus text-[10px]" aria-hidden="true" />
-														{hasExistingAppointment ? 'Booked' : 'Book'}
+														{canBook && !pendingConsultationBill ? 'Book' : 'Booked'}
+													</button>
+													{pendingConsultationBill && (
+														<button
+															type="button"
+															onClick={() => handlePayConsultation(patient)}
+															className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 transition hover:border-amber-300 hover:bg-amber-100 focus-visible:border-amber-300 focus-visible:bg-amber-100 focus-visible:outline-none"
+														>
+															<i className="fas fa-money-bill-wave text-[10px]" aria-hidden="true" />
+															Pay
+														</button>
+													)}
+													{showPackageSetupButton && (
+														<button
+															type="button"
+															onClick={() => handleOpenPackageModal(patient)}
+															className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 transition hover:border-sky-300 hover:bg-sky-100 focus-visible:border-sky-300 focus-visible:bg-sky-100 focus-visible:outline-none"
+														>
+															<i className="fas fa-wallet text-[10px]" aria-hidden="true" />
+															Setup Package
+														</button>
+													)}
+													{pendingPackageBill && (
+														<button
+															type="button"
+															onClick={() => handlePayPackage(patient)}
+															className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 transition hover:border-purple-300 hover:bg-purple-100 focus-visible:border-purple-300 focus-visible:bg-purple-100 focus-visible:outline-none"
+														>
+															<i className="fas fa-money-bill-wave text-[10px]" aria-hidden="true" />
+															Pay Package
+														</button>
+													)}
+													{paidPackageBill && (
+														<span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+															<i className="fas fa-check-circle text-[10px]" aria-hidden="true" />
+															Paid
+														</span>
+													)}
+													<button
+														type="button"
+														onClick={() => handleOpenReportModal(patient.patientId, 'report')}
+														className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 focus-visible:border-slate-300 focus-visible:bg-slate-100 focus-visible:outline-none"
+													>
+														<i className="fas fa-file-medical text-[10px]" aria-hidden="true" />
+														Report
 													</button>
 													<div className="relative">
 														<button
@@ -1318,6 +2401,17 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 																	type="button"
 																	onClick={event => {
 																		event.stopPropagation();
+																		handleViewPatientDetails(patient);
+																	}}
+																	className="flex w-full items-center gap-2 px-4 py-2 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+																>
+																	<i className="fas fa-eye text-xs" aria-hidden="true" />
+																	View all data
+																</button>
+																<button
+																	type="button"
+																	onClick={event => {
+																		event.stopPropagation();
 																		setOpenMenuId(null);
 																		openDialogForEdit(patient.id!);
 																	}}
@@ -1325,6 +2419,18 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 																>
 																	<i className="fas fa-edit text-xs" aria-hidden="true" />
 																	Edit
+																</button>
+																<button
+																	type="button"
+																	onClick={event => {
+																		event.stopPropagation();
+																		setOpenMenuId(null);
+																		handleNewAppointment(patient);
+																	}}
+																	className="flex w-full items-center gap-2 px-4 py-2 text-sky-600 transition hover:bg-sky-50 hover:text-sky-700"
+																>
+																	<i className="fas fa-calendar-plus text-xs" aria-hidden="true" />
+																	New Appointment
 																</button>
 																<button
 																	type="button"
@@ -1491,8 +2597,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 														setRegisterForm(prev => ({
 															...prev,
 															patientType: type,
-															paymentType: type === 'PAID' ? prev.paymentType : '',
-															paymentDescription: type === 'PAID' ? prev.paymentDescription : '',
 														}));
 														setRegisterFormErrors(prev => ({
 															...prev,
@@ -1510,44 +2614,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 									)}
 								</div>
 							</div>
-
-							{registerForm.patientType === 'PAID' && (
-								<div className="grid gap-4 md:grid-cols-12">
-									<div className="md:col-span-6">
-										<label className="block text-sm font-medium text-slate-700">
-											Type of Payment <span className="text-rose-600">*</span>
-										</label>
-										<select
-											value={registerForm.paymentType}
-											onChange={handleRegisterFormChange('paymentType')}
-											className="select-base"
-											required
-										>
-											<option value="">Select</option>
-											{PAYMENT_OPTIONS.map(option => (
-												<option key={option.value} value={option.value}>
-													{option.label}
-												</option>
-											))}
-										</select>
-										{registerFormErrors.paymentType && (
-											<p className="mt-1 text-xs text-rose-500">{registerFormErrors.paymentType}</p>
-										)}
-									</div>
-									<div className="md:col-span-6">
-										<label className="block text-sm font-medium text-slate-700">
-											Payment Description / Concession Reason
-										</label>
-										<input
-											type="text"
-											value={registerForm.paymentDescription}
-											onChange={handleRegisterFormChange('paymentDescription')}
-											className="input-base"
-											placeholder="Enter details (if any)"
-										/>
-									</div>
-								</div>
-							)}
 
 							<footer className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
 								<button type="button" onClick={handleCloseRegisterModal} className="btn-secondary" disabled={registerSubmitting}>
@@ -1568,6 +2634,166 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 								</button>
 							</footer>
 						</form>
+					</div>
+				</div>
+			)}
+
+			{/* View Patient Details Modal */}
+			{viewingPatient && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">View All Data</h2>
+								<p className="text-xs text-slate-500">
+									Complete record for {viewingPatient.name || 'Unnamed'} ({viewingPatient.patientId || '—'})
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={handleClosePatientDetails}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+								aria-label="Close dialog"
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="max-h-[70vh] overflow-y-auto px-6 py-4 space-y-6">
+							<section>
+								<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Basic Details</p>
+								<div className="mt-3 grid gap-4 sm:grid-cols-2">
+									<div>
+										<p className="text-xs text-slate-500">Patient ID</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.patientId || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Status</p>
+										<span className={`badge-base inline-flex px-3 py-1 ${STATUS_BADGES[viewingPatient.status]}`}>
+											{viewingPatient.status.charAt(0).toUpperCase() + viewingPatient.status.slice(1)}
+										</span>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Registered</p>
+										<p className="text-sm font-medium text-slate-900">{formatDateLabel(viewingPatient.registeredAt)}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Patient Type</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.patientType || '—'}</p>
+									</div>
+								</div>
+							</section>
+
+							<section>
+								<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Personal Information</p>
+								<div className="mt-3 grid gap-4 sm:grid-cols-2">
+									<div>
+										<p className="text-xs text-slate-500">Full Name</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.name || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Date of Birth</p>
+										<p className="text-sm font-medium text-slate-900">
+											{viewingPatient.dob ? formatDateLabel(viewingPatient.dob) : '—'}
+										</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Gender</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.gender || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Assigned Doctor</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.assignedDoctor || '—'}</p>
+									</div>
+								</div>
+							</section>
+
+							<section>
+								<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contact & Assignment</p>
+								<div className="mt-3 grid gap-4 sm:grid-cols-2">
+									<div>
+										<p className="text-xs text-slate-500">Phone</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.phone || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Email</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.email || '—'}</p>
+									</div>
+									<div className="sm:col-span-2">
+										<p className="text-xs text-slate-500">Address</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.address || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Frontdesk Owner</p>
+										<p className="text-sm font-medium text-slate-900">
+											{viewingPatient.assignedFrontdeskName || '—'}
+										</p>
+										<p className="text-xs text-slate-500">{viewingPatient.assignedFrontdeskEmail || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Frontdesk ID</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.assignedFrontdeskId || '—'}</p>
+									</div>
+								</div>
+							</section>
+
+							<section>
+								<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sessions & Package</p>
+								<div className="mt-3 grid gap-4 sm:grid-cols-2">
+									<div>
+										<p className="text-xs text-slate-500">Total Sessions</p>
+										<p className="text-sm font-medium text-slate-900">
+											{typeof viewingPatient.totalSessionsRequired === 'number'
+												? viewingPatient.totalSessionsRequired
+												: '—'}
+										</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Remaining Sessions</p>
+										<p className="text-sm font-medium text-slate-900">
+											{typeof viewingPatient.remainingSessions === 'number'
+												? viewingPatient.remainingSessions
+												: '—'}
+										</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Package Amount</p>
+										<p className="text-sm font-medium text-slate-900">
+											{typeof viewingPatient.packageAmount === 'number'
+												? viewingPatient.packageAmount.toLocaleString()
+												: '—'}
+										</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Installments</p>
+										<p className="text-sm font-medium text-slate-900">
+											{typeof viewingPatient.installmentCount === 'number'
+												? viewingPatient.installmentCount
+												: '—'}
+										</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Payment Type</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.paymentType || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Payment Notes</p>
+										<p className="text-sm font-medium text-slate-900">{viewingPatient.paymentDescription || '—'}</p>
+									</div>
+								</div>
+							</section>
+
+							<section>
+								<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Complaint / Notes</p>
+								<div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+									{viewingPatient.complaint || 'No complaint recorded.'}
+								</div>
+							</section>
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button type="button" onClick={handleClosePatientDetails} className="btn-primary">
+								Close
+							</button>
+						</footer>
 					</div>
 				</div>
 			)}
@@ -1619,7 +2845,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 												setBookingForm(prev => ({
 													...prev,
 													doctor: event.target.value,
-													date: '',
 													time: '',
 													duration: 0,
 												}));
@@ -1629,7 +2854,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 											disabled={bookingLoading}
 										required
 									>
-											<option value="">{doctorOptions.length ? 'Select clinician' : 'No clinicians available'}</option>
+										<option value="">{doctorOptions.length ? 'Select clinician' : 'No clinicians available'}</option>
 										{doctorOptions.map(option => (
 											<option key={option} value={option}>
 												{option}
@@ -1658,12 +2883,9 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 												setSelectedSlots([]);
 											}}
 											min={new Date().toISOString().split('T')[0]}
-											disabled={!bookingForm.doctor || bookingLoading}
+											disabled={bookingLoading}
 											required
 										/>
-										{!bookingForm.doctor && (
-											<p className="mt-1 text-xs text-slate-500">Pick a clinician to enable date selection.</p>
-										)}
 									</div>
 								</div>
 
@@ -1671,8 +2893,10 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 										<label className="block text-sm font-medium text-slate-700">
 										Time Slot <span className="text-rose-500">*</span>
 										</label>
-									{!bookingForm.doctor ? (
-										<p className="mt-2 text-xs text-slate-500">Choose a clinician to see their available dates and slots.</p>
+									{!bookingForm.doctor && !bookingForm.date ? (
+										<p className="mt-2 text-xs text-slate-500">Select a clinician and date to view available time slots.</p>
+									) : !bookingForm.doctor ? (
+										<p className="mt-2 text-xs text-slate-500">Select a clinician to view available time slots.</p>
 									) : !bookingForm.date ? (
 										<p className="mt-2 text-xs text-slate-500">Select a date to view available time slots.</p>
 									) : availableSlots.length === 0 ? (
@@ -2012,7 +3236,327 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 					</div>
 				</div>
 			)}
+
+			{/* Payment Modal */}
+			{showPaymentModal && selectedPaymentBill && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">Process Payment</h2>
+								<p className="text-xs text-slate-500">
+									{selectedPaymentBill.billingId.startsWith('PKG-') ? 'Package Payment' : 'Consultation Payment'}
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={handleClosePaymentModal}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+								aria-label="Close dialog"
+								disabled={processingPayment}
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="px-6 py-4 space-y-4">
+							<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+								<div className="flex justify-between items-center mb-2">
+									<span className="text-slate-500">Bill ID:</span>
+									<span className="font-semibold text-slate-900">{selectedPaymentBill.billingId}</span>
+								</div>
+								<div className="flex justify-between items-center mb-2">
+									<span className="text-slate-500">Patient:</span>
+									<span className="font-medium text-slate-900">{selectedPaymentBill.patient}</span>
+								</div>
+								{(() => {
+									const isPackagePayment = selectedPaymentBill.billingId.startsWith('PKG-');
+									const hasInstallments = 
+										isPackagePayment &&
+										selectedPaymentBill.installmentCount != null &&
+										selectedPaymentBill.installmentCount > 1 &&
+										selectedPaymentBill.installmentAmount != null;
+									
+									if (hasInstallments) {
+										const installmentsPaid = selectedPaymentBill.installmentsPaid ?? 0;
+										const totalInstallments = selectedPaymentBill.installmentCount ?? 1;
+										const installmentAmount = selectedPaymentBill.installmentAmount ?? 0;
+										const amountPaid = selectedPaymentBill.amountPaid ?? 0;
+										const totalAmount = selectedPaymentBill.packageAmount ?? selectedPaymentBill.amount;
+										
+										return (
+											<>
+												<div className="flex justify-between items-center mb-2">
+													<span className="text-slate-500">Total Package Amount:</span>
+													<span className="font-medium text-slate-900">₹{totalAmount}</span>
+												</div>
+												<div className="flex justify-between items-center mb-2">
+													<span className="text-slate-500">Installments:</span>
+													<span className="font-medium text-slate-900">
+														{installmentsPaid} of {totalInstallments} paid
+													</span>
+												</div>
+												<div className="flex justify-between items-center mb-2">
+													<span className="text-slate-500">Amount Paid:</span>
+													<span className="font-medium text-slate-900">₹{amountPaid}</span>
+												</div>
+												<div className="flex justify-between items-center border-t border-slate-300 pt-2 mt-2">
+													<span className="text-slate-700 font-semibold">This Payment:</span>
+													<span className="font-bold text-lg text-slate-900">₹{installmentAmount}</span>
+												</div>
+											</>
+										);
+									} else {
+										return (
+											<div className="flex justify-between items-center">
+												<span className="text-slate-500">Amount:</span>
+												<span className="font-bold text-lg text-slate-900">₹{selectedPaymentBill.amount}</span>
+											</div>
+										);
+									}
+								})()}
+							</div>
+
+							<div>
+								<label className="block text-sm font-medium text-slate-700 mb-2">
+									Payment Mode <span className="text-rose-600">*</span>
+								</label>
+								<select
+									value={paymentMode}
+									onChange={e => setPaymentMode(e.target.value)}
+									className="select-base"
+									disabled={processingPayment}
+									required
+								>
+									<option value="Cash">Cash</option>
+									<option value="UPI/Card">UPI/Card</option>
+									<option value="Cheque">Cheque</option>
+									<option value="Bank Transfer">Bank Transfer</option>
+								</select>
+							</div>
+
+							{paymentMode === 'UPI/Card' && (
+								<div>
+									<label className="block text-sm font-medium text-slate-700 mb-2">
+										UTR/Transaction ID <span className="text-rose-600">*</span>
+									</label>
+									<input
+										type="text"
+										value={utr}
+										onChange={e => setUtr(e.target.value)}
+										className="input-base"
+										placeholder="Enter UTR or Transaction ID"
+										disabled={processingPayment}
+										required
+									/>
+								</div>
+							)}
+
+							{(paymentMode === 'Cheque' || paymentMode === 'Bank Transfer') && (
+								<div>
+									<label className="block text-sm font-medium text-slate-700 mb-2">
+										Reference Number (Optional)
+									</label>
+									<input
+										type="text"
+										value={utr}
+										onChange={e => setUtr(e.target.value)}
+										className="input-base"
+										placeholder="Enter reference number"
+										disabled={processingPayment}
+									/>
+								</div>
+							)}
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={handleClosePaymentModal}
+								className="btn-secondary"
+								disabled={processingPayment}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleSubmitPayment}
+								className="btn-primary"
+								disabled={processingPayment}
+							>
+								{processingPayment ? (
+									<>
+										<div className="mr-2 inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-white border-t-transparent animate-spin" />
+										Processing...
+									</>
+								) : (
+									<>
+										<i className="fas fa-check text-xs" aria-hidden="true" />
+										Process Payment
+									</>
+								)}
+							</button>
+						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Package Setup Modal */}
+			{showPackageModal && packageModalPatient && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
+					<div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+						<header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+							<div>
+								<h2 className="text-lg font-semibold text-slate-900">Package Payment Setup</h2>
+								<p className="text-xs text-slate-500">
+									Configure package details for {packageModalPatient.name || 'Unnamed'} (
+									{packageModalPatient.patientId || '—'})
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={handleClosePackageModal}
+								className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:bg-slate-100 focus-visible:text-slate-600 focus-visible:outline-none"
+								aria-label="Close dialog"
+								disabled={packageSubmitting}
+							>
+								<i className="fas fa-times" aria-hidden="true" />
+							</button>
+						</header>
+						<div className="px-6 py-4 space-y-4">
+							<div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+								<p className="font-semibold text-slate-800">Consultation completed</p>
+								<p>
+									Record the patient's package payment details. This will create a billing entry and update the patient
+									record.
+								</p>
+							</div>
+
+							<div className="grid gap-4 md:grid-cols-12">
+								<div className="md:col-span-6">
+									<label className="block text-sm font-medium text-slate-700">
+										Type of Payment <span className="text-rose-600">*</span>
+									</label>
+									<select
+										value={packageForm.paymentType}
+										onChange={handlePackageFormChange('paymentType')}
+										className="select-base mt-2"
+										required
+										disabled={packageSubmitting}
+									>
+										<option value="">Select</option>
+										{PAYMENT_OPTIONS.map(option => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+									{packageFormErrors.paymentType && (
+										<p className="mt-1 text-xs text-rose-500">{packageFormErrors.paymentType}</p>
+									)}
+								</div>
+								<div className="md:col-span-6">
+									<label className="block text-sm font-medium text-slate-700">
+										Payment Description / Concession Reason
+									</label>
+									<input
+										type="text"
+										value={packageForm.paymentDescription}
+										onChange={handlePackageFormChange('paymentDescription')}
+										className="input-base mt-2"
+										placeholder="Enter details (if any)"
+										disabled={packageSubmitting}
+									/>
+								</div>
+							</div>
+
+							<div className="grid gap-4 md:grid-cols-12">
+								<div className="md:col-span-6">
+									<label className="block text-sm font-medium text-slate-700">
+										Package Amount <span className="text-rose-600">*</span>
+									</label>
+									<div className="relative mt-2">
+										<span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-slate-500">
+											₹
+										</span>
+										<input
+											type="number"
+											min="0"
+											step="0.01"
+											value={packageForm.packageAmount}
+											onChange={handlePackageFormChange('packageAmount')}
+											className="input-base pl-8"
+											placeholder="0.00"
+											required
+											disabled={packageSubmitting}
+										/>
+									</div>
+									{packageFormErrors.packageAmount && (
+										<p className="mt-1 text-xs text-rose-500">{packageFormErrors.packageAmount}</p>
+									)}
+								</div>
+								<div className="md:col-span-6">
+									<label className="block text-sm font-medium text-slate-700">
+										Installments <span className="text-rose-600">*</span>
+									</label>
+									<select
+										value={packageForm.installmentCount}
+										onChange={handlePackageFormChange('installmentCount')}
+										className="select-base mt-2"
+										required
+										disabled={packageSubmitting}
+									>
+										<option value="">Select</option>
+										{INSTALLMENT_OPTIONS.map(option => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+									{packageFormErrors.installmentCount && (
+										<p className="mt-1 text-xs text-rose-500">{packageFormErrors.installmentCount}</p>
+									)}
+								</div>
+							</div>
+						</div>
+						<footer className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+							<button
+								type="button"
+								onClick={handleClosePackageModal}
+								className="btn-secondary"
+								disabled={packageSubmitting}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleSubmitPackageSetup}
+								className="btn-primary"
+								disabled={packageSubmitting}
+							>
+								{packageSubmitting ? (
+									<>
+										<div className="mr-2 inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-white border-t-transparent animate-spin" />
+										Saving...
+									</>
+								) : (
+									<>
+										<i className="fas fa-save text-xs" aria-hidden="true" />
+										Save Package
+									</>
+								)}
+							</button>
+						</footer>
+					</div>
+				</div>
+			)}
+
+			{/* Report Modal */}
+			<ReportModal
+				isOpen={showReportModal}
+				patientId={reportModalPatientId}
+				initialTab={reportModalInitialTab}
+				onClose={handleCloseReportModal}
+			/>
+
 		</div>
 	);
 }
-

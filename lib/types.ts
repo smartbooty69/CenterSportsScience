@@ -21,6 +21,9 @@ export interface Patient {
 	registeredAt: string;
 	patientType?: string;
 	sessionAllowance?: SessionAllowance | null;
+	assignedFrontdeskId?: string;
+	assignedFrontdeskName?: string;
+	assignedFrontdeskEmail?: string;
 }
 
 export interface SessionAllowance {
@@ -46,6 +49,9 @@ export interface PatientRecord {
 	assignedDoctor?: string;
 	patientType?: string;
 	sessionAllowance?: SessionAllowance | null;
+	assignedFrontdeskId?: string;
+	assignedFrontdeskName?: string;
+	assignedFrontdeskEmail?: string;
 }
 
 export type PatientStatus = 'pending' | 'ongoing' | 'completed' | 'cancelled' | string;
@@ -68,6 +74,9 @@ export interface PatientRecordBasic {
 	remainingSessions?: number;
 	patientType?: string;
 	sessionAllowance?: SessionAllowance | null;
+	assignedFrontdeskId?: string;
+	assignedFrontdeskName?: string;
+	assignedFrontdeskEmail?: string;
 }
 
 export interface PatientRecordTransfer {
@@ -76,6 +85,9 @@ export interface PatientRecordTransfer {
 	name: string;
 	assignedDoctor?: string;
 	status: 'pending' | 'ongoing' | 'completed' | 'cancelled';
+	assignedFrontdeskId?: string;
+	assignedFrontdeskName?: string;
+	assignedFrontdeskEmail?: string;
 }
 
 export interface PatientRecordFull {
@@ -93,6 +105,9 @@ export interface PatientRecordFull {
 	assignedDoctor?: string;
 	patientType?: string;
 	sessionAllowance?: SessionAllowance | null;
+	assignedFrontdeskId?: string;
+	assignedFrontdeskName?: string;
+	assignedFrontdeskEmail?: string;
 	// Report fields
 	complaints?: string;
 	presentHistory?: string;
@@ -208,6 +223,11 @@ export interface BillingRecord {
 	appointmentId: string;
 	patient: string;
 	amount: number;
+	packageAmount?: number;
+	installmentCount?: number;
+	installmentAmount?: number;
+	installmentsPaid?: number;
+	amountPaid?: number;
 	status: 'pending' | 'completed';
 	date: string;
 }

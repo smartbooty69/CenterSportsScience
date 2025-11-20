@@ -59,7 +59,7 @@ interface ConfirmationState {
 	patient: PatientRecordTransfer | null;
 	newTherapist: string;
 	availabilityCheck?: {
-		appointments: Array<{ id: string; date: string; time: string; status: string }>;
+		appointments: Array<{ id: string; date: string; time: string; status: string; duration?: number }>;
 		conflicts: AppointmentConflict[];
 		hasConflicts: boolean;
 	};
@@ -83,6 +83,35 @@ function normalize(value?: string | null) {
 	return value?.trim().toLowerCase() ?? '';
 }
 
+const DEFAULT_APPOINTMENT_DURATION_MINUTES = 30;
+
+function parseDurationMinutes(value: unknown): number | undefined {
+	if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+		return value;
+	}
+	if (typeof value === 'string') {
+		const parsed = Number(value);
+		if (Number.isFinite(parsed) && parsed > 0) {
+			return parsed;
+		}
+	}
+	return undefined;
+}
+
+function resolveDurationMinutes(duration?: number): number {
+	return typeof duration === 'number' && Number.isFinite(duration) && duration > 0
+		? duration
+		: DEFAULT_APPOINTMENT_DURATION_MINUTES;
+}
+
+function formatMinutesToTime(totalMinutes: number): string {
+	const normalized =
+		((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+	const hours = Math.floor(normalized / 60);
+	const minutes = normalized % 60;
+	return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
 export default function Transfer() {
 	const { user } = useAuth();
 	const [patients, setPatients] = useState<PatientRecordTransfer[]>([]);
@@ -103,7 +132,9 @@ export default function Transfer() {
 	const [currentStaffId, setCurrentStaffId] = useState<string | null>(null);
 	const [pendingRequests, setPendingRequests] = useState<TransferRequest[]>([]);
 	const [processingRequest, setProcessingRequest] = useState<Record<string, boolean>>({});
-	const [patientAppointments, setPatientAppointments] = useState<Record<string, Array<{ id: string; date: string; time: string; status: string }>>>({});
+	const [patientAppointments, setPatientAppointments] = useState<
+		Record<string, Array<{ id: string; date: string; time: string; status: string; duration?: number }>>
+	>({});
 	const [appointmentConflicts, setAppointmentConflicts] = useState<Record<string, AppointmentConflict[]>>({});
 	const [checkingConflicts, setCheckingConflicts] = useState<Record<string, boolean>>({});
 	const [updatingStatus, setUpdatingStatus] = useState<Record<string, boolean>>({});
@@ -416,12 +447,17 @@ export default function Transfer() {
 				where('status', 'in', ['pending', 'ongoing'])
 			);
 			const appointmentsSnapshot = await getDocs(appointmentsQuery);
-			const appointments = appointmentsSnapshot.docs.map(docSnap => ({
-				id: docSnap.id,
-				date: docSnap.data().date as string,
-				time: docSnap.data().time as string,
-				status: docSnap.data().status as string,
-			}));
+			const appointments = appointmentsSnapshot.docs.map(docSnap => {
+				const data = docSnap.data();
+				const duration = parseDurationMinutes(data.duration ?? data.slotDuration);
+				return {
+					id: docSnap.id,
+					date: data.date as string,
+					time: data.time as string,
+					status: data.status as string,
+					duration,
+				};
+			});
 
 			setPatientAppointments(prev => ({ ...prev, [request.id!]: appointments }));
 
@@ -461,13 +497,16 @@ export default function Transfer() {
 				const [aptHours, aptMinutes] = appointment.time.split(':').map(Number);
 				const aptTime = aptHours * 60 + aptMinutes;
 
+				const appointmentDuration = resolveDurationMinutes(appointment.duration);
+				const appointmentEnd = aptTime + appointmentDuration;
+
 				const fitsInSlot = daySchedule.slots.some(slot => {
 					const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
 					const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
 					const slotStart = slotStartHours * 60 + slotStartMinutes;
 					let slotEnd = slotEndHours * 60 + slotEndMinutes;
 					if (slotEnd <= slotStart) slotEnd += 24 * 60;
-					return aptTime >= slotStart && aptTime < slotEnd;
+					return aptTime >= slotStart && appointmentEnd <= slotEnd;
 				});
 
 				if (!fitsInSlot) {
@@ -546,12 +585,17 @@ export default function Transfer() {
 				where('status', 'in', ['pending', 'ongoing'])
 			);
 			const appointmentsSnapshot = await getDocs(appointmentsQuery);
-			const appointments = appointmentsSnapshot.docs.map(docSnap => ({
-				id: docSnap.id,
-				date: docSnap.data().date as string,
-				time: docSnap.data().time as string,
-				status: docSnap.data().status as string,
-			}));
+			const appointments = appointmentsSnapshot.docs.map(docSnap => {
+				const data = docSnap.data();
+				const duration = parseDurationMinutes(data.duration ?? data.slotDuration);
+				return {
+					id: docSnap.id,
+					date: data.date as string,
+					time: data.time as string,
+					status: data.status as string,
+					duration,
+				};
+			});
 
 			if (appointments.length === 0) {
 				// No appointments, proceed with transfer
@@ -601,13 +645,16 @@ export default function Transfer() {
 				const [aptHours, aptMinutes] = appointment.time.split(':').map(Number);
 				const aptTime = aptHours * 60 + aptMinutes;
 
+				const appointmentDuration = resolveDurationMinutes(appointment.duration);
+				const appointmentEnd = aptTime + appointmentDuration;
+
 				const fitsInSlot = daySchedule.slots.some(slot => {
 					const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
 					const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
 					const slotStart = slotStartHours * 60 + slotStartMinutes;
 					let slotEnd = slotEndHours * 60 + slotEndMinutes;
 					if (slotEnd <= slotStart) slotEnd += 24 * 60;
-					return aptTime >= slotStart && aptTime < slotEnd;
+					return aptTime >= slotStart && appointmentEnd <= slotEnd;
 				});
 
 				if (!fitsInSlot) {
@@ -807,12 +854,12 @@ export default function Transfer() {
 				const appointments = patientAppointments[request.id] || [];
 				
 				// Group appointments by date (including both conflicts and non-conflicts)
-				const appointmentsByDate: Record<string, Array<{ time: string }>> = {};
+				const appointmentsByDate: Record<string, Array<{ time: string; duration?: number }>> = {};
 				appointments.forEach(apt => {
 					if (!appointmentsByDate[apt.date]) {
 						appointmentsByDate[apt.date] = [];
 					}
-					appointmentsByDate[apt.date].push({ time: apt.time });
+					appointmentsByDate[apt.date].push({ time: apt.time, duration: apt.duration });
 				});
 
 				// Create or update availability for each date with appointments
@@ -822,14 +869,12 @@ export default function Transfer() {
 					if (!existingSchedule || !existingSchedule.enabled) {
 						// Create new schedule for this date
 						// Create slots that cover each appointment time (30 min slots)
-						const newSlots = timeSlots.map(({ time }) => {
+						const newSlots = timeSlots.map(({ time, duration }) => {
 							const [hours, minutes] = time.split(':').map(Number);
-							const startTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-							// Add 30 minutes for slot end time
-							const endMinutes = minutes + 30;
-							const endHours = hours + Math.floor(endMinutes / 60);
-							const finalEndMinutes = endMinutes % 60;
-							const endTime = `${String(endHours).padStart(2, '0')}:${String(finalEndMinutes).padStart(2, '0')}`;
+							const totalStartMinutes = hours * 60 + minutes;
+							const appointmentDuration = resolveDurationMinutes(duration);
+							const startTime = formatMinutesToTime(totalStartMinutes);
+							const endTime = formatMinutesToTime(totalStartMinutes + appointmentDuration);
 							return { start: startTime, end: endTime };
 						});
 						
@@ -840,14 +885,12 @@ export default function Transfer() {
 					} else {
 						// Add slots to existing schedule
 						const existingSlots = existingSchedule.slots || [];
-						const newSlots = timeSlots.map(({ time }) => {
+						const newSlots = timeSlots.map(({ time, duration }) => {
 							const [hours, minutes] = time.split(':').map(Number);
-							const startTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-							// Add 30 minutes for slot end time
-							const endMinutes = minutes + 30;
-							const endHours = hours + Math.floor(endMinutes / 60);
-							const finalEndMinutes = endMinutes % 60;
-							const endTime = `${String(endHours).padStart(2, '0')}:${String(finalEndMinutes).padStart(2, '0')}`;
+							const totalStartMinutes = hours * 60 + minutes;
+							const appointmentDuration = resolveDurationMinutes(duration);
+							const startTime = formatMinutesToTime(totalStartMinutes);
+							const endTime = formatMinutesToTime(totalStartMinutes + appointmentDuration);
 							return { start: startTime, end: endTime };
 						});
 
@@ -918,12 +961,12 @@ export default function Transfer() {
 						const updatedOldAvailability = { ...oldAvailability };
 
 						// Group transferred appointments by date
-						const transferredByDate: Record<string, Array<{ time: string }>> = {};
+						const transferredByDate: Record<string, Array<{ time: string; duration?: number }>> = {};
 						appointments.forEach(apt => {
 							if (!transferredByDate[apt.date]) {
 								transferredByDate[apt.date] = [];
 							}
-							transferredByDate[apt.date].push({ time: apt.time });
+							transferredByDate[apt.date].push({ time: apt.time, duration: apt.duration });
 						});
 
 						// Check each date and remove slots if they match transferred appointments and have no other appointments
@@ -939,20 +982,23 @@ export default function Transfer() {
 							);
 							const otherAppointmentsSnapshot = await getDocs(otherAppointmentsQuery);
 							const otherAppointments = otherAppointmentsSnapshot.docs
-								.map(doc => ({
-									time: doc.data().time as string,
-									patientId: doc.data().patientId as string,
-								}))
+								.map(docSnap => {
+									const data = docSnap.data();
+									return {
+										time: data.time as string,
+										patientId: data.patientId as string,
+										duration: parseDurationMinutes(data.duration ?? data.slotDuration),
+									};
+								})
 								.filter(apt => apt.patientId !== request.patientId); // Exclude transferred patient
 
 							// Create time slots for transferred appointments
-							const transferredSlots = timeSlots.map(({ time }) => {
+							const transferredSlots = timeSlots.map(({ time, duration }) => {
 								const [hours, minutes] = time.split(':').map(Number);
-								const startTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-								const endMinutes = minutes + 30;
-								const endHours = hours + Math.floor(endMinutes / 60);
-								const finalEndMinutes = endMinutes % 60;
-								const endTime = `${String(endHours).padStart(2, '0')}:${String(finalEndMinutes).padStart(2, '0')}`;
+								const totalStartMinutes = hours * 60 + minutes;
+								const appointmentDuration = resolveDurationMinutes(duration);
+								const startTime = formatMinutesToTime(totalStartMinutes);
+								const endTime = formatMinutesToTime(totalStartMinutes + appointmentDuration);
 								return { start: startTime, end: endTime };
 							});
 
@@ -974,12 +1020,19 @@ export default function Transfer() {
 								// (appointments that weren't transferred)
 								const [slotStartHours, slotStartMinutes] = slot.start.split(':').map(Number);
 								const slotStartTime = slotStartHours * 60 + slotStartMinutes;
+								const [slotEndHours, slotEndMinutes] = slot.end.split(':').map(Number);
+								let slotEndTime = slotEndHours * 60 + slotEndMinutes;
+								if (slotEndTime <= slotStartTime) {
+									slotEndTime += 24 * 60;
+								}
 								
 								const hasOtherAppointments = otherAppointments.some(apt => {
 									const [aptHours, aptMinutes] = apt.time.split(':').map(Number);
 									const aptTime = aptHours * 60 + aptMinutes;
-									// Check if appointment time falls within this slot
-									return aptTime >= slotStartTime && aptTime < slotStartTime + 30;
+									const aptDuration = resolveDurationMinutes(apt.duration);
+									const aptEndTime = aptTime + aptDuration;
+									// Check if appointment overlaps with this slot
+									return aptTime < slotEndTime && aptEndTime > slotStartTime;
 								});
 
 								// Keep slot only if there are other (non-transferred) appointments at this time
