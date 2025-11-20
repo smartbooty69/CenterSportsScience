@@ -398,6 +398,46 @@ export default function Users() {
 		}
 	};
 
+	const handleExportCSV = () => {
+		// Prepare CSV headers
+		const headers = ['Name', 'Email', 'Role', 'Status', 'Created Date'];
+		
+		// Prepare CSV rows from filtered employees
+		const rows = filteredEmployees.map(employee => [
+			employee.userName,
+			employee.userEmail,
+			ROLE_LABELS[employee.role],
+			employee.status,
+			formatDate(employee.createdAt),
+		]);
+
+		// Combine headers and rows
+		const csvContent = [
+			headers.join(','),
+			...rows.map(row => 
+				row.map(cell => {
+					// Escape commas and quotes in cell values
+					const cellValue = String(cell || '');
+					if (cellValue.includes(',') || cellValue.includes('"') || cellValue.includes('\n')) {
+						return `"${cellValue.replace(/"/g, '""')}"`;
+					}
+					return cellValue;
+				}).join(',')
+			),
+		].join('\n');
+
+		// Create blob and download
+		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+		const link = document.createElement('a');
+		const url = URL.createObjectURL(blob);
+		link.setAttribute('href', url);
+		link.setAttribute('download', `employees_export_${new Date().toISOString().split('T')[0]}.csv`);
+		link.style.visibility = 'hidden';
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+	};
+
 	const handleAddActivity = () => {
 		if (!selectedEmployee || !activityDraft.trim()) return;
 		const entry = {
@@ -470,6 +510,15 @@ export default function Users() {
 								placeholder="Search employees…"
 								className="w-full min-w-[220px] rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 sm:w-auto"
 							/>
+							<button
+								type="button"
+								onClick={handleExportCSV}
+								disabled={filteredEmployees.length === 0}
+								className="inline-flex items-center rounded-lg border border-sky-600 bg-white px-4 py-2 text-sm font-semibold text-sky-600 shadow-md transition hover:bg-sky-50 focus-visible:bg-sky-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								<i className="fas fa-file-csv mr-2 text-sm" aria-hidden="true" />
+								Export CSV
+							</button>
 							<button
 								type="button"
 								onClick={openCreateDialog}

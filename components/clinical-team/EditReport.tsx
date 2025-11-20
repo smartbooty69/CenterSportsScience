@@ -160,11 +160,11 @@ function deriveCurrentSessionRemaining(
 	const hasValidTotal =
 		typeof totalSessionsRequired === 'number' && !Number.isNaN(totalSessionsRequired);
 	if (!hasValidTotal) return storedRemaining;
-	const base =
-		typeof storedRemaining === 'number' && !Number.isNaN(storedRemaining)
-			? storedRemaining
-			: totalSessionsRequired;
-	return Math.max(0, base - 1);
+	// If remainingSessions is not set, set it equal to totalSessionsRequired
+	if (typeof storedRemaining !== 'number' || Number.isNaN(storedRemaining)) {
+		return totalSessionsRequired;
+	}
+	return storedRemaining;
 }
 
 function applyCurrentSessionAdjustments(patient: PatientRecordFull) {
@@ -312,6 +312,25 @@ export default function EditReport() {
 	const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
 	const [showReportModal, setShowReportModal] = useState(false);
 	const [reportModalPatientId, setReportModalPatientId] = useState<string | null>(null);
+	const [sessionCompleted, setSessionCompleted] = useState(false);
+	
+	// Compute displayed remaining sessions based on checkbox state
+	// Use the ORIGINAL value (not formData which may already be adjusted) and apply checkbox adjustment
+	const displayedRemainingSessions = useMemo(() => {
+		// Get the original base value from selectedPatient (before any checkbox adjustments)
+		const baseRemaining = 
+			typeof selectedPatient?.remainingSessions === 'number'
+				? selectedPatient.remainingSessions
+				: typeof selectedPatient?.totalSessionsRequired === 'number'
+					? selectedPatient.totalSessionsRequired
+					: undefined;
+		
+		if (baseRemaining === undefined) return undefined;
+		
+		// If checkbox is checked, decrease by 1 (only once)
+		return sessionCompleted ? Math.max(0, baseRemaining - 1) : baseRemaining;
+	}, [selectedPatient?.remainingSessions, selectedPatient?.totalSessionsRequired, sessionCompleted]);
+	
 	const vasValue = Number(formData.vasScale || '5');
 	const vasEmoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, vasValue) - 1)];
 	const hydrationValue = Number(formData.hydration || '4');
@@ -796,6 +815,20 @@ export default function EditReport() {
 							? Number(formData.totalSessionsRequired)
 							: null,
 				remainingSessions: (() => {
+					// If checkbox is checked, decrease by 1 from the base value
+					if (sessionCompleted) {
+						const baseRemaining = 
+							typeof selectedPatient.remainingSessions === 'number'
+								? selectedPatient.remainingSessions
+								: typeof selectedPatient.totalSessionsRequired === 'number'
+									? selectedPatient.totalSessionsRequired
+									: null;
+						
+						if (baseRemaining !== null && baseRemaining > 0) {
+							return Math.max(0, baseRemaining - 1);
+						}
+					}
+					
 					// If explicitly set in form, use that value
 					if (typeof formData.remainingSessions === 'number') {
 						return formData.remainingSessions;
@@ -803,17 +836,21 @@ export default function EditReport() {
 					if (formData.remainingSessions) {
 						return Number(formData.remainingSessions);
 					}
-					// If totalSessionsRequired is set/changed but remainingSessions is not explicitly set,
-					// calculate it as totalSessionsRequired - 1 (one less than total)
+					// If not set in form, use selectedPatient value or set equal to total
 					const totalValue =
 						typeof formData.totalSessionsRequired === 'number'
 							? formData.totalSessionsRequired
 							: typeof selectedPatient.totalSessionsRequired === 'number'
 								? selectedPatient.totalSessionsRequired
 								: null;
+					
 					if (totalValue !== null) {
-						// Calculate based on completed appointments
-						return null; // Will be calculated by refreshPatientSessionProgress
+						// If remainingSessions is not set, set it equal to totalSessionsRequired
+						const currentRemaining = 
+							typeof selectedPatient.remainingSessions === 'number'
+								? selectedPatient.remainingSessions
+								: totalValue;
+						return currentRemaining;
 					}
 					return null;
 				})(),
@@ -944,28 +981,61 @@ export default function EditReport() {
 			);
 
 			await markAppointmentCompletedForReport(selectedPatient, consultationDate);
+			
+			// If checkbox was checked, the remainingSessions in reportData is already decreased
+			// Use that value and preserve it, don't let refreshPatientSessionProgress override it
+			const savedRemainingSessions = reportData.remainingSessions;
+			
 			const patientForProgress: PatientRecordFull = {
 				...selectedPatient,
-				totalSessionsRequired: totalSessionsValue ?? selectedPatient.totalSessionsRequired,
+				// Preserve totalSessionsRequired - it should never change
+				totalSessionsRequired: totalSessionsValue !== undefined && totalSessionsValue !== null
+					? totalSessionsValue
+					: selectedPatient.totalSessionsRequired,
+				// Preserve the saved remainingSessions if checkbox was checked
+				remainingSessions: sessionCompleted && savedRemainingSessions !== undefined 
+					? savedRemainingSessions as number
+					: selectedPatient.remainingSessions,
 			};
+			
 			const sessionProgress = await refreshPatientSessionProgress(
 				patientForProgress,
 				totalSessionsValue ?? null
 			);
 
-			if (sessionProgress) {
-				setSelectedPatient(prev => (prev ? { ...prev, ...sessionProgress } : null));
+			// Update with saved remainingSessions if checkbox was checked, otherwise use sessionProgress
+			const finalRemainingSessions = sessionCompleted && savedRemainingSessions !== undefined
+				? savedRemainingSessions as number
+				: sessionProgress?.remainingSessions;
+
+			if (finalRemainingSessions !== undefined || sessionProgress) {
+				const updates = {
+					...(sessionProgress || {}),
+					...(finalRemainingSessions !== undefined ? { remainingSessions: finalRemainingSessions } : {}),
+					// Preserve totalSessionsRequired - never change it
+					totalSessionsRequired: totalSessionsValue ?? selectedPatient.totalSessionsRequired,
+				};
+				
+				setSelectedPatient(prev => (prev ? { ...prev, ...updates } : null));
 				setPatients(prev =>
-					prev.map(p => (p.id === selectedPatient.id ? { ...p, ...sessionProgress } : p))
+					prev.map(p => (p.id === selectedPatient.id ? { ...p, ...updates } : p))
 				);
 				setFormData(prev => ({
 					...prev,
-					...(sessionProgress.remainingSessions !== undefined
+					...(finalRemainingSessions !== undefined
+						? { remainingSessions: finalRemainingSessions }
+						: {}),
+					...(sessionProgress?.remainingSessions !== undefined && !sessionCompleted
 						? { remainingSessions: sessionProgress.remainingSessions }
 						: {}),
-					...(sessionProgress.status ? { status: sessionProgress.status } : {}),
+					...(sessionProgress?.status ? { status: sessionProgress.status } : {}),
+					// Preserve totalSessionsRequired in formData
+					totalSessionsRequired: totalSessionsValue ?? prev.totalSessionsRequired ?? selectedPatient.totalSessionsRequired,
 				}));
 			}
+
+			// Reset session completion checkbox after save (but keep the decreased remaining sessions)
+			setSessionCompleted(false);
 
 			setSavedMessage(true);
 			setTimeout(() => setSavedMessage(false), 3000);
@@ -1930,8 +2000,8 @@ export default function EditReport() {
 
 											const nextRemaining =
 												typeof completedSessions === 'number'
-													? Math.max(0, total - 1 - completedSessions)
-													: deriveCurrentSessionRemaining(total);
+													? Math.max(0, total - completedSessions)
+													: total; // Set equal to total initially
 
 											return {
 												...prev,
@@ -1944,11 +2014,11 @@ export default function EditReport() {
 								/>
 							</div>
 							<div>
-								<label className="block text-xs font-medium text-slate-500">Remaining Sessions (Total - 1)</label>
+								<label className="block text-xs font-medium text-slate-500">Remaining Sessions</label>
 								<input
 									type="number"
 									min={0}
-									value={formData.remainingSessions ?? ''}
+									value={displayedRemainingSessions ?? ''}
 									readOnly
 									className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 								/>
@@ -2813,57 +2883,76 @@ export default function EditReport() {
 					</div>
 
 					{/* Save Button */}
-					<div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-6">
-						<button
-							type="button"
-							onClick={() => {
-								setSelectedPatient(null);
-								router.push('/clinical-team/edit-report');
-							}}
-							className="btn-secondary"
-						>
-							Cancel
-						</button>
-						<button
-							type="button"
-							onClick={handleCrispReport}
-							className="btn-secondary"
-							disabled={!selectedPatient}
-						>
-							<i className="fas fa-file-alt text-xs" aria-hidden="true" />
-							Crisp Report
-						</button>
-						<button
-							type="button"
-							onClick={() => handlePrint()}
-							className="btn-secondary"
-							disabled={!selectedPatient}
-						>
-							<i className="fas fa-print text-xs" aria-hidden="true" />
-							Print Report
-						</button>
-						<button
-							type="button"
-							onClick={() => handleDownloadPDF()}
-							className="btn-secondary"
-							disabled={!selectedPatient}
-						>
-							<i className="fas fa-download text-xs" aria-hidden="true" />
-							Download PDF
-						</button>
-						<button 
-							type="button" 
-							onClick={handleViewVersionHistory} 
-							className="btn-secondary" 
-							disabled={!selectedPatient}
-						>
-							<i className="fas fa-history text-xs" aria-hidden="true" />
-							Report History
-						</button>
-						<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
-							<i className="fas fa-save text-xs" aria-hidden="true" />
-							{saving ? 'Saving...' : 'Save Report'}
-						</button>
+					<div className="flex items-center justify-between border-t border-slate-200 pt-6">
+						<label className="flex items-center gap-2 cursor-pointer">
+							<input
+								type="checkbox"
+								checked={sessionCompleted}
+								onChange={e => {
+									const checked = e.target.checked;
+									setSessionCompleted(checked);
+									// Update formData only when saving, not here
+									// The displayedRemainingSessions will handle the display update
+								}}
+								disabled={saving || !selectedPatient}
+								className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-200 disabled:opacity-50 disabled:cursor-not-allowed"
+							/>
+							<span className="text-sm font-medium text-slate-700">
+								Completion of one session
+							</span>
+						</label>
+						<div className="flex items-center gap-3">
+							<button
+								type="button"
+								onClick={() => {
+									setSelectedPatient(null);
+									router.push('/clinical-team/edit-report');
+								}}
+								className="btn-secondary"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleCrispReport}
+								className="btn-secondary"
+								disabled={!selectedPatient}
+							>
+								<i className="fas fa-file-alt text-xs" aria-hidden="true" />
+								Crisp Report
+							</button>
+							<button
+								type="button"
+								onClick={() => handlePrint()}
+								className="btn-secondary"
+								disabled={!selectedPatient}
+							>
+								<i className="fas fa-print text-xs" aria-hidden="true" />
+								Print Report
+							</button>
+							<button
+								type="button"
+								onClick={() => handleDownloadPDF()}
+								className="btn-secondary"
+								disabled={!selectedPatient}
+							>
+								<i className="fas fa-download text-xs" aria-hidden="true" />
+								Download PDF
+							</button>
+							<button 
+								type="button" 
+								onClick={handleViewVersionHistory} 
+								className="btn-secondary" 
+								disabled={!selectedPatient}
+							>
+								<i className="fas fa-history text-xs" aria-hidden="true" />
+								Report History
+							</button>
+							<button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
+								<i className="fas fa-save text-xs" aria-hidden="true" />
+								{saving ? 'Saving...' : 'Save Report'}
+							</button>
+						</div>
 					</div>
 				</div>
 			</div>
