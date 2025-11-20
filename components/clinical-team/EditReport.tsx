@@ -985,7 +985,10 @@ export default function EditReport() {
 			
 			const patientForProgress: PatientRecordFull = {
 				...selectedPatient,
-				totalSessionsRequired: totalSessionsValue ?? selectedPatient.totalSessionsRequired,
+				// Preserve totalSessionsRequired - it should never change
+				totalSessionsRequired: totalSessionsValue !== undefined && totalSessionsValue !== null
+					? totalSessionsValue
+					: selectedPatient.totalSessionsRequired,
 				// Preserve the saved remainingSessions if checkbox was checked
 				remainingSessions: sessionCompleted && savedRemainingSessions !== undefined 
 					? savedRemainingSessions as number
@@ -1006,6 +1009,8 @@ export default function EditReport() {
 				const updates = {
 					...(sessionProgress || {}),
 					...(finalRemainingSessions !== undefined ? { remainingSessions: finalRemainingSessions } : {}),
+					// Preserve totalSessionsRequired - never change it
+					totalSessionsRequired: totalSessionsValue ?? selectedPatient.totalSessionsRequired,
 				};
 				
 				setSelectedPatient(prev => (prev ? { ...prev, ...updates } : null));
@@ -1021,6 +1026,8 @@ export default function EditReport() {
 						? { remainingSessions: sessionProgress.remainingSessions }
 						: {}),
 					...(sessionProgress?.status ? { status: sessionProgress.status } : {}),
+					// Preserve totalSessionsRequired in formData
+					totalSessionsRequired: totalSessionsValue ?? prev.totalSessionsRequired ?? selectedPatient.totalSessionsRequired,
 				}));
 			}
 
