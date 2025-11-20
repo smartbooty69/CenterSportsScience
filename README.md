@@ -115,8 +115,11 @@ npm install
 ```
 
 3. Set up environment variables
+
 Create a `.env.local` file with your Firebase configuration:
-```
+
+```env
+# Production Firebase Configuration
 NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
@@ -132,11 +135,26 @@ SENTRY_AUTH_TOKEN=your_sentry_auth_token
 ```
 
 4. Run the development server
+
 ```bash
+# Production database (default)
 npm run dev
+
+# Staging database (for testing)
+npm run dev:staging
 ```
 
 5. Open [http://localhost:3000](http://localhost:3000) in your browser
+
+## Staging Database
+
+The application supports a separate staging database for testing. See [STAGING.md](./STAGING.md) for complete setup instructions.
+
+**Quick usage:**
+- `npm run dev` → Uses production database
+- `npm run dev:staging` → Uses staging database
+
+**Note:** Production deployments are unaffected by staging setup.
 
 ## Project Structure
 
@@ -157,6 +175,15 @@ npm run dev
 └── contexts/             # React contexts
     └── AuthContext.tsx   # Authentication context
 ```
+
+## Additional Setup Guides
+
+- [STAGING.md](./STAGING.md) - Staging database setup and usage
+- [FIREBASE_ADMIN_SETUP.md](./FIREBASE_ADMIN_SETUP.md) - Firebase Admin SDK configuration
+- [EMAIL_SETUP.md](./EMAIL_SETUP.md) - Email service (Resend) setup
+- [SMS_TEST_GUIDE.md](./SMS_TEST_GUIDE.md) - SMS testing guide
+- [TEST_USERS.md](./TEST_USERS.md) - Test user accounts
+- [SENTRY_SETUP.md](./SENTRY_SETUP.md) - Error tracking setup
 
 ## Recent Updates
 

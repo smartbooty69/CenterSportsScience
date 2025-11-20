@@ -127,6 +127,35 @@ fully instrumented.
 
 ## Troubleshooting
 
+### Feedback Widget Not Visible in Production
+
+The feedback widget may not appear if:
+
+1. **Missing Environment Variable**: Ensure `NEXT_PUBLIC_SENTRY_DSN` is set in your production environment variables (Vercel, Netlify, etc.)
+   - Go to your deployment platform's environment variables settings
+   - Add `NEXT_PUBLIC_SENTRY_DSN` with your Sentry DSN
+   - Redeploy your application
+
+2. **Check Browser Console**: Open browser DevTools (F12) → Console tab
+   - Look for Sentry initialization errors
+   - Check if `window.Sentry` exists (type `window.Sentry` in console)
+   - Look for feedback integration errors
+
+3. **Content Security Policy (CSP)**: Your production CSP might be blocking Sentry scripts
+   - Add Sentry domains to your CSP allowlist
+   - Common Sentry domains: `*.sentry.io`, `*.ingest.sentry.io`
+
+4. **Ad Blockers**: Browser extensions might block Sentry
+   - Test in incognito/private mode
+   - Check if any ad-blocker extensions are active
+
+5. **Verify Sentry is Initialized**: 
+   - Open browser console and type: `window.__SENTRY__`
+   - If undefined, Sentry isn't initialized
+   - Check if DSN is available: Look in Network tab for requests to `sentry.io`
+
+6. **Force Refresh**: Clear browser cache and hard refresh (Ctrl+Shift+R / Cmd+Shift+R)
+
 ### Errors not appearing in Sentry
 
 1. Check that `NEXT_PUBLIC_SENTRY_DSN` is set correctly

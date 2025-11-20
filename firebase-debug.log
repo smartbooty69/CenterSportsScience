@@ -188,3 +188,277 @@
   ],
   "fieldOverrides": []
 }
+[debug] [2025-11-20T17:23:29.582Z] ----------------------------------------------------------------------
+[debug] [2025-11-20T17:23:29.584Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\clanc\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js projects:list
+[debug] [2025-11-20T17:23:29.584Z] CLI Version:   14.25.1
+[debug] [2025-11-20T17:23:29.584Z] Platform:      win32
+[debug] [2025-11-20T17:23:29.584Z] Node Version:  v22.12.0
+[debug] [2025-11-20T17:23:29.585Z] Time:          Thu Nov 20 2025 22:53:29 GMT+0530 (India Standard Time)
+[debug] [2025-11-20T17:23:29.585Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-20T17:23:29.793Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-20T17:23:29.794Z] > authorizing via signed-in user (clancymendonca@gmail.com)
+[debug] [2025-11-20T17:23:29.797Z] Checked if tokens are valid: false, expires at: 1763617496607
+[debug] [2025-11-20T17:23:29.797Z] Checked if tokens are valid: false, expires at: 1763617496607
+[debug] [2025-11-20T17:23:29.797Z] > refreshing access token with scopes: []
+[debug] [2025-11-20T17:23:29.799Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2025-11-20T17:23:29.799Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-11-20T17:23:30.001Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2025-11-20T17:23:30.001Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-11-20T17:23:30.013Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects pageSize=1000
+[debug] [2025-11-20T17:23:30.883Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects 200
+[debug] [2025-11-20T17:23:30.883Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects [omitted]
+[info] ┌─────────────────────────────┬─────────────────────────────────────┬────────────────┬──────────────────────┐
+│ Project Display Name        │ Project ID                          │ Project Number │ Resource Location ID │
+├─────────────────────────────┼─────────────────────────────────────┼────────────────┼──────────────────────┤
+│ Centersportsscience         │ centersportsscience-5be86 (current) │ 466800204719   │ [Not specified]      │
+├─────────────────────────────┼─────────────────────────────────────┼────────────────┼──────────────────────┤
+│ centersportsscience-staging │ centersportsscience-staging         │ 165890001784   │ [Not specified]      │
+├─────────────────────────────┼─────────────────────────────────────┼────────────────┼──────────────────────┤
+│ Foundrly                    │ foundrly-8a047                      │ 593836714800   │ [Not specified]      │
+├─────────────────────────────┼─────────────────────────────────────┼────────────────┼──────────────────────┤
+│ FriendlyChat                │ friendlychat-d02e5                  │ 144778808267   │ asia-south1          │
+├─────────────────────────────┼─────────────────────────────────────┼────────────────┼──────────────────────┤
+│ Smartchem2026               │ smartchem2026                       │ 105796986120   │ [Not specified]      │
+└─────────────────────────────┴─────────────────────────────────────┴────────────────┴──────────────────────┘
+[info] 
+[info] 5 project(s) total.
+[debug] [2025-11-20T17:23:47.475Z] ----------------------------------------------------------------------
+[debug] [2025-11-20T17:23:47.477Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\clanc\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js use centersportsscience-staging
+[debug] [2025-11-20T17:23:47.478Z] CLI Version:   14.25.1
+[debug] [2025-11-20T17:23:47.478Z] Platform:      win32
+[debug] [2025-11-20T17:23:47.478Z] Node Version:  v22.12.0
+[debug] [2025-11-20T17:23:47.478Z] Time:          Thu Nov 20 2025 22:53:47 GMT+0530 (India Standard Time)
+[debug] [2025-11-20T17:23:47.478Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-20T17:23:47.687Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-20T17:23:47.688Z] > authorizing via signed-in user (clancymendonca@gmail.com)
+[debug] [2025-11-20T17:23:47.689Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:23:47.690Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:23:47.690Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/cloudresourcemanager.googleapis.com [none]
+[debug] [2025-11-20T17:23:47.690Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/cloudresourcemanager.googleapis.com x-goog-quota-user=projects/centersportsscience-staging
+[debug] [2025-11-20T17:23:49.547Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/cloudresourcemanager.googleapis.com 200
+[debug] [2025-11-20T17:23:49.548Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/cloudresourcemanager.googleapis.com [omitted]
+[debug] [2025-11-20T17:23:49.555Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:23:49.556Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:23:49.556Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging [none]
+[debug] [2025-11-20T17:23:51.063Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging 200
+[debug] [2025-11-20T17:23:51.064Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging {"projectNumber":"165890001784","projectId":"centersportsscience-staging","lifecycleState":"ACTIVE","name":"centersportsscience-staging","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-11-20T17:03:59.829566Z"}
+[info] Now using project centersportsscience-staging
+[debug] [2025-11-20T17:24:03.822Z] ----------------------------------------------------------------------
+[debug] [2025-11-20T17:24:03.826Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\clanc\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only firestore:rules
+[debug] [2025-11-20T17:24:03.826Z] CLI Version:   14.25.1
+[debug] [2025-11-20T17:24:03.827Z] Platform:      win32
+[debug] [2025-11-20T17:24:03.827Z] Node Version:  v22.12.0
+[debug] [2025-11-20T17:24:03.827Z] Time:          Thu Nov 20 2025 22:54:03 GMT+0530 (India Standard Time)
+[debug] [2025-11-20T17:24:03.827Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-20T17:24:04.033Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-20T17:24:04.034Z] > authorizing via signed-in user (clancymendonca@gmail.com)
+[debug] [2025-11-20T17:24:04.034Z] [iam] checking project centersportsscience-staging for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]
+[debug] [2025-11-20T17:24:04.035Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:04.035Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:04.036Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions [none]
+[debug] [2025-11-20T17:24:04.036Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions x-goog-quota-user=projects/centersportsscience-staging
+[debug] [2025-11-20T17:24:04.037Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2025-11-20T17:24:05.537Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions 200
+[debug] [2025-11-20T17:24:05.537Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[info] 
+[info] === Deploying to 'centersportsscience-staging'...
+[info] 
+[info] i  deploying firestore 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2025-11-20T17:24:05.546Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:05.546Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:05.546Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/firestore.googleapis.com [none]
+[debug] [2025-11-20T17:24:05.546Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/firestore.googleapis.com x-goog-quota-user=projects/centersportsscience-staging
+[debug] [2025-11-20T17:24:07.344Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/firestore.googleapis.com 200
+[debug] [2025-11-20T17:24:07.344Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-staging/services/firestore.googleapis.com [omitted]
+[info] +  firestore: required API firestore.googleapis.com is enabled 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2025-11-20T17:24:07.379Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:07.379Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:07.379Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) [none]
+[debug] [2025-11-20T17:24:07.581Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) 200
+[debug] [2025-11-20T17:24:07.581Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) {"name":"projects/centersportsscience-staging/databases/(default)","uid":"6000886d-5f10-4843-9e77-18054db3b815","createTime":"2025-11-20T17:12:26.386686Z","updateTime":"2025-11-20T17:12:26.386686Z","locationId":"asia-south1","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2025-11-20T17:12:26.386686Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"j","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IPe1k7ifgZEDMPTH1fGcgZED"}
+[info] i  firestore: reading indexes from firestore.indexes.json... 
+[info] i  cloud.firestore: checking firestore.staging.rules for compilation errors... 
+[debug] [2025-11-20T17:24:07.584Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:07.585Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:07.585Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test [none]
+[debug] [2025-11-20T17:24:07.585Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test [omitted]
+[debug] [2025-11-20T17:24:09.016Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test 200
+[debug] [2025-11-20T17:24:09.016Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test {}
+[info] +  cloud.firestore: rules file firestore.staging.rules compiled successfully 
+[debug] [2025-11-20T17:24:09.019Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:09.019Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:09.019Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/releases pageSize=10&pageToken=
+[debug] [2025-11-20T17:24:10.363Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/releases 200
+[debug] [2025-11-20T17:24:10.364Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/releases {"releases":[{"name":"projects/centersportsscience-staging/releases/cloud.firestore","rulesetName":"projects/centersportsscience-staging/rulesets/a335d45e-9c36-4b60-b73e-67825b02768d","createTime":"2025-11-20T17:12:35.335574Z","updateTime":"2025-11-20T17:12:35.335574Z"}]}
+[debug] [2025-11-20T17:24:10.364Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:10.364Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:10.364Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/rulesets/a335d45e-9c36-4b60-b73e-67825b02768d [none]
+[debug] [2025-11-20T17:24:11.666Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/rulesets/a335d45e-9c36-4b60-b73e-67825b02768d 200
+[debug] [2025-11-20T17:24:11.666Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/rulesets/a335d45e-9c36-4b60-b73e-67825b02768d [omitted]
+[info] i  firestore: uploading rules firestore.staging.rules... 
+[debug] [2025-11-20T17:24:11.668Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:11.668Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:11.669Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/rulesets [none]
+[debug] [2025-11-20T17:24:11.669Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/rulesets [omitted]
+[debug] [2025-11-20T17:24:13.031Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/rulesets 200
+[debug] [2025-11-20T17:24:13.031Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/rulesets {"name":"projects/centersportsscience-staging/rulesets/7f2a4d5a-1da7-4d7c-a194-94f2b94a4f54","source":{"files":[{"content":"rules_version = '2';\r\nservice cloud.firestore {\r\n  match /databases/{database}/documents {\r\n    // Staging environment rules - More permissive for testing\r\n    // Allows all authenticated users to read/write\r\n    // For staging, you may want to be more permissive than production\r\n    \r\n    match /{document=**} {\r\n      // Allow all authenticated users (staging/testing)\r\n      allow read, write: if request.auth != null;\r\n    }\r\n    \r\n    // Alternative: Completely open for staging (use with caution)\r\n    // match /{document=**} {\r\n    //   allow read, write: if true;\r\n    // }\r\n  }\r\n}\r\n\r\n","name":"firestore.staging.rules"}]},"createTime":"2025-11-20T17:24:15.260543Z","metadata":{"services":["cloud.firestore"]}}
+[debug] [2025-11-20T17:24:13.031Z] [rules] created ruleset projects/centersportsscience-staging/rulesets/7f2a4d5a-1da7-4d7c-a194-94f2b94a4f54
+[debug] [2025-11-20T17:24:13.032Z] [rules] releasing cloud.firestore/(default) with ruleset projects/centersportsscience-staging/rulesets/7f2a4d5a-1da7-4d7c-a194-94f2b94a4f54
+[debug] [2025-11-20T17:24:13.032Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:13.032Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:13.032Z] >>> [apiv2][query] PATCH https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/releases/cloud.firestore/(default) [none]
+[debug] [2025-11-20T17:24:13.033Z] >>> [apiv2][body] PATCH https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/releases/cloud.firestore/(default) {"release":{"name":"projects/centersportsscience-staging/releases/cloud.firestore/(default)","rulesetName":"projects/centersportsscience-staging/rulesets/7f2a4d5a-1da7-4d7c-a194-94f2b94a4f54"}}
+[debug] [2025-11-20T17:24:14.372Z] <<< [apiv2][status] PATCH https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/releases/cloud.firestore/(default) 200
+[debug] [2025-11-20T17:24:14.372Z] <<< [apiv2][body] PATCH https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging/releases/cloud.firestore/(default) {"name":"projects/centersportsscience-staging/releases/cloud.firestore","rulesetName":"projects/centersportsscience-staging/rulesets/7f2a4d5a-1da7-4d7c-a194-94f2b94a4f54","createTime":"2025-11-20T17:12:35.335574Z","updateTime":"2025-11-20T17:24:16.606460Z"}
+[debug] [2025-11-20T17:24:14.373Z] [rules] updated release projects/centersportsscience-staging/releases/cloud.firestore
+[info] +  firestore: released rules firestore.staging.rules to cloud.firestore 
+[info] 
+[info] +  Deploy complete! 
+[info] 
+[info] Project Console: https://console.firebase.google.com/project/centersportsscience-staging/overview
+[debug] [2025-11-20T17:24:36.074Z] ----------------------------------------------------------------------
+[debug] [2025-11-20T17:24:36.076Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\clanc\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js use centersportsscience-5be86
+[debug] [2025-11-20T17:24:36.077Z] CLI Version:   14.25.1
+[debug] [2025-11-20T17:24:36.077Z] Platform:      win32
+[debug] [2025-11-20T17:24:36.077Z] Node Version:  v22.12.0
+[debug] [2025-11-20T17:24:36.077Z] Time:          Thu Nov 20 2025 22:54:36 GMT+0530 (India Standard Time)
+[debug] [2025-11-20T17:24:36.077Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-20T17:24:36.283Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-20T17:24:36.284Z] > authorizing via signed-in user (clancymendonca@gmail.com)
+[debug] [2025-11-20T17:24:36.286Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:36.286Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:36.287Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-5be86/services/cloudresourcemanager.googleapis.com [none]
+[debug] [2025-11-20T17:24:36.287Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-5be86/services/cloudresourcemanager.googleapis.com x-goog-quota-user=projects/centersportsscience-5be86
+[debug] [2025-11-20T17:24:38.098Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-5be86/services/cloudresourcemanager.googleapis.com 200
+[debug] [2025-11-20T17:24:38.099Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/centersportsscience-5be86/services/cloudresourcemanager.googleapis.com [omitted]
+[debug] [2025-11-20T17:24:38.104Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:38.104Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:24:38.104Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-5be86 [none]
+[debug] [2025-11-20T17:24:39.576Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-5be86 200
+[debug] [2025-11-20T17:24:39.576Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-5be86 {"projectNumber":"466800204719","projectId":"centersportsscience-5be86","lifecycleState":"ACTIVE","name":"Centersportsscience","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-11-12T10:01:22.400488Z"}
+[info] Now using project centersportsscience-5be86
+[debug] [2025-11-20T17:26:07.775Z] ----------------------------------------------------------------------
+[debug] [2025-11-20T17:26:07.778Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\clanc\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js use centersportsscience-staging
+[debug] [2025-11-20T17:26:07.778Z] CLI Version:   14.25.1
+[debug] [2025-11-20T17:26:07.779Z] Platform:      win32
+[debug] [2025-11-20T17:26:07.779Z] Node Version:  v22.12.0
+[debug] [2025-11-20T17:26:07.779Z] Time:          Thu Nov 20 2025 22:56:07 GMT+0530 (India Standard Time)
+[debug] [2025-11-20T17:26:07.779Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-20T17:26:08.045Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-20T17:26:08.046Z] > authorizing via signed-in user (clancymendonca@gmail.com)
+[debug] [2025-11-20T17:26:08.048Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:08.048Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:08.050Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging [none]
+[debug] [2025-11-20T17:26:09.574Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging 200
+[debug] [2025-11-20T17:26:09.574Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging {"projectNumber":"165890001784","projectId":"centersportsscience-staging","lifecycleState":"ACTIVE","name":"centersportsscience-staging","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-11-20T17:03:59.829566Z"}
+[info] Now using project centersportsscience-staging
+[debug] [2025-11-20T17:26:54.875Z] ----------------------------------------------------------------------
+[debug] [2025-11-20T17:26:54.877Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\clanc\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only firestore:indexes
+[debug] [2025-11-20T17:26:54.877Z] CLI Version:   14.25.1
+[debug] [2025-11-20T17:26:54.877Z] Platform:      win32
+[debug] [2025-11-20T17:26:54.877Z] Node Version:  v22.12.0
+[debug] [2025-11-20T17:26:54.878Z] Time:          Thu Nov 20 2025 22:56:54 GMT+0530 (India Standard Time)
+[debug] [2025-11-20T17:26:54.878Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-20T17:26:55.071Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-20T17:26:55.072Z] > authorizing via signed-in user (clancymendonca@gmail.com)
+[debug] [2025-11-20T17:26:55.072Z] [iam] checking project centersportsscience-staging for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]
+[debug] [2025-11-20T17:26:55.073Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:55.073Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:55.074Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions [none]
+[debug] [2025-11-20T17:26:55.074Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions x-goog-quota-user=projects/centersportsscience-staging
+[debug] [2025-11-20T17:26:55.074Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2025-11-20T17:26:56.565Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions 200
+[debug] [2025-11-20T17:26:56.566Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-staging:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[info] 
+[info] === Deploying to 'centersportsscience-staging'...
+[info] 
+[info] i  deploying firestore 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2025-11-20T17:26:56.576Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:56.576Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:56.576Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) [none]
+[debug] [2025-11-20T17:26:56.756Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) 200
+[debug] [2025-11-20T17:26:56.757Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) {"name":"projects/centersportsscience-staging/databases/(default)","uid":"6000886d-5f10-4843-9e77-18054db3b815","createTime":"2025-11-20T17:12:26.386686Z","updateTime":"2025-11-20T17:12:26.386686Z","locationId":"asia-south1","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2025-11-20T17:12:26.386686Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"j","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IKaQ6YiggZEDMPTH1fGcgZED"}
+[info] i  firestore: reading indexes from firestore.indexes.json... 
+[info] i  cloud.firestore: checking firestore.rules for compilation errors... 
+[debug] [2025-11-20T17:26:56.758Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:56.758Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:56.758Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test [none]
+[debug] [2025-11-20T17:26:56.758Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test [omitted]
+[debug] [2025-11-20T17:26:58.114Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test 200
+[debug] [2025-11-20T17:26:58.114Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/centersportsscience-staging:test {}
+[info] +  cloud.firestore: rules file firestore.rules compiled successfully 
+[info] i  firestore: deploying indexes... 
+[debug] [2025-11-20T17:26:58.119Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.120Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.120Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/-/indexes [none]
+[debug] [2025-11-20T17:26:58.283Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/-/indexes 200
+[debug] [2025-11-20T17:26:58.283Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/-/indexes {}
+[debug] [2025-11-20T17:26:58.284Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.284Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.284Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* [none]
+[debug] [2025-11-20T17:26:58.334Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* 200
+[debug] [2025-11-20T17:26:58.335Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* {"fields":[{"name":"projects/centersportsscience-staging/databases/(default)/collectionGroups/__default__/fields/*","indexConfig":{"indexes":[{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"ASCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"DESCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","arrayConfig":"CONTAINS"}],"state":"READY"}]}}]}
+[debug] [2025-11-20T17:26:58.336Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.337Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.337Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) [none]
+[debug] [2025-11-20T17:26:58.378Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) 200
+[debug] [2025-11-20T17:26:58.379Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default) {"name":"projects/centersportsscience-staging/databases/(default)","uid":"6000886d-5f10-4843-9e77-18054db3b815","createTime":"2025-11-20T17:12:26.386686Z","updateTime":"2025-11-20T17:12:26.386686Z","locationId":"asia-south1","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2025-11-20T17:12:26.386686Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"j","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IO+CzImggZEDMPTH1fGcgZED"}
+[debug] [2025-11-20T17:26:58.379Z] Creating new index: {"collectionGroup":"notifications","queryScope":"COLLECTION","fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}]}
+[debug] [2025-11-20T17:26:58.380Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.380Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.380Z] >>> [apiv2][query] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/notifications/indexes [none]
+[debug] [2025-11-20T17:26:58.380Z] >>> [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/notifications/indexes {"fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}],"queryScope":"COLLECTION"}
+[debug] [2025-11-20T17:26:58.523Z] <<< [apiv2][status] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/notifications/indexes 200
+[debug] [2025-11-20T17:26:58.523Z] <<< [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/notifications/indexes {"name":"projects/centersportsscience-staging/databases/(default)/operations/S0U0aFhqT2dBQ0lDDCoDIDQwNTc2MjAwZDY1Zi0xMmZhLTVjZTQtMjRlOC1jZDYzZTBkMiQac2VuaWxlcGlwCQpBEg","metadata":{"@type":"type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata","startTime":"2025-11-20T17:27:00.875743Z","index":"projects/centersportsscience-staging/databases/(default)/collectionGroups/notifications/indexes/CICAgOjXh4EK","state":"INITIALIZING"}}
+[debug] [2025-11-20T17:26:58.523Z] Creating new index: {"collectionGroup":"reportVersions","queryScope":"COLLECTION","fields":[{"fieldPath":"patientId","order":"ASCENDING"},{"fieldPath":"version","order":"DESCENDING"}]}
+[debug] [2025-11-20T17:26:58.523Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.523Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.523Z] >>> [apiv2][query] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/reportVersions/indexes [none]
+[debug] [2025-11-20T17:26:58.523Z] >>> [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/reportVersions/indexes {"fields":[{"fieldPath":"patientId","order":"ASCENDING"},{"fieldPath":"version","order":"DESCENDING"}],"queryScope":"COLLECTION"}
+[debug] [2025-11-20T17:26:58.630Z] <<< [apiv2][status] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/reportVersions/indexes 200
+[debug] [2025-11-20T17:26:58.630Z] <<< [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/reportVersions/indexes {"name":"projects/centersportsscience-staging/databases/(default)/operations/S01vcFVpSmdBQ0lDDCoDIDk5MDJlZTk3ZTQyYi1iMmE5LWFlMTQtYjQyYy04MGUzZWVkZSQac2VuaWxlcGlwCQpBEg","metadata":{"@type":"type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata","startTime":"2025-11-20T17:27:00.985696Z","index":"projects/centersportsscience-staging/databases/(default)/collectionGroups/reportVersions/indexes/CICAgJiUpoMK","state":"INITIALIZING"}}
+[debug] [2025-11-20T17:26:58.630Z] Creating new index: {"collectionGroup":"transferRequests","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"toTherapistId","order":"ASCENDING"},{"fieldPath":"requestedAt","order":"DESCENDING"}]}
+[debug] [2025-11-20T17:26:58.631Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.631Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.631Z] >>> [apiv2][query] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/transferRequests/indexes [none]
+[debug] [2025-11-20T17:26:58.631Z] >>> [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/transferRequests/indexes {"fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"toTherapistId","order":"ASCENDING"},{"fieldPath":"requestedAt","order":"DESCENDING"}],"queryScope":"COLLECTION"}
+[debug] [2025-11-20T17:26:58.710Z] <<< [apiv2][status] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/transferRequests/indexes 200
+[debug] [2025-11-20T17:26:58.710Z] <<< [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/transferRequests/indexes {"name":"projects/centersportsscience-staging/databases/(default)/operations/S0E0MW1pSmdBQ0lDDCoDIGJiMjgyNDY2YjY3My01NWU4LTFiYzQtZDhlNi0xMDYwODQyNiQac2VuaWxlcGlwCQpBEg","metadata":{"@type":"type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata","startTime":"2025-11-20T17:27:01.064379Z","index":"projects/centersportsscience-staging/databases/(default)/collectionGroups/transferRequests/indexes/CICAgJim14AK","state":"INITIALIZING"}}
+[debug] [2025-11-20T17:26:58.711Z] Creating new index: {"collectionGroup":"appointments","queryScope":"COLLECTION","fields":[{"fieldPath":"patientId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"date","order":"ASCENDING"},{"fieldPath":"time","order":"ASCENDING"}]}
+[debug] [2025-11-20T17:26:58.711Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.711Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:26:58.712Z] >>> [apiv2][query] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/appointments/indexes [none]
+[debug] [2025-11-20T17:26:58.712Z] >>> [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/appointments/indexes {"fields":[{"fieldPath":"patientId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"date","order":"ASCENDING"},{"fieldPath":"time","order":"ASCENDING"}],"queryScope":"COLLECTION"}
+[debug] [2025-11-20T17:26:58.795Z] <<< [apiv2][status] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/appointments/indexes 200
+[debug] [2025-11-20T17:26:58.795Z] <<< [apiv2][body] POST https://firestore.googleapis.com/v1/projects/centersportsscience-staging/databases/(default)/collectionGroups/appointments/indexes {"name":"projects/centersportsscience-staging/databases/(default)/operations/S0lvOUZqSmdBQ0lDDCoDIDkyMzk2MmFhZTM0Yy00NjY5LWFhMzQtNjYxZS0wNWVmZTRlNiQac2VuaWxlcGlwCQpBEg","metadata":{"@type":"type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata","startTime":"2025-11-20T17:27:01.155234Z","index":"projects/centersportsscience-staging/databases/(default)/collectionGroups/appointments/indexes/CICAgJjF9oIK","state":"INITIALIZING"}}
+[info] +  firestore: deployed indexes in firestore.indexes.json successfully for (default) database 
+[info] 
+[info] +  Deploy complete! 
+[info] 
+[info] Project Console: https://console.firebase.google.com/project/centersportsscience-staging/overview
+[debug] [2025-11-20T17:27:13.855Z] ----------------------------------------------------------------------
+[debug] [2025-11-20T17:27:13.858Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\clanc\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js use centersportsscience-5be86
+[debug] [2025-11-20T17:27:13.858Z] CLI Version:   14.25.1
+[debug] [2025-11-20T17:27:13.858Z] Platform:      win32
+[debug] [2025-11-20T17:27:13.858Z] Node Version:  v22.12.0
+[debug] [2025-11-20T17:27:13.859Z] Time:          Thu Nov 20 2025 22:57:13 GMT+0530 (India Standard Time)
+[debug] [2025-11-20T17:27:13.859Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-11-20T17:27:14.087Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-11-20T17:27:14.088Z] > authorizing via signed-in user (clancymendonca@gmail.com)
+[debug] [2025-11-20T17:27:14.090Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:27:14.090Z] Checked if tokens are valid: true, expires at: 1763663009002
+[debug] [2025-11-20T17:27:14.091Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-5be86 [none]
+[debug] [2025-11-20T17:27:15.651Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-5be86 200
+[debug] [2025-11-20T17:27:15.651Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/centersportsscience-5be86 {"projectNumber":"466800204719","projectId":"centersportsscience-5be86","lifecycleState":"ACTIVE","name":"Centersportsscience","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-11-12T10:01:22.400488Z"}
+[info] Now using project centersportsscience-5be86
