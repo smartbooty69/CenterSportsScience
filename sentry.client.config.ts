@@ -11,15 +11,18 @@ const enableInDev =
   process.env.ENABLE_SENTRY_IN_DEV === "true";
 const isEnabled = Boolean(dsn) && (!isDev || enableInDev);
 
-Sentry.init({
-  dsn: dsn || undefined,
-  enabled: isEnabled,
+// Initialize Sentry if DSN is provided (needed for feedback widget to work)
+// The enabled flag controls whether events are actually sent
+if (dsn) {
+  Sentry.init({
+    dsn: dsn,
+    enabled: isEnabled,
 
   // Adjust this value in production, or use tracesSampler for greater control
   tracesSampleRate: 1,
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
-  debug: false,
+  debug: process.env.NODE_ENV === "development" && enableInDev,
 
   replaysOnErrorSampleRate: 1.0,
 
@@ -34,6 +37,14 @@ Sentry.init({
       maskAllText: true,
       blockAllMedia: true,
     }),
+    Sentry.feedbackIntegration({
+      // Automatically shows feedback widget button in bottom-right corner
+      autoInject: true, // Explicitly enable auto-injection
+      colorScheme: "system", // or "light" | "dark"
+      showEmail: true,
+      showName: true,
+    }),
   ],
-});
+  });
+}
 

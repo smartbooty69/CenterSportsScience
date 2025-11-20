@@ -11,12 +11,24 @@ const enableInDev =
   process.env.ENABLE_SENTRY_IN_DEV === "true";
 const isEnabled = Boolean(dsn) && (!isDev || enableInDev);
 
-Sentry.init({
-  dsn: dsn || undefined,
-  enabled: isEnabled,
+// Initialize Sentry if DSN is provided (needed for feedback widget to work)
+// The enabled flag controls whether events are actually sent
+if (dsn) {
+  Sentry.init({
+    dsn: dsn,
+    enabled: isEnabled,
 
   // Add optional integrations for additional features
-  integrations: [Sentry.replayIntegration()],
+  integrations: [
+    Sentry.replayIntegration(),
+    Sentry.feedbackIntegration({
+      // Automatically shows feedback widget button in bottom-right corner
+      autoInject: true, // Explicitly enable auto-injection
+      colorScheme: "system", // or "light" | "dark"
+      showEmail: true,
+      showName: true,
+    }),
+  ],
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,
@@ -34,6 +46,7 @@ Sentry.init({
   // Enable sending user PII (Personally Identifiable Information)
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
   sendDefaultPii: true,
-});
+  });
+}
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

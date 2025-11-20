@@ -100,6 +100,7 @@ The Sentry integration includes the following configuration files:
 - ✅ Source map uploads (for better stack traces)
 - ✅ Tunnel route to bypass ad-blockers (`/monitoring`)
 - ✅ Automatic Vercel Cron Monitor integration
+- ✅ User Feedback Widget (automatically available on all pages)
 
 ## Customization
 
@@ -147,9 +148,16 @@ If you encounter build errors related to Sentry:
 2. Check that all configuration files are present
 3. Verify `next.config.ts` exports the wrapped config correctly
 
+## User Feedback Widget
+
+The User Feedback Widget has been configured and is automatically available on all pages. Sentry's `feedbackIntegration` automatically injects a feedback button in the bottom-right corner of all pages. Users can submit feedback directly through Sentry, which will be associated with their session and any errors they may have encountered.
+
+This is configured in `sentry.client.config.ts` and `instrumentation-client.ts`. The feedback widget will appear automatically when Sentry is enabled with a valid DSN.
+
 ## Additional Resources
 
 - [Sentry Next.js Documentation](https://docs.sentry.io/platforms/javascript/guides/nextjs/)
+- [Sentry User Feedback Documentation](https://docs.sentry.io/platforms/javascript/user-feedback/)
 - [Sentry Dashboard](https://sentry.io)
 - [Sentry Best Practices](https://docs.sentry.io/product/best-practices/)
 
