@@ -154,6 +154,46 @@ function renderRomTable(joint: string, data: any) {
 	);
 }
 
+function renderMmtView(mmtData: Record<string, any> | undefined) {
+	if (!mmtData || !Object.keys(mmtData).length) {
+		return <p className="text-sm italic text-slate-500">No MMT data recorded.</p>;
+	}
+
+	return (
+		<div className="space-y-4">
+			{Object.keys(mmtData).map((muscle) => {
+				const muscleData = mmtData[muscle];
+				if (!muscleData) return null;
+
+				if (typeof muscleData === 'object' && muscleData !== null && (muscleData.left || muscleData.right)) {
+					return (
+						<div key={muscle} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+							<h6 className="mb-3 text-sm font-semibold text-sky-600">{muscle}</h6>
+							<div className="grid grid-cols-2 gap-4">
+								<div>
+									<p className="text-xs font-medium text-slate-500 mb-1">Left</p>
+									<p className="text-sm text-slate-900">{muscleData.left || '—'}</p>
+								</div>
+								<div>
+									<p className="text-xs font-medium text-slate-500 mb-1">Right</p>
+									<p className="text-sm text-slate-900">{muscleData.right || '—'}</p>
+								</div>
+							</div>
+						</div>
+					);
+				}
+
+				return (
+					<div key={muscle} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+						<h6 className="mb-2 text-sm font-semibold text-sky-600">{muscle}</h6>
+						<p className="text-sm text-slate-900">{String(muscleData) || '—'}</p>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
 interface ReportModalProps {
 	isOpen: boolean;
 	patientId: string | null;
@@ -180,6 +220,7 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 	}>>([]);
 	const [loadingVersions, setLoadingVersions] = useState(false);
 	const [viewingVersionData, setViewingVersionData] = useState<Partial<PatientRecordFull> | null>(null);
+	const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
 	
 	// Crisp report state
 	const [showCrispReportModal, setShowCrispReportModal] = useState(false);
@@ -270,11 +311,12 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 	}, [isOpen, patientId]);
 
 	// Handle PDF download for report
-	const handleDownloadReportPDF = async (sections?: ReportSection[]) => {
-		if (!reportPatientData) return;
+	// Helper function to build report data
+	const buildReportData = () => {
+		if (!reportPatientData) return null;
 		
 		const age = reportPatientData.dob ? new Date().getFullYear() - new Date(reportPatientData.dob).getFullYear() : undefined;
-		await generatePhysiotherapyReportPDF({
+		return {
 			patientName: reportPatientData.name,
 			patientId: reportPatientData.patientId,
 			referredBy: reportPatientData.assignedDoctor || reportPatientData.referredBy || '',
@@ -283,6 +325,8 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 			dateOfConsultation: reportPatientData.dateOfConsultation || new Date().toISOString().split('T')[0],
 			contact: reportPatientData.phone || '',
 			email: reportPatientData.email || '',
+			totalSessionsRequired: reportPatientData.totalSessionsRequired,
+			remainingSessions: reportPatientData.remainingSessions,
 			complaints: reportPatientData.complaints || '',
 			presentHistory: reportPatientData.presentHistory || '',
 			pastHistory: reportPatientData.pastHistory || '',
@@ -309,8 +353,10 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 			built: reportPatientData.built || '',
 			posture: reportPatientData.posture || '',
 			postureManualNotes: reportPatientData.postureManualNotes || '',
+			postureFileName: reportPatientData.postureFileName || '',
 			gaitAnalysis: reportPatientData.gaitAnalysis || '',
 			gaitManualNotes: reportPatientData.gaitManualNotes || '',
+			gaitFileName: reportPatientData.gaitFileName || '',
 			mobilityAids: reportPatientData.mobilityAids || '',
 			localObservation: reportPatientData.localObservation || '',
 			swelling: reportPatientData.swelling || '',
@@ -320,31 +366,101 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 			scar: reportPatientData.scar || '',
 			crepitus: reportPatientData.crepitus || '',
 			odema: reportPatientData.odema || '',
+			specialTest: reportPatientData.specialTest || '',
+			differentialDiagnosis: reportPatientData.differentialDiagnosis || '',
+			finalDiagnosis: reportPatientData.finalDiagnosis || '',
+			shortTermGoals: reportPatientData.shortTermGoals || '',
+			longTermGoals: reportPatientData.longTermGoals || '',
+			rehabProtocol: reportPatientData.rehabProtocol || '',
+			advice: reportPatientData.advice || '',
+			managementRemarks: reportPatientData.managementRemarks || '',
+			nextFollowUpDate: reportPatientData.nextFollowUpDate || '',
+			nextFollowUpTime: reportPatientData.nextFollowUpTime || '',
+			followUpVisits: reportPatientData.followUpVisits || [],
+			currentPainStatus: reportPatientData.currentPainStatus || '',
+			currentRom: reportPatientData.currentRom || '',
+			currentStrength: reportPatientData.currentStrength || '',
+			currentFunctionalAbility: reportPatientData.currentFunctionalAbility || '',
+			complianceWithHEP: reportPatientData.complianceWithHEP || '',
 			physioName: reportPatientData.physioName || '',
 			physioRegNo: reportPatientData.physioId || '',
-		}, sections ? { sections } : undefined);
+			patientType: reportPatientData.patientType || '',
+		};
+	};
+
+	const handleDownloadReportPDF = async (sections?: ReportSection[]) => {
+		try {
+			const reportData = buildReportData();
+			if (!reportData) {
+				alert('No patient data available. Please try again.');
+				return;
+			}
+			await generatePhysiotherapyReportPDF(reportData, sections ? { sections } : undefined);
+		} catch (error) {
+			console.error('Error downloading PDF:', error);
+			alert('Failed to download PDF. Please try again.');
+		}
 	};
 
 	// Handle PDF download for strength and conditioning
 	const handleDownloadStrengthConditioningPDF = async () => {
-		if (!reportPatientData || !strengthConditioningData) return;
-		
-		await generateStrengthConditioningPDF({
-			patient: {
-				name: reportPatientData.name,
-				patientId: reportPatientData.patientId,
-				dob: reportPatientData.dob || '',
-				gender: reportPatientData.gender || '',
-				phone: reportPatientData.phone || '',
-				email: reportPatientData.email || '',
-			},
-			formData: strengthConditioningData as StrengthConditioningData,
-		});
+		try {
+			if (!reportPatientData || !strengthConditioningData) {
+				alert('No patient or strength conditioning data available. Please try again.');
+				return;
+			}
+			
+			await generateStrengthConditioningPDF({
+				patient: {
+					name: reportPatientData.name,
+					patientId: reportPatientData.patientId,
+					dob: reportPatientData.dob || '',
+					gender: reportPatientData.gender || '',
+					phone: reportPatientData.phone || '',
+					email: reportPatientData.email || '',
+				},
+				formData: strengthConditioningData as StrengthConditioningData,
+			});
+		} catch (error) {
+			console.error('Error downloading PDF:', error);
+			alert('Failed to download PDF. Please try again.');
+		}
 	};
 
-	// Handle print
-	const handlePrintReport = () => {
-		window.print();
+	// Handle print - generates and prints the same PDF that gets downloaded
+	const handlePrintReport = async (sections?: ReportSection[]) => {
+		try {
+			if (activeReportTab === 'report') {
+				const reportData = buildReportData();
+				if (!reportData) {
+					alert('No patient data available. Please try again.');
+					return;
+				}
+				
+				// Generate PDF and open print window
+				await generatePhysiotherapyReportPDF(reportData, { forPrint: true, sections });
+			} else if (activeReportTab === 'strength-conditioning') {
+				if (!reportPatientData || !strengthConditioningData) {
+					alert('No patient or strength conditioning data available. Please try again.');
+					return;
+				}
+				
+				await generateStrengthConditioningPDF({
+					patient: {
+						name: reportPatientData.name,
+						patientId: reportPatientData.patientId,
+						dob: reportPatientData.dob || '',
+						gender: reportPatientData.gender || '',
+						phone: reportPatientData.phone || '',
+						email: reportPatientData.email || '',
+					},
+					formData: strengthConditioningData as StrengthConditioningData,
+				}, { forPrint: true });
+			}
+		} catch (error) {
+			console.error('Error printing PDF:', error);
+			alert('Failed to print PDF. Please try again.');
+		}
 	};
 
 	// Load version history
@@ -386,10 +502,9 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 		await loadVersionHistory();
 	};
 
-	// Handle view version
-	const handleViewVersion = (version: typeof versionHistory[0]) => {
-		setViewingVersionData(version.data);
-		setShowVersionHistory(false);
+	// Toggle expanded version
+	const toggleVersionExpansion = (versionId: string) => {
+		setExpandedVersionId(expandedVersionId === versionId ? null : versionId);
 	};
 
 	// Crisp report handlers
@@ -399,7 +514,7 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 
 	const handleCrispReportPrint = async () => {
 		setShowCrispReportModal(false);
-		await handlePrintReport();
+		await handlePrintReport(selectedSections);
 	};
 
 	const handleCrispReportDownload = async () => {
@@ -1641,7 +1756,7 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 								</button>
 								<button
 									type="button"
-									onClick={handlePrintReport}
+									onClick={() => handlePrintReport()}
 									className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
 								>
 									<i className="fas fa-print mr-2" aria-hidden="true" />
@@ -1757,42 +1872,257 @@ export default function ReportModal({ isOpen, patientId, initialTab = 'report', 
 								</div>
 							) : (
 								<div className="space-y-4">
-									{versionHistory.map((version) => (
-										<div
-											key={version.id}
-											className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition"
-										>
-											<div className="flex items-center justify-between mb-3">
-												<div className="flex-1">
-													<div className="flex items-center gap-2">
-														<span className="font-semibold text-slate-900">Report #{version.version}</span>
-														{version.version === versionHistory[0]?.version && (
-															<span className="px-2 py-1 text-xs font-medium bg-sky-100 text-sky-700 rounded">
-																Latest
-															</span>
-														)}
-													</div>
-													<p className="text-sm text-slate-600 mt-1">
-														Saved by {version.createdBy} on{' '}
-														{new Date(version.createdAt).toLocaleString()}
-													</p>
-													<div className="text-xs text-slate-500 mt-1">
-														<p>Version ID: {version.id}</p>
+									{versionHistory.map((version) => {
+										const isExpanded = expandedVersionId === version.id;
+										const versionData = reportPatientData ? { ...reportPatientData, ...version.data } : version.data;
+										return (
+											<div
+												key={version.id}
+												className="border border-slate-200 rounded-lg overflow-hidden"
+											>
+												<div className="p-4 hover:bg-slate-50 transition">
+													<div className="flex items-center justify-between">
+														<div className="flex-1">
+															<div className="flex items-center gap-2">
+																<span className="font-semibold text-slate-900">Report #{version.version}</span>
+																{version.version === versionHistory[0]?.version && (
+																	<span className="px-2 py-1 text-xs font-medium bg-sky-100 text-sky-700 rounded">
+																		Latest
+																	</span>
+																)}
+															</div>
+															<p className="text-sm text-slate-600 mt-1">
+																Saved by {version.createdBy} on{' '}
+																{new Date(version.createdAt).toLocaleString()}
+															</p>
+														</div>
+														<div className="ml-4">
+															<button
+																type="button"
+																onClick={() => toggleVersionExpansion(version.id)}
+																className="inline-flex items-center rounded-lg border border-sky-600 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
+															>
+																<i className={`fas ${isExpanded ? 'fa-chevron-up' : 'fa-chevron-down'} mr-1.5`} aria-hidden="true" />
+																{isExpanded ? 'Hide Report' : 'Show Full Report'}
+															</button>
+														</div>
 													</div>
 												</div>
-												<div className="ml-4">
-													<button
-														type="button"
-														onClick={() => handleViewVersion(version)}
-														className="inline-flex items-center rounded-lg border border-sky-600 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:bg-sky-50 focus-visible:outline-none"
-													>
-														<i className="fas fa-eye mr-1.5" aria-hidden="true" />
-														View Report
-													</button>
-												</div>
+												{isExpanded && (
+													<div className="border-t border-slate-200 bg-slate-50 p-6 max-h-[70vh] overflow-y-auto">
+														{(() => {
+															const displayData = versionData;
+															return (
+																<div className="space-y-6">
+																	{/* Report Header */}
+																	<div className="flex items-start justify-between border-b border-slate-200 pb-4">
+																		<div className="flex-1">
+																			<h3 className="text-xl font-bold text-sky-600">Physiotherapy Report - Version #{version.version}</h3>
+																			<p className="text-sm text-slate-500 mt-1">
+																				Saved on {new Date(version.createdAt).toLocaleString()} by {version.createdBy}
+																			</p>
+																		</div>
+																		<div className="text-right text-sm text-slate-600">
+																			<div>
+																				<b>Clinic:</b> Centre For Sports Science, Kanteerava Stadium
+																			</div>
+																			<div>
+																				<b>Date:</b> {new Date(version.createdAt).toLocaleDateString()}
+																			</div>
+																		</div>
+																	</div>
+
+																	{/* Patient Information */}
+																	<div>
+																		<h4 className="mb-4 text-base font-semibold text-sky-600">Patient Information</h4>
+																		<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Patient Name</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.name || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Patient ID</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.patientId || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Date of Birth</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.dob || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Gender</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.gender || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Assigned Doctor</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.assignedDoctor || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Phone</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.phone || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Email</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.email || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Date of Consultation</label>
+																				<div className="mt-1 text-sm text-slate-800">{displayData.dateOfConsultation || '—'}</div>
+																			</div>
+																		</div>
+																	</div>
+
+																	{/* Assessment */}
+																	<div>
+																		<h4 className="mb-4 text-base font-semibold text-sky-600">Assessment</h4>
+																		<div className="grid gap-4 sm:grid-cols-2">
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Complaints</label>
+																				<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.complaints || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Present History</label>
+																				<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.presentHistory || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Past History</label>
+																				<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.pastHistory || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Medical History</label>
+																				<div className="mt-1 text-sm text-slate-800">{getMedicalHistoryText(displayData) || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Surgical History</label>
+																				<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.surgicalHistory || '—'}</div>
+																			</div>
+																			<div>
+																				<label className="block text-xs font-medium text-slate-500">Personal History</label>
+																				<div className="mt-1 text-sm text-slate-800">{getPersonalHistoryText(displayData) || '—'}</div>
+																			</div>
+																		</div>
+																	</div>
+
+																	{/* Pain Assessment */}
+																	{displayData.siteSide || displayData.onset || displayData.duration || displayData.typeOfPain || displayData.vasScale ? (
+																		<div>
+																			<h4 className="mb-4 text-base font-semibold text-sky-600">Pain Assessment</h4>
+																			<div className="grid gap-4 sm:grid-cols-2">
+																				{displayData.siteSide && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Site and Side</label>
+																						<div className="mt-1 text-sm text-slate-800">{displayData.siteSide}</div>
+																					</div>
+																				)}
+																				{displayData.onset && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Onset</label>
+																						<div className="mt-1 text-sm text-slate-800">{displayData.onset}</div>
+																					</div>
+																				)}
+																				{displayData.duration && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Duration</label>
+																						<div className="mt-1 text-sm text-slate-800">{displayData.duration}</div>
+																					</div>
+																				)}
+																				{displayData.typeOfPain && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Type of Pain</label>
+																						<div className="mt-1 text-sm text-slate-800">{displayData.typeOfPain}</div>
+																					</div>
+																				)}
+																				{displayData.vasScale && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">VAS Scale</label>
+																						<div className="mt-1 text-sm text-slate-800">{displayData.vasScale}</div>
+																					</div>
+																				)}
+																			</div>
+																		</div>
+																	) : null}
+
+																	{/* ROM */}
+																	{displayData.rom && Object.keys(displayData.rom).length > 0 && (
+																		<div>
+																			<h4 className="mb-4 text-base font-semibold text-sky-600">Range of Motion (ROM)</h4>
+																			{renderRomView(displayData.rom)}
+																		</div>
+																	)}
+
+																	{/* MMT */}
+																	{displayData.mmt && Object.keys(displayData.mmt).length > 0 && (
+																		<div>
+																			<h4 className="mb-4 text-base font-semibold text-sky-600">Manual Muscle Testing (MMT)</h4>
+																			{renderMmtView(displayData.mmt)}
+																		</div>
+																	)}
+
+																	{/* Additional sections can be added here as needed */}
+																	{(displayData.specialTest || displayData.differentialDiagnosis || displayData.finalDiagnosis) && (
+																		<div>
+																			<h4 className="mb-4 text-base font-semibold text-sky-600">Advanced Assessment</h4>
+																			<div className="grid gap-4 sm:grid-cols-2">
+																				{displayData.specialTest && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Special Test</label>
+																						<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.specialTest}</div>
+																					</div>
+																				)}
+																				{displayData.differentialDiagnosis && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Differential Diagnosis</label>
+																						<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.differentialDiagnosis}</div>
+																					</div>
+																				)}
+																				{displayData.finalDiagnosis && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Final Diagnosis</label>
+																						<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.finalDiagnosis}</div>
+																					</div>
+																				)}
+																			</div>
+																		</div>
+																	)}
+
+																	{(displayData.shortTermGoals || displayData.longTermGoals || displayData.rehabProtocol || displayData.advice) && (
+																		<div>
+																			<h4 className="mb-4 text-base font-semibold text-sky-600">Physiotherapy Management</h4>
+																			<div className="grid gap-4 sm:grid-cols-2">
+																				{displayData.shortTermGoals && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Short Term Goals</label>
+																						<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.shortTermGoals}</div>
+																					</div>
+																				)}
+																				{displayData.longTermGoals && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Long Term Goals</label>
+																						<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.longTermGoals}</div>
+																					</div>
+																				)}
+																				{displayData.rehabProtocol && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Rehab Protocol</label>
+																						<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.rehabProtocol}</div>
+																					</div>
+																				)}
+																				{displayData.advice && (
+																					<div>
+																						<label className="block text-xs font-medium text-slate-500">Advice</label>
+																						<div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{displayData.advice}</div>
+																					</div>
+																				)}
+																			</div>
+																		</div>
+																	)}
+																</div>
+															);
+														})()}
+													</div>
+												)}
 											</div>
-										</div>
-									))}
+										);
+									})}
 								</div>
 							)}
 						</div>

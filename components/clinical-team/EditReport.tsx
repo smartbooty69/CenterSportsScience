@@ -12,6 +12,7 @@ import type { PatientRecordFull } from '@/lib/types';
 import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
 import { getHeaderConfig, getDefaultHeaderConfig } from '@/lib/headerConfig';
 import type { HeaderConfig } from '@/components/admin/HeaderManagement';
+import EditReportModal from '@/components/clinical-team/EditReportModal';
 
 const VAS_EMOJIS = ['😀','😁','🙂','😊','😌','😟','😣','😢','😭','😱'];
 const HYDRATION_EMOJIS = ['😄','😃','🙂','😐','😕','😟','😢','😭'];
@@ -309,6 +310,8 @@ export default function EditReport() {
 		'signature',
 	]);
 	const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
+	const [showReportModal, setShowReportModal] = useState(false);
+	const [reportModalPatientId, setReportModalPatientId] = useState<string | null>(null);
 	const vasValue = Number(formData.vasScale || '5');
 	const vasEmoji = VAS_EMOJIS[Math.min(VAS_EMOJIS.length - 1, Math.max(1, vasValue) - 1)];
 	const hydrationValue = Number(formData.hydration || '4');
@@ -1014,6 +1017,25 @@ export default function EditReport() {
 		router.push(url);
 	};
 
+	const handleOpenReportModal = (patientId: string | undefined) => {
+		if (!patientId) {
+			console.error('Patient ID is required to open report modal');
+			alert('Patient ID is missing. Cannot open report.');
+			return;
+		}
+		console.log('Opening report modal for patient:', patientId);
+		console.log('Current state before update - showReportModal:', showReportModal, 'reportModalPatientId:', reportModalPatientId);
+		// Set both states in a single batch
+		setReportModalPatientId(patientId);
+		setShowReportModal(true);
+		console.log('State updated - should open modal now');
+	};
+
+	const handleCloseReportModal = () => {
+		setShowReportModal(false);
+		setReportModalPatientId(null);
+	};
+
 	const handleViewVersionHistory = async () => {
 		setShowVersionHistory(true);
 		await loadVersionHistory();
@@ -1563,6 +1585,19 @@ export default function EditReport() {
 												<td className="px-4 py-4 text-sm text-slate-600">{patient.assignedDoctor || 'Unassigned'}</td>
 												<td className="px-4 py-4 text-right">
 													<div className="flex items-center justify-end gap-2">
+														{patient.patientId && (
+															<button
+																type="button"
+																onClick={() => {
+																	console.log('Report button clicked for patient:', patient.patientId);
+																	handleOpenReportModal(patient.patientId);
+																}}
+																className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none"
+															>
+																<i className="fas fa-file-medical text-xs" aria-hidden="true" />
+																Report
+															</button>
+														)}
 														<button
 															type="button"
 															onClick={() => handleSelectPatient(patient)}
@@ -1589,6 +1624,14 @@ export default function EditReport() {
 						)}
 					</section>
 				</div>
+
+				{/* Report Modal - Always available */}
+				<EditReportModal
+					isOpen={showReportModal}
+					patientId={reportModalPatientId}
+					initialTab="report"
+					onClose={handleCloseReportModal}
+				/>
 			</div>
 		);
 	}
@@ -3342,6 +3385,14 @@ export default function EditReport() {
 					</div>
 				</div>
 			)}
+
+			{/* Report Modal */}
+			<EditReportModal
+				isOpen={showReportModal}
+				patientId={reportModalPatientId}
+				initialTab="report"
+				onClose={handleCloseReportModal}
+			/>
 		</div>
 	);
 }
