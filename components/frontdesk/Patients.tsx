@@ -266,6 +266,7 @@ interface RegisterFormState {
 }
 
 interface PackageSetupFormState {
+	totalNoOfSessions: string;
 	paymentType: PaymentTypeOption | '';
 	paymentDescription: string;
 	packageAmount: string;
@@ -340,6 +341,7 @@ const REGISTER_FORM_INITIAL_STATE: RegisterFormState = {
 };
 
 const PACKAGE_FORM_INITIAL_STATE: PackageSetupFormState = {
+	totalNoOfSessions: '',
 	paymentType: '',
 	paymentDescription: '',
 	packageAmount: '',
@@ -994,6 +996,7 @@ export default function Patients() {
 	const handleOpenPackageModal = (patient: FrontdeskPatient) => {
 		setPackageModalPatient(patient);
 		setPackageForm({
+			totalNoOfSessions: patient.totalSessionsRequired ? String(patient.totalSessionsRequired) : '',
 			paymentType: patient.paymentType ?? '',
 			paymentDescription: patient.paymentDescription ?? '',
 			packageAmount: patient.packageAmount ? String(patient.packageAmount) : '',
@@ -1025,6 +1028,12 @@ export default function Patients() {
 
 	const validatePackageForm = () => {
 		const errors: Partial<Record<keyof PackageSetupFormState, string>> = {};
+		const totalSessionsValue = Number(packageForm.totalNoOfSessions);
+		if (!packageForm.totalNoOfSessions.trim()) {
+			errors.totalNoOfSessions = 'Please enter the total number of sessions.';
+		} else if (Number.isNaN(totalSessionsValue) || totalSessionsValue <= 0 || !Number.isInteger(totalSessionsValue)) {
+			errors.totalNoOfSessions = 'Total number of sessions must be a positive whole number.';
+		}
 		if (!packageForm.paymentType) {
 			errors.paymentType = 'Please select a payment type.';
 		}
@@ -1049,6 +1058,7 @@ export default function Patients() {
 
 		if (!validatePackageForm() || packageSubmitting) return;
 
+		const totalSessionsValue = Number(packageForm.totalNoOfSessions);
 		const packageAmountValue = Number(packageForm.packageAmount);
 		const rawInstallmentCount = Number(packageForm.installmentCount);
 		const installmentCountValue = Number.isNaN(rawInstallmentCount) || rawInstallmentCount <= 0 ? 1 : rawInstallmentCount;
@@ -1063,6 +1073,7 @@ export default function Patients() {
 		try {
 			const patientRef = doc(db, 'patients', packageModalPatient.id);
 			await updateDoc(patientRef, {
+				totalSessionsRequired: totalSessionsValue,
 				paymentType: packageForm.paymentType as PaymentTypeOption,
 				paymentDescription: paymentDescriptionValue || null,
 				packageAmount: packageAmountValue,
@@ -1093,6 +1104,7 @@ export default function Patients() {
 					p.id === packageModalPatient.id
 						? {
 								...p,
+								totalSessionsRequired: totalSessionsValue,
 								paymentType: packageForm.paymentType as PaymentTypeOption,
 								paymentDescription: normalizedDescription,
 								packageAmount: packageAmountValue,
@@ -1106,6 +1118,7 @@ export default function Patients() {
 				prev
 					? {
 							...prev,
+							totalSessionsRequired: totalSessionsValue,
 							paymentType: packageForm.paymentType as PaymentTypeOption,
 							paymentDescription: normalizedDescription,
 							packageAmount: packageAmountValue,
@@ -2220,6 +2233,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 										<th className="px-4 py-3 font-semibold">Patient ID</th>
 										<th className="px-4 py-3 font-semibold">Name</th>
 										<th className="px-4 py-3 font-semibold">Type</th>
+										<th className="px-4 py-3 font-semibold">Therapist</th>
 										<th className="px-4 py-3 font-semibold">Registered</th>
 										<th className="px-4 py-3 font-semibold text-right">Actions</th>
 									</tr>
@@ -2252,6 +2266,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 											<td className="px-4 py-4 text-sm font-medium text-slate-800">{patient.patientId || '—'}</td>
 											<td className="px-4 py-4 text-sm text-slate-700">{patient.name || 'Unnamed'}</td>
 											<td className="px-4 py-4 text-sm text-slate-600">{patient.patientType || '—'}</td>
+											<td className="px-4 py-4 text-sm text-slate-600">{patient.assignedDoctor || '—'}</td>
 											<td className="px-4 py-4 text-xs text-slate-500">{formatDateLabel(patient.registeredAt)}</td>
 											<td className="px-4 py-4 text-right">
 												<div className="flex items-center justify-end gap-2" data-patient-actions>
@@ -3365,6 +3380,25 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 							</div>
 
 							<div className="grid gap-4 md:grid-cols-12">
+								<div className="md:col-span-6">
+									<label className="block text-sm font-medium text-slate-700">
+										Total No of Session <span className="text-rose-600">*</span>
+									</label>
+									<input
+										type="number"
+										min="1"
+										step="1"
+										value={packageForm.totalNoOfSessions}
+										onChange={handlePackageFormChange('totalNoOfSessions')}
+										className="input-base mt-2"
+										placeholder="Enter total number of sessions"
+										required
+										disabled={packageSubmitting}
+									/>
+									{packageFormErrors.totalNoOfSessions && (
+										<p className="mt-1 text-xs text-rose-500">{packageFormErrors.totalNoOfSessions}</p>
+									)}
+								</div>
 								<div className="md:col-span-6">
 									<label className="block text-sm font-medium text-slate-700">
 										Type of Payment <span className="text-rose-600">*</span>
