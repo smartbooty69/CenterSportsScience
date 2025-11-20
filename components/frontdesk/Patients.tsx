@@ -9,6 +9,8 @@ import {
 	type AdminAppointmentStatus,
 } from '@/lib/adminMockData';
 import { db } from '@/lib/firebase';
+import { generatePhysiotherapyReportPDF, generateStrengthConditioningPDF, type ReportSection } from '@/lib/pdfGenerator';
+import type { PatientRecordFull } from '@/lib/types';
 import PageHeader from '@/components/PageHeader';
 import { sendEmailNotification } from '@/lib/email';
 import { sendSMSNotification, isValidPhoneNumber } from '@/lib/sms';
@@ -460,6 +462,18 @@ export default function Patients() {
 	const [showReportModal, setShowReportModal] = useState(false);
 	const [reportModalPatientId, setReportModalPatientId] = useState<string | null>(null);
 	const [reportModalInitialTab, setReportModalInitialTab] = useState<'report' | 'strength-conditioning'>('report');
+	
+	// Version history state
+	const [showVersionHistory, setShowVersionHistory] = useState(false);
+	const [versionHistory, setVersionHistory] = useState<Array<{
+		id: string;
+		version: number;
+		createdAt: string;
+		createdBy: string;
+		data: Partial<PatientRecordFull>;
+	}>>([]);
+	const [loadingVersions, setLoadingVersions] = useState(false);
+	const [viewingVersionData, setViewingVersionData] = useState<Partial<PatientRecordFull> | null>(null);
 	
 
 	useEffect(() => {
@@ -1962,13 +1976,16 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 
 	// Handle PDF download for report
 	const handleDownloadReportPDF = async (sections?: ReportSection[]) => {
+		if (!reportModalPatientId) return;
+		
+		const reportPatientData = patients.find(p => p.patientId === reportModalPatientId) as any;
 		if (!reportPatientData) return;
 		
 		const age = reportPatientData.dob ? new Date().getFullYear() - new Date(reportPatientData.dob).getFullYear() : undefined;
 		await generatePhysiotherapyReportPDF({
 			patientName: reportPatientData.name,
 			patientId: reportPatientData.patientId,
-			referredBy: reportPatientData.assignedDoctor || reportPatientData.referredBy || '',
+			referredBy: reportPatientData.assignedDoctor || (reportPatientData as any).referredBy || '',
 			age: age ? String(age) : '',
 			gender: reportPatientData.gender || '',
 			dateOfConsultation: reportPatientData.dateOfConsultation || new Date().toISOString().split('T')[0],
@@ -2011,63 +2028,20 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			scar: reportPatientData.scar || '',
 			crepitus: reportPatientData.crepitus || '',
 			odema: reportPatientData.odema || '',
-			treatmentProvided: reportPatientData.treatmentProvided || '',
-			progressNotes: reportPatientData.progressNotes || '',
 			physioName: reportPatientData.physioName || '',
-			physioId: reportPatientData.physioId || '',
-		}, sections);
+			physioRegNo: reportPatientData.physioId || reportPatientData.physioRegNo || '',
+		}, sections ? { sections } : undefined);
 	};
 
 	// Handle PDF download for strength and conditioning
 	const handleDownloadStrengthConditioningPDF = async () => {
-		if (!reportPatientData || !strengthConditioningData) return;
+		if (!reportModalPatientId) return;
 		
-		await generateStrengthConditioningPDF({
-			patient: {
-				name: reportPatientData.name,
-				patientId: reportPatientData.patientId,
-				dob: reportPatientData.dob || '',
-				gender: reportPatientData.gender || '',
-				phone: reportPatientData.phone || '',
-				email: reportPatientData.email || '',
-			},
-			therapistName: strengthConditioningData.therapistName || '',
-			scapularDyskinesiaTest: strengthConditioningData.scapularDyskinesiaTest || '',
-			upperLimbFlexibilityRight: strengthConditioningData.upperLimbFlexibilityRight || '',
-			upperLimbFlexibilityLeft: strengthConditioningData.upperLimbFlexibilityLeft || '',
-			shoulderInternalRotationRight: strengthConditioningData.shoulderInternalRotationRight || '',
-			shoulderInternalRotationLeft: strengthConditioningData.shoulderInternalRotationLeft || '',
-			shoulderExternalRotationRight: strengthConditioningData.shoulderExternalRotationRight || '',
-			shoulderExternalRotationLeft: strengthConditioningData.shoulderExternalRotationLeft || '',
-			thoracicRotation: strengthConditioningData.thoracicRotation || '',
-			sitAndReachTest: strengthConditioningData.sitAndReachTest || '',
-			singleLegSquatRight: strengthConditioningData.singleLegSquatRight || '',
-			singleLegSquatLeft: strengthConditioningData.singleLegSquatLeft || '',
-			weightBearingLungeTestRight: strengthConditioningData.weightBearingLungeTestRight || '',
-			weightBearingLungeTestLeft: strengthConditioningData.weightBearingLungeTestLeft || '',
-			hamstringsFlexibilityRight: strengthConditioningData.hamstringsFlexibilityRight || '',
-			hamstringsFlexibilityLeft: strengthConditioningData.hamstringsFlexibilityLeft || '',
-			quadricepsFlexibilityRight: strengthConditioningData.quadricepsFlexibilityRight || '',
-			quadricepsFlexibilityLeft: strengthConditioningData.quadricepsFlexibilityLeft || '',
-			hipExternalRotationRight: strengthConditioningData.hipExternalRotationRight || '',
-			hipExternalRotationLeft: strengthConditioningData.hipExternalRotationLeft || '',
-			hipInternalRotationRight: strengthConditioningData.hipInternalRotationRight || '',
-			hipInternalRotationLeft: strengthConditioningData.hipInternalRotationLeft || '',
-			hipExtensionRight: strengthConditioningData.hipExtensionRight || '',
-			hipExtensionLeft: strengthConditioningData.hipExtensionLeft || '',
-			activeSLRRight: strengthConditioningData.activeSLRRight || '',
-			activeSLRLeft: strengthConditioningData.activeSLRLeft || '',
-			pronePlank: strengthConditioningData.pronePlank || '',
-			sidePlankRight: strengthConditioningData.sidePlankRight || '',
-			sidePlankLeft: strengthConditioningData.sidePlankLeft || '',
-			storkStandingBalanceTestRight: strengthConditioningData.storkStandingBalanceTestRight || '',
-			storkStandingBalanceTestLeft: strengthConditioningData.storkStandingBalanceTestLeft || '',
-			deepSquat: strengthConditioningData.deepSquat || '',
-			pushup: strengthConditioningData.pushup || '',
-			fmsScore: strengthConditioningData.fmsScore || '',
-			totalFmsScore: strengthConditioningData.totalFmsScore || '',
-			summary: strengthConditioningData.summary || '',
-		});
+		// Note: This function requires strengthConditioningData from Firestore
+		// The ReportModal component handles this functionality properly
+		// This function is kept for API compatibility but should not be used directly
+		console.warn('Strength conditioning PDF generation should be handled through ReportModal component');
+		return;
 	};
 
 	// Handle print
@@ -2077,13 +2051,13 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 
 	// Load version history
 	const loadVersionHistory = async () => {
-		if (!reportModalPatientId || !reportPatientData?.patientId) return;
+		if (!reportModalPatientId) return;
 
 		setLoadingVersions(true);
 		try {
 			const versionsQuery = query(
 				collection(db, 'reportVersions'),
-				where('patientId', '==', reportPatientData.patientId),
+				where('patientId', '==', reportModalPatientId),
 				orderBy('version', 'desc')
 			);
 			const versionsSnapshot = await getDocs(versionsQuery);
@@ -2118,46 +2092,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 	const handleViewVersion = (version: typeof versionHistory[0]) => {
 		setViewingVersionData(version.data);
 		setShowVersionHistory(false);
-	};
-
-	// Crisp report handlers
-	const handleCrispReport = () => {
-		setShowCrispReportModal(true);
-	};
-
-	const handleCrispReportPrint = async () => {
-		setShowCrispReportModal(false);
-		await handlePrintReport(selectedSections);
-	};
-
-	const handleCrispReportDownload = async () => {
-		if (!reportPatientData) return;
-		setShowCrispReportModal(false);
-		await handleDownloadReportPDF(selectedSections);
-	};
-
-	const allSections: Array<{ key: ReportSection; label: string }> = [
-		{ key: 'patientInformation', label: 'Patient Information' },
-		{ key: 'assessmentOverview', label: 'Assessment Overview' },
-		{ key: 'painAssessment', label: 'Pain Assessment' },
-		{ key: 'onObservation', label: 'On Observation' },
-		{ key: 'onPalpation', label: 'On Palpation' },
-		{ key: 'rom', label: 'ROM (Range of Motion)' },
-		{ key: 'mmt', label: 'Manual Muscle Testing' },
-		{ key: 'advancedAssessment', label: 'Advanced Assessment' },
-		{ key: 'physiotherapyManagement', label: 'Physiotherapy Management' },
-		{ key: 'followUpVisits', label: 'Follow-Up Visits' },
-		{ key: 'currentStatus', label: 'Current Status' },
-		{ key: 'nextFollowUp', label: 'Next Follow-Up Details' },
-		{ key: 'signature', label: 'Physiotherapist Signature' },
-	];
-
-	const toggleSection = (section: ReportSection) => {
-		setSelectedSections(prev =>
-			prev.includes(section)
-				? prev.filter(s => s !== section)
-				: [...prev, section]
-		);
 	};
 
 

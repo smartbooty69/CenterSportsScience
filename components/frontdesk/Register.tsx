@@ -453,8 +453,9 @@ export default function Register() {
 			
 			if (!appointmentsSnapshot.empty) {
 				setBanner({
-					type: 'error',
-					message: `This patient has ${appointmentsSnapshot.size} completed appointment(s). Subsequent appointments should be booked through the Clinical Dashboard. Please use the Clinical Dashboard to book appointments for this patient.`,
+					title: 'Cannot book appointment',
+					description: `This patient has ${appointmentsSnapshot.size} completed appointment(s). Subsequent appointments should be booked through the Clinical Dashboard. Please use the Clinical Dashboard to book appointments for this patient.`,
+					accent: 'sky',
 				});
 				return;
 			}
