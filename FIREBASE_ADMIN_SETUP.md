@@ -77,36 +77,106 @@ If you prefer to keep the JSON file separate:
 - Verify the JSON content is correct
 
 ### Error: "Network timeout" or "ETIMEDOUT"
-This error occurs when the Firebase Admin SDK cannot connect to Google's servers to verify tokens. Common causes:
+This error occurs when the Firebase Admin SDK cannot connect to Google's servers to verify tokens.
 
-1. **IPv6 Connectivity Issues** (Most Common):
-   - Windows may have IPv6 connectivity problems
-   - Try disabling IPv6 or forcing IPv4:
+**🚀 Quick Fix (Try This First):**
+1. Run the connectivity test: `npm run test:firebase-connectivity`
+2. Add to `.env.local`: `NODE_OPTIONS=--dns-result-order=ipv4first`
+3. Restart your development server
+4. Try creating the user again
+
+**If that doesn't work, see detailed troubleshooting below:**
+
+Common causes:
+
+1. **IPv6 Connectivity Issues** (Most Common on Windows):
+   - Windows may have IPv6 connectivity problems that prevent connections to Google's servers
+   - **Solution 1 - Disable IPv6 Randomization**:
      - Open PowerShell as Administrator
      - Run: `netsh interface ipv6 set global randomizeidentifiers=disabled`
-     - Or disable IPv6 in your network adapter settings
+     - Restart your computer
+   - **Solution 2 - Disable IPv6 Completely** (if Solution 1 doesn't work):
+     - Open Network Connections (Win + R, type `ncpa.cpl`)
+     - Right-click your active network adapter → Properties
+     - Uncheck "Internet Protocol Version 6 (TCP/IPv6)"
+     - Click OK and restart your computer
+   - **Solution 3 - Force IPv4 for Node.js**:
+     - Add to your `.env.local`:
+       ```env
+       NODE_OPTIONS=--dns-result-order=ipv4first
+       ```
+     - Restart your development server
 
 2. **Firewall/Network Blocking**:
-   - Check if your firewall is blocking outbound HTTPS connections
-   - Ensure ports 443 (HTTPS) are open
+   - Check if Windows Firewall or antivirus is blocking Node.js
+   - Ensure ports 443 (HTTPS) are open for outbound connections
+   - Temporarily disable firewall/antivirus to test (re-enable after testing)
    - Check if your network requires a proxy
 
-3. **Proxy Settings**:
+3. **Proxy Settings** (Corporate Networks):
    - If behind a corporate proxy, configure Node.js to use it:
+     - Add to `.env.local`:
+       ```env
+       HTTP_PROXY=http://proxy.example.com:8080
+       HTTPS_PROXY=http://proxy.example.com:8080
+       NO_PROXY=localhost,127.0.0.1
+       ```
+     - Or set environment variables in your terminal:
+       ```bash
+       # Windows CMD
+       set HTTP_PROXY=http://proxy.example.com:8080
+       set HTTPS_PROXY=http://proxy.example.com:8080
+       
+       # Windows PowerShell
+       $env:HTTP_PROXY="http://proxy.example.com:8080"
+       $env:HTTPS_PROXY="http://proxy.example.com:8080"
+       ```
+   - Contact your IT department for the correct proxy settings
+
+4. **Test Network Connectivity**:
+   - **Quick Test Script** (Recommended):
      ```bash
-     set HTTP_PROXY=http://proxy.example.com:8080
-     set HTTPS_PROXY=http://proxy.example.com:8080
+     npm run test:firebase-connectivity
+     ```
+     This script will test DNS resolution, HTTPS connectivity, IPv6 configuration, and proxy settings.
+   
+   - **Manual Browser Test**:
+     - Open a browser and verify you can access:
+       - `https://www.googleapis.com`
+       - `https://www.google.com`
+   
+   - **Manual Command Line Test**:
+     ```bash
+     # Windows PowerShell
+     Test-NetConnection www.googleapis.com -Port 443
+     
+     # Or use curl (if installed)
+     curl -I https://www.googleapis.com
      ```
 
-4. **Temporary Network Issues**:
+5. **Temporary Network Issues**:
    - Try again after a few minutes
    - Check your internet connection
-   - Verify you can access `https://www.googleapis.com` in a browser
+   - Restart your router/modem
+   - Try using a different network (mobile hotspot, different WiFi)
 
-**Quick Fix**: If you're on Windows and experiencing IPv6 issues, you can try:
-- Restart your network adapter
-- Use a VPN if your network blocks Google services
-- Contact your network administrator if on a corporate network
+6. **DNS Issues**:
+   - Try using Google's DNS servers:
+     - Open Network Connections → Your adapter → Properties → IPv4 Properties
+     - Use DNS: `8.8.8.8` and `8.8.4.4`
+   - Or flush DNS cache:
+     ```bash
+     ipconfig /flushdns
+     ```
+
+**Quick Fix Checklist**:
+1. ✅ Check if you can access `https://www.googleapis.com` in a browser
+2. ✅ Try disabling IPv6 (see Solution 2 above)
+3. ✅ Add `NODE_OPTIONS=--dns-result-order=ipv4first` to `.env.local` and restart server
+4. ✅ Try using a VPN or different network
+5. ✅ Check firewall/antivirus settings
+6. ✅ Configure proxy if on corporate network
+7. ✅ Contact network administrator if issue persists
 
 ### Still seeing manual creation errors?
 - Check the terminal/console for specific error messages

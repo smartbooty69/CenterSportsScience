@@ -11,21 +11,58 @@ let app: App | null = null;
 let authAdmin: Auth;
 let dbAdmin: Firestore;
 
+// Determine environment (staging or production)
+const isStaging = process.env.NEXT_PUBLIC_ENVIRONMENT === 'staging' || 
+	process.env.NODE_ENV === 'staging';
+
+// Debug logging (server-side)
+if (process.env.NODE_ENV === 'development') {
+	console.log('🔍 [ADMIN SDK] Environment Check:');
+	console.log('  NEXT_PUBLIC_ENVIRONMENT:', process.env.NEXT_PUBLIC_ENVIRONMENT);
+	console.log('  NODE_ENV:', process.env.NODE_ENV);
+	console.log('  isStaging:', isStaging);
+}
+
+// Get project ID based on environment
+const getProjectId = () => {
+	if (isStaging) {
+		const stagingId = process.env.NEXT_PUBLIC_FIREBASE_STAGING_PROJECT_ID || 
+			process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+		if (process.env.NODE_ENV === 'development') {
+			console.log('  [ADMIN SDK] Using staging project ID:', stagingId);
+		}
+		return stagingId;
+	}
+	const prodId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+	if (process.env.NODE_ENV === 'development') {
+		console.log('  [ADMIN SDK] Using production project ID:', prodId);
+	}
+	return prodId;
+};
+
 // Initialize Firebase Admin SDK
 if (getApps().length === 0) {
 	// Method 1: Try using file path (GOOGLE_APPLICATION_CREDENTIALS or default location)
-	const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || 
+	// For staging, try staging-specific file first
+	const stagingCredentialsPath = isStaging 
+		? (process.env.GOOGLE_APPLICATION_CREDENTIALS_STAGING || 
+		   (process.cwd() ? join(process.cwd(), 'firebase-service-account-staging.json') : null))
+		: null;
+	
+	const credentialsPath = stagingCredentialsPath || 
+		process.env.GOOGLE_APPLICATION_CREDENTIALS || 
 		(process.cwd() ? join(process.cwd(), 'firebase-service-account.json') : null);
+	
 	if (credentialsPath) {
 		try {
 			const filePath = credentialsPath.startsWith('/') || credentialsPath.match(/^[A-Z]:/) 
 				? credentialsPath 
 				: join(process.cwd(), credentialsPath);
 			const serviceAccountKey = JSON.parse(readFileSync(filePath, 'utf8'));
-			console.log('✅ Firebase Admin SDK: Loaded credentials from file:', filePath);
+			console.log(`✅ Firebase Admin SDK: Loaded credentials from file (${isStaging ? 'STAGING' : 'PRODUCTION'}):`, filePath);
 			app = initializeApp({
 				credential: cert(serviceAccountKey),
-				projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || serviceAccountKey.project_id,
+				projectId: getProjectId() || serviceAccountKey.project_id,
 			});
 		} catch (error: any) {
 			// File doesn't exist or can't be read - that's okay, try other methods
@@ -36,8 +73,11 @@ if (getApps().length === 0) {
 	}
 	
 	// Method 2: Try using JSON string from environment variable
+	// For staging, try staging-specific key first
 	if (!app) {
-		let serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+		let serviceAccount = isStaging
+			? (process.env.FIREBASE_SERVICE_ACCOUNT_KEY_STAGING || process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
+			: process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 		
 		if (serviceAccount) {
 			// Remove surrounding single or double quotes if present
@@ -50,10 +90,10 @@ if (getApps().length === 0) {
 			// Parse the service account key (it should be a JSON string)
 			try {
 				const serviceAccountKey = JSON.parse(serviceAccount);
-				console.log('✅ Firebase Admin SDK: Successfully loaded service account credentials from env var');
+				console.log(`✅ Firebase Admin SDK: Successfully loaded service account credentials from env var (${isStaging ? 'STAGING' : 'PRODUCTION'})`);
 				app = initializeApp({
 					credential: cert(serviceAccountKey),
-					projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || serviceAccountKey.project_id,
+					projectId: getProjectId() || serviceAccountKey.project_id,
 				});
 			} catch (error) {
 				console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', error);
@@ -70,14 +110,14 @@ if (getApps().length === 0) {
 		console.warn('⚠️ FIREBASE_SERVICE_ACCOUNT_KEY not found. Attempting to use Application Default Credentials...');
 		try {
 			app = initializeApp({
-				projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+				projectId: getProjectId(),
 			});
 			console.warn('⚠️ Firebase Admin SDK initialized without explicit credentials (may fail on admin operations)');
 		} catch (error) {
 			console.error('❌ Failed to initialize Firebase Admin:', error);
 			// Create a minimal app for development (will fail on actual admin operations)
 			app = initializeApp({
-				projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'centersportsscience-5be86',
+				projectId: getProjectId() || 'centersportsscience-5be86',
 			}, 'admin');
 			console.warn('⚠️ Created minimal Firebase Admin app (admin operations will fail)');
 		}
@@ -88,7 +128,7 @@ if (getApps().length === 0) {
 
 // Final safety check to satisfy TypeScript definite assignment
 if (!app) {
-	app = getApps()[0] || initializeApp({ projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'centersportsscience-5be86' });
+	app = getApps()[0] || initializeApp({ projectId: getProjectId() || 'centersportsscience-5be86' });
 }
 
 authAdmin = getAuth(app as App);
@@ -96,17 +136,19 @@ dbAdmin = getFirestore(app as App);
 
 // Log initialization status
 const hasCredentials = !!(
+	(isStaging ? process.env.FIREBASE_SERVICE_ACCOUNT_KEY_STAGING : null) ||
 	process.env.FIREBASE_SERVICE_ACCOUNT_KEY || 
+	(isStaging ? process.env.GOOGLE_APPLICATION_CREDENTIALS_STAGING : null) ||
 	process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-	(process.cwd() && existsSync(join(process.cwd(), 'firebase-service-account.json')))
+	(process.cwd() && existsSync(join(process.cwd(), isStaging ? 'firebase-service-account-staging.json' : 'firebase-service-account.json')))
 );
 
 if (hasCredentials) {
-	console.log('✅ Firebase Admin SDK initialized successfully');
-	console.log('   Project ID:', app?.options?.projectId || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'not set');
+	console.log(`✅ Firebase Admin SDK initialized successfully (${isStaging ? 'STAGING' : 'PRODUCTION'})`);
+	console.log('   Project ID:', app?.options?.projectId || getProjectId() || 'not set');
 } else {
 	console.warn('⚠️ Firebase Admin SDK initialized but credentials may be missing');
-	console.warn('   Set FIREBASE_SERVICE_ACCOUNT_KEY or GOOGLE_APPLICATION_CREDENTIALS in .env.local');
+	console.warn(`   Set FIREBASE_SERVICE_ACCOUNT_KEY${isStaging ? '_STAGING' : ''} or GOOGLE_APPLICATION_CREDENTIALS${isStaging ? '_STAGING' : ''} in .env.local`);
 }
 
 export { authAdmin, dbAdmin };

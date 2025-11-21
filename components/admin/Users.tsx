@@ -328,11 +328,14 @@ export default function Users() {
 							`- IPv6 connectivity issues (common on Windows)\n` +
 							`- Corporate network restrictions\n` +
 							`- Proxy configuration needed\n\n` +
-							`Solutions:\n` +
-							`1. Check if you can access https://www.googleapis.com in a browser\n` +
-							`2. Try using a VPN or different network\n` +
-							`3. Configure proxy settings if on a corporate network\n` +
-							`4. See FIREBASE_ADMIN_SETUP.md for detailed troubleshooting\n\n`;
+							`Quick Solutions:\n` +
+							`1. Run: npm run test:firebase-connectivity (to diagnose the issue)\n` +
+							`2. Add to .env.local: NODE_OPTIONS=--dns-result-order=ipv4first\n` +
+							`3. Restart your development server\n` +
+							`4. Check if you can access https://www.googleapis.com in a browser\n` +
+							`5. Try using a VPN or different network\n` +
+							`6. Configure proxy settings if on a corporate network\n` +
+							`7. See FIREBASE_ADMIN_SETUP.md for detailed troubleshooting\n\n`;
 					} else if (isConfigError) {
 						userMessage += `\n\nConfiguration Issue: ${errorMessage}\n\n` +
 							`Please set up Firebase Admin SDK credentials in your environment variables. ` +

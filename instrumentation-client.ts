@@ -9,6 +9,8 @@ const isDev = process.env.NODE_ENV === "development";
 const enableInDev =
   process.env.NEXT_PUBLIC_ENABLE_SENTRY === "true" ||
   process.env.ENABLE_SENTRY_IN_DEV === "true";
+// In production, always enable Sentry if DSN is provided (needed for feedback widget)
+// In development, only enable if explicitly opted-in
 const isEnabled = Boolean(dsn) && (!isDev || enableInDev);
 
 // Initialize Sentry if DSN is provided (needed for feedback widget to work)
@@ -16,36 +18,38 @@ const isEnabled = Boolean(dsn) && (!isDev || enableInDev);
 if (dsn) {
   Sentry.init({
     dsn: dsn,
+    // Always enable in production if DSN exists (feedback widget requires this)
+    // In dev, respect the enableInDev flag
     enabled: isEnabled,
 
-  // Add optional integrations for additional features
-  integrations: [
-    Sentry.replayIntegration(),
-    Sentry.feedbackIntegration({
-      // Automatically shows feedback widget button in bottom-right corner
-      autoInject: true, // Explicitly enable auto-injection
-      colorScheme: "system", // or "light" | "dark"
-      showEmail: true,
-      showName: true,
-    }),
-  ],
+    // Add optional integrations for additional features
+    integrations: [
+      Sentry.replayIntegration(),
+      Sentry.feedbackIntegration({
+        // Automatically shows feedback widget button in bottom-right corner
+        autoInject: true, // Explicitly enable auto-injection
+        colorScheme: "system", // or "light" | "dark"
+        showEmail: true,
+        showName: true,
+      }),
+    ],
 
-  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 1,
-  // Enable logs to be sent to Sentry
-  enableLogs: true,
+    // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
+    tracesSampleRate: 1,
+    // Enable logs to be sent to Sentry
+    enableLogs: true,
 
-  // Define how likely Replay events are sampled.
-  // This sets the sample rate to be 10%. You may want this to be 100% while
-  // in development and sample at a lower rate in production
-  replaysSessionSampleRate: 0.1,
+    // Define how likely Replay events are sampled.
+    // This sets the sample rate to be 10%. You may want this to be 100% while
+    // in development and sample at a lower rate in production
+    replaysSessionSampleRate: 0.1,
 
-  // Define how likely Replay events are sampled when an error occurs.
-  replaysOnErrorSampleRate: 1.0,
+    // Define how likely Replay events are sampled when an error occurs.
+    replaysOnErrorSampleRate: 1.0,
 
-  // Enable sending user PII (Personally Identifiable Information)
-  // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
-  sendDefaultPii: true,
+    // Enable sending user PII (Personally Identifiable Information)
+    // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
+    sendDefaultPii: true,
   });
 }
 

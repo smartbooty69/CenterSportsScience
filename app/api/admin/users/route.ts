@@ -3,6 +3,68 @@
 import { NextRequest } from 'next/server';
 import { authAdmin, dbAdmin } from '@/lib/firebaseAdmin';
 
+/**
+ * Retry a function with exponential backoff
+ */
+async function retryWithBackoff<T>(
+	fn: () => Promise<T>,
+	maxRetries: number = 3,
+	initialDelay: number = 1000
+): Promise<T> {
+	let lastError: any;
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			return await fn();
+		} catch (error: any) {
+			lastError = error;
+			const isNetworkError = error?.message?.includes('ETIMEDOUT') || 
+				error?.message?.includes('ECONNREFUSED') || 
+				error?.message?.includes('ENOTFOUND') ||
+				error?.message?.includes('timeout') ||
+				error?.message?.includes('connect') ||
+				error?.code === 'ETIMEDOUT' ||
+				error?.code === 'ECONNREFUSED' ||
+				error?.code === 'ENOTFOUND';
+			
+			// Only retry on network errors
+			if (!isNetworkError || attempt === maxRetries) {
+				throw error;
+			}
+			
+			// Exponential backoff: 1s, 2s, 4s
+			const delay = initialDelay * Math.pow(2, attempt);
+			console.warn(`Network error on attempt ${attempt + 1}/${maxRetries + 1}, retrying in ${delay}ms...`, error?.message);
+			await new Promise(resolve => setTimeout(resolve, delay));
+		}
+	}
+	throw lastError;
+}
+
+/**
+ * Verify ID token with timeout and retry logic
+ * Uses a timeout wrapper to fail fast on network issues
+ */
+async function verifyIdTokenWithRetry(token: string, timeoutMs: number = 15000) {
+	const timeoutPromise = new Promise((_, reject) => 
+		setTimeout(() => reject(new Error('Network timeout: Token verification exceeded timeout limit. This usually indicates network connectivity issues. See FIREBASE_ADMIN_SETUP.md for troubleshooting.')), timeoutMs)
+	);
+	
+	try {
+		return await Promise.race([
+			retryWithBackoff(() => authAdmin.verifyIdToken(token), 2, 1000),
+			timeoutPromise
+		]) as Promise<any>;
+	} catch (error: any) {
+		// If it's a timeout, provide more helpful error message
+		if (error?.message?.includes('timeout')) {
+			const networkError = new Error('Network timeout: Unable to connect to Firebase servers to verify token. This may be due to network connectivity issues, firewall blocking, or IPv6 connectivity problems. Please check your internet connection and try again. If the issue persists, you may need to configure proxy settings or disable IPv6. See FIREBASE_ADMIN_SETUP.md for detailed troubleshooting steps.');
+			(networkError as any).code = 'ETIMEDOUT';
+			throw networkError;
+		}
+		throw error;
+	}
+}
+
 async function requireAdmin(request: NextRequest, fallbackRole?: string) {
 	const auth = request.headers.get('authorization') || request.headers.get('Authorization');
 	if (!auth || !auth.startsWith('Bearer ')) {
@@ -16,7 +78,7 @@ async function requireAdmin(request: NextRequest, fallbackRole?: string) {
 			return { ok: false, status: 500, message: 'Firebase Admin SDK not configured. Please set up FIREBASE_SERVICE_ACCOUNT_KEY or GOOGLE_APPLICATION_CREDENTIALS.' as const };
 		}
 
-		const decoded = await authAdmin.verifyIdToken(token);
+		const decoded = await verifyIdTokenWithRetry(token);
 		let role = (decoded as any).role || (decoded as any).claims?.role;
 		
 		// If role not in token claims, check Firestore profile (if Admin SDK is configured)
@@ -73,7 +135,8 @@ async function requireAdmin(request: NextRequest, fallbackRole?: string) {
 		if (isNetworkError) {
 			errorMessage = 'Network timeout: Unable to connect to Firebase servers to verify token. ' +
 				'This may be due to network connectivity issues, firewall blocking, or IPv6 connectivity problems. ' +
-				'Please check your internet connection and try again. If the issue persists, you may need to configure proxy settings or disable IPv6.';
+				'Please check your internet connection and try again. If the issue persists, you may need to configure proxy settings or disable IPv6. ' +
+				'See FIREBASE_ADMIN_SETUP.md for detailed troubleshooting steps.';
 		} else if (err?.code === 'auth/argument-error' && !isNetworkError) {
 			errorMessage = 'Invalid token format. Please log in again.';
 		} else if (err?.code === 'auth/id-token-expired') {

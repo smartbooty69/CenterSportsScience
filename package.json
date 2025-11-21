@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:staging": "cross-env NEXT_PUBLIC_ENVIRONMENT=staging next dev",
     "build": "next build",
+    "build:staging": "cross-env NEXT_PUBLIC_ENVIRONMENT=staging next build",
     "start": "next start",
-    "lint": "eslint"
+    "start:staging": "cross-env NEXT_PUBLIC_ENVIRONMENT=staging next start",
+    "lint": "eslint",
+    "test:firebase-connectivity": "node scripts/test-firebase-connectivity.js"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.19",
@@ -37,6 +41,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
     "tailwindcss": "^4",
