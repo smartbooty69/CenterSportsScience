@@ -511,12 +511,6 @@ export default function Patients() {
 						patientType: (data.patientType as PatientTypeOption) || '',
 						paymentType: (data.paymentType as PaymentTypeOption) || 'without',
 						paymentDescription: data.paymentDescription ? String(data.paymentDescription) : undefined,
-						concessionPercent:
-							typeof data.concessionPercent === 'number'
-								? data.concessionPercent
-								: data.concessionPercent
-									? Number(data.concessionPercent)
-									: null,
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
 						assignedFrontdeskId: data.assignedFrontdeskId ? String(data.assignedFrontdeskId) : undefined,
 						assignedFrontdeskName: data.assignedFrontdeskName ? String(data.assignedFrontdeskName) : undefined,
@@ -986,15 +980,15 @@ export default function Patients() {
 		setProcessingPayment(true);
 		try {
 			const billingRef = doc(db, 'billing', selectedPaymentBill.id);
-
-			await updateDoc(billingRef, {
-				status: 'Completed',
-				paymentMode,
-				utr: paymentMode === 'UPI/Card' ? utr.trim() : null,
+			
+				await updateDoc(billingRef, {
+					status: 'Completed',
+					paymentMode,
+					utr: paymentMode === 'UPI/Card' ? utr.trim() : null,
 				amountPaid: selectedPaymentBill.amount,
-				updatedAt: serverTimestamp(),
-			});
-			alert('Payment processed successfully!');
+					updatedAt: serverTimestamp(),
+				});
+				alert('Payment processed successfully!');
 			
 			handleClosePaymentModal();
 		} catch (error) {
@@ -1332,24 +1326,24 @@ export default function Patients() {
 
 	const handleBookFirstAppointment = (patientId: string) => {
 		const patient = patients.find(p => p.patientId === patientId);
-		const isDYES = patient?.patientType === 'DYES' || patient?.patientType === 'Dyes';
+		const isDYES = ((patient?.patientType || '') as string).toUpperCase() === 'DYES';
 		
 		// DYES patients: No paywall - skip payment checks
 		if (!isDYES) {
-			// Check if there's a pending consultation - if so, don't allow new booking
-			if (hasPendingConsultation(patientId)) {
-				alert(
-					'This patient has a pending consultation payment. Please complete the payment before booking a new consultation.'
-				);
-				return;
-			}
+		// Check if there's a pending consultation - if so, don't allow new booking
+		if (hasPendingConsultation(patientId)) {
+			alert(
+				'This patient has a pending consultation payment. Please complete the payment before booking a new consultation.'
+			);
+			return;
+		}
 
-			// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
-			if (!canBookNewConsultation(patientId, patient)) {
-				alert(
-					'This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.'
-				);
-				return;
+		// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
+		if (!canBookNewConsultation(patientId, patient)) {
+			alert(
+				'This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.'
+			);
+			return;
 			}
 		}
 		setBookingForm({
@@ -1538,20 +1532,20 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			return;
 		}
 
-		const isDYES = selectedPatient.patientType === 'DYES' || selectedPatient.patientType === 'Dyes';
+		const isDYES = ((selectedPatient.patientType || '') as string).toUpperCase() === 'DYES';
 		
 		// DYES patients: No paywall - skip payment checks
 		if (!isDYES) {
-			// Check if there's a pending consultation - if so, don't allow new booking
-			if (hasPendingConsultation(selectedPatient.patientId)) {
-				alert('This patient has a pending consultation payment. Please complete the payment before booking a new consultation.');
-				return;
-			}
+		// Check if there's a pending consultation - if so, don't allow new booking
+		if (hasPendingConsultation(selectedPatient.patientId)) {
+			alert('This patient has a pending consultation payment. Please complete the payment before booking a new consultation.');
+			return;
+		}
 
-			// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
-			if (!canBookNewConsultation(selectedPatient.patientId, selectedPatient)) {
-				alert('This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.');
-				return;
+		// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
+		if (!canBookNewConsultation(selectedPatient.patientId, selectedPatient)) {
+			alert('This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.');
+			return;
 			}
 		}
 
@@ -1634,12 +1628,12 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 				).length;
 				const newRemaining = Math.max(0, selectedPatient.totalSessionsRequired - 1 - completedCount);
 
-			if (selectedPatient.id) {
-				const patientRef = doc(db, 'patients', selectedPatient.id);
-				await updateDoc(patientRef, {
-					remainingSessions: newRemaining,
-				});
-			}
+				if (selectedPatient.id) {
+					const patientRef = doc(db, 'patients', selectedPatient.id);
+					await updateDoc(patientRef, {
+						remainingSessions: newRemaining,
+					});
+				}
 
 			newRemainingValue = newRemaining;
 			}
@@ -1767,11 +1761,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 
 			alert('Appointment booked successfully.');
 			handleCloseBookingModal();
-
-			const patientForPackage = updatedPatientState ?? selectedPatient;
-			if (isDYES) {
-				handleOpenPackageModal(patientForPackage);
-			}
 		} catch (error) {
 			console.error('Failed to create appointment', error);
 			alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -2264,15 +2253,11 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 										const canBook = canBookNewConsultation(patient.patientId, patient);
 										const pendingPackageBill = getPendingPackageBill(patient.patientId, patient);
 										const paidPackageBill = getPaidPackageBill(patient.patientId, patient);
-										// Show "Setup Package" button if:
-										// 1. No pending consultation (consultation is paid)
-										// 2. Consultation is completed
-										// 3. Patient doesn't have a package plan (packageAmount is null/0)
+										// Show "Setup Package" button whenever no active package exists
 										const showPackageSetupButton =
-											!pendingConsultationBill && 
-											consultationPaid && 
-											patient.patientType !== 'DYES' &&
-											!patientHasPackagePlan(patient.patientId, patient);
+											!canBook &&
+											!patientHasPackagePlan(patient.patientId, patient) &&
+											(isDyesPatient || (!pendingConsultationBill && consultationPaid));
 										const bookingButtonClasses = [
 											'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold',
 											!canBook || pendingConsultationBill
@@ -2318,7 +2303,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 															Setup Package
 														</button>
 													)}
-													{pendingPackageBill && patient.patientType !== 'DYES' && (
+													{pendingPackageBill && !isDyesPatient && (
 														<button
 															type="button"
 															onClick={() => handlePayPackage(patient)}
@@ -3233,15 +3218,15 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 										selectedPaymentBill.amountPaid ??
 										(selectedPaymentBill.status === 'Completed' ? totalAmount : 0);
 									const amountDue = Math.max(totalAmount - amountPaid, 0);
-
-									return (
-										<>
-											<div className="flex justify-between items-center mb-2">
+										
+										return (
+											<>
+												<div className="flex justify-between items-center mb-2">
 												<span className="text-slate-500">
 													{isPackagePayment ? 'Package Amount:' : 'Amount:'}
 												</span>
-												<span className="font-medium text-slate-900">₹{totalAmount}</span>
-											</div>
+													<span className="font-medium text-slate-900">₹{totalAmount}</span>
+												</div>
 											{isPackagePayment && selectedPaymentBill.concessionPercent ? (
 												<div className="flex justify-between items-center mb-2">
 													<span className="text-slate-500">Concession:</span>
@@ -3257,12 +3242,12 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 													<span className="font-medium text-slate-900">₹{amountPaid}</span>
 												</div>
 											)}
-											<div className="flex justify-between items-center border-t border-slate-300 pt-2 mt-2">
+												<div className="flex justify-between items-center border-t border-slate-300 pt-2 mt-2">
 												<span className="text-slate-700 font-semibold">Amount Due:</span>
 												<span className="font-bold text-lg text-slate-900">₹{amountDue}</span>
-											</div>
-										</>
-									);
+												</div>
+											</>
+										);
 								})()}
 							</div>
 
