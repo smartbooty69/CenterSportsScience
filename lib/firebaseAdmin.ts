@@ -12,8 +12,8 @@ let authAdmin: Auth;
 let dbAdmin: Firestore;
 
 // Determine environment (staging or production)
-const isStaging = process.env.NEXT_PUBLIC_ENVIRONMENT === 'staging' || 
-	process.env.NODE_ENV === 'staging';
+// Note: NODE_ENV can only be 'development', 'production', or 'test', so we only check NEXT_PUBLIC_ENVIRONMENT for staging
+const isStaging = process.env.NEXT_PUBLIC_ENVIRONMENT === 'staging';
 
 // Debug logging (server-side)
 if (process.env.NODE_ENV === 'development') {
