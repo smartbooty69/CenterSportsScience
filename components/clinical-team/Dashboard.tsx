@@ -428,14 +428,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 			count: caseload.length,
 		},
 		{
-			key: 'pending',
-			title: 'Awaiting Start',
-			subtitle: 'Patients needing their first session',
-			icon: <HourglassIcon />,
-			iconBg: 'bg-amber-100 text-amber-700 ring-amber-200',
-			count: pending.length,
-		},
-		{
 			key: 'today',
 			title: "Today's Sessions",
 			subtitle: 'Appointments scheduled for today',

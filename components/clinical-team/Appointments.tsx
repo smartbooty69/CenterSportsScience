@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, updateDoc, deleteDoc, addDoc, serverTimestamp, type QuerySnapshot, type Timestamp } from 'firebase/firestore';
 
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/PageHeader';
 import type { AdminAppointmentStatus, AdminPatientStatus } from '@/lib/adminMockData';
 import type { PatientRecord } from '@/lib/types';
@@ -14,8 +15,6 @@ import AppointmentTemplates from '@/components/appointments/AppointmentTemplates
 import { normalizeSessionAllowance } from '@/lib/sessionAllowance';
 import { recordSessionUsageForAppointment } from '@/lib/sessionAllowanceClient';
 import type { RecordSessionUsageResult } from '@/lib/sessionAllowanceClient';
-
-type AppointmentStatusFilter = 'all' | AdminAppointmentStatus;
 
 interface FrontdeskAppointment {
 	id: string;
@@ -39,13 +38,6 @@ const STATUS_BADGES: Record<AdminAppointmentStatus, string> = {
 	cancelled: 'status-badge-cancelled',
 };
 
-const STATUS_OPTIONS: Array<{ value: AppointmentStatusFilter; label: string }> = [
-	{ value: 'all', label: 'All appointments' },
-	{ value: 'pending', label: 'Pending' },
-	{ value: 'ongoing', label: 'Ongoing' },
-	{ value: 'completed', label: 'Completed' },
-	{ value: 'cancelled', label: 'Cancelled' },
-];
 
 interface DayAvailability {
 	enabled: boolean;
@@ -107,13 +99,18 @@ function formatDateLabel(value: string) {
 	return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed);
 }
 
+function normalize(value?: string | null) {
+	return value?.trim().toLowerCase() ?? '';
+}
+
 export default function Appointments() {
+	const { user } = useAuth();
 	const [appointments, setAppointments] = useState<FrontdeskAppointment[]>([]);
 	const [patients, setPatients] = useState<PatientRecordWithSessions[]>([]);
 	const [staff, setStaff] = useState<StaffMember[]>([]);
 	const [loading, setLoading] = useState(true);
-	const [statusFilter, setStatusFilter] = useState<AppointmentStatusFilter>('all');
 	const [searchTerm, setSearchTerm] = useState('');
+	const [showAllAppointments, setShowAllAppointments] = useState(false);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [notesDraft, setNotesDraft] = useState('');
 	const [updating, setUpdating] = useState<Record<string, boolean>>({});
@@ -449,19 +446,30 @@ export default function Appointments() {
 		return sortedSlots;
 	}, [bookingForm.staffId, bookingForm.date, staff, appointments]);
 
+	// Get current user's name for filtering
+	const clinicianName = useMemo(() => normalize(user?.displayName ?? ''), [user?.displayName]);
+
 	// Group appointments by patient
 	const groupedByPatient = useMemo(() => {
 		const query = searchTerm.trim().toLowerCase();
-		const filtered = appointments
+		
+		// Filter by user if not showing all appointments
+		let userFiltered = appointments;
+		if (!showAllAppointments && clinicianName) {
+			userFiltered = appointments.filter(appointment => 
+				normalize(appointment.doctor) === clinicianName
+			);
+		}
+		
+		const filtered = userFiltered
 			.filter(appointment => {
-				const matchesStatus = statusFilter === 'all' || appointment.status === statusFilter;
 				const matchesQuery =
 					!query ||
 					appointment.patient.toLowerCase().includes(query) ||
 					appointment.patientId.toLowerCase().includes(query) ||
 					appointment.doctor.toLowerCase().includes(query) ||
 					appointment.appointmentId.toLowerCase().includes(query);
-				return matchesStatus && matchesQuery;
+				return matchesQuery;
 			});
 
 		// Group by patientId
@@ -495,7 +503,7 @@ export default function Appointments() {
 			const bDate = new Date(`${b.appointments[0].date}T${b.appointments[0].time}`).getTime();
 			return bDate - aDate;
 		});
-	}, [appointments, searchTerm, statusFilter]);
+	}, [appointments, searchTerm, showAllAppointments, clinicianName]);
 
 	// Get appointments for selected patient
 	const selectedPatientAppointments = useMemo(() => {
@@ -522,9 +530,17 @@ export default function Appointments() {
 		return patients.filter(patient => patientsWithAppointments.has(patient.patientId));
 	}, [patients, appointments]);
 
-	const pendingCount = appointments.filter(appointment => appointment.status === 'pending').length;
-	const ongoingCount = appointments.filter(appointment => appointment.status === 'ongoing').length;
-	const completedCount = appointments.filter(appointment => appointment.status === 'completed').length;
+	// Filter appointments based on showAllAppointments
+	const filteredAppointmentsForCounts = useMemo(() => {
+		if (!showAllAppointments && clinicianName) {
+			return appointments.filter(appointment => normalize(appointment.doctor) === clinicianName);
+		}
+		return appointments;
+	}, [appointments, showAllAppointments, clinicianName]);
+
+	const pendingCount = filteredAppointmentsForCounts.filter(appointment => appointment.status === 'pending').length;
+	const ongoingCount = filteredAppointmentsForCounts.filter(appointment => appointment.status === 'ongoing').length;
+	const completedCount = filteredAppointmentsForCounts.filter(appointment => appointment.status === 'completed').length;
 
 	const handleStatusChange = async (appointmentId: string, status: AdminAppointmentStatus) => {
 		const appointment = appointments.find(a => a.appointmentId === appointmentId);
@@ -1028,20 +1044,6 @@ export default function Appointments() {
 							/>
 						</div>
 					</div>
-					<div className="w-full md:w-48">
-						<label className="block text-sm font-medium text-slate-700">Status filter</label>
-						<select
-							value={statusFilter}
-							onChange={event => setStatusFilter(event.target.value as AppointmentStatusFilter)}
-							className="select-base"
-						>
-							{STATUS_OPTIONS.map(option => (
-								<option key={option.value} value={option.value}>
-									{option.label}
-								</option>
-							))}
-						</select>
-					</div>
 				</div>
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
 					<button type="button" onClick={() => setSearchTerm('')} className="btn-secondary">
@@ -1062,7 +1064,26 @@ export default function Appointments() {
 							<h2 className="text-lg font-semibold text-slate-900">Appointment queue</h2>
 							<p className="text-sm text-slate-500">
 								{groupedByPatient.length} patient{groupedByPatient.length === 1 ? '' : 's'} with {totalAppointmentsCount} appointment{totalAppointmentsCount === 1 ? '' : 's'}
+								{!showAllAppointments && clinicianName && (
+									<span className="ml-2 text-sky-600">(My appointments only)</span>
+								)}
 							</p>
+						</div>
+						<div className="flex items-center gap-2">
+							{clinicianName && (
+								<button
+									type="button"
+									onClick={() => setShowAllAppointments(!showAllAppointments)}
+									className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+										showAllAppointments
+											? 'bg-sky-600 text-white hover:bg-sky-700'
+											: 'border border-sky-600 bg-white text-sky-600 hover:bg-sky-50'
+									} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2`}
+								>
+									<i className={`fas ${showAllAppointments ? 'fa-user-slash' : 'fa-users'} text-xs`} aria-hidden="true" />
+									{showAllAppointments ? 'Show My Appointments' : 'View All Appointments'}
+								</button>
+							)}
 						</div>
 					</header>
 
