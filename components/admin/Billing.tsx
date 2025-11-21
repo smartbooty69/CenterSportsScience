@@ -196,14 +196,16 @@ function generateInvoiceHtml(
 		patientCity?: string;
 		description?: string;
 		hsnSac?: string;
-		taxRate?: number;
+		cgstRate?: number;
+		sgstRate?: number;
 		companyBankDetails?: string;
 	}
 ) {
 	const taxableValue = Number(bill.amount || 0);
-	const taxRate = options?.taxRate || 5; // 5% CGST + 5% SGST = 10% total
-	const cgstAmount = Number((taxableValue * (taxRate / 100)).toFixed(2));
-	const sgstAmount = cgstAmount;
+	const cgstRate = options?.cgstRate ?? 5; // Default 5% CGST
+	const sgstRate = options?.sgstRate ?? 5; // Default 5% SGST
+	const cgstAmount = Number((taxableValue * (cgstRate / 100)).toFixed(2));
+	const sgstAmount = Number((taxableValue * (sgstRate / 100)).toFixed(2));
 	const grandTotal = Number((taxableValue + cgstAmount + sgstAmount).toFixed(2));
 	
 	const words = numberToWords(grandTotal);
@@ -370,15 +372,15 @@ function generateInvoiceHtml(
 						<td style="border-bottom: 1px solid #000;">
 							<br><br>
 							<div class="text-right" style="padding-right: 10px;">
-								CGST @ ${taxRate}%<br>
-								SGST @ ${taxRate}%
+								CGST @ ${cgstRate}%<br>
+								SGST @ ${sgstRate}%
 							</div>
 						</td>
 						<td style="border-bottom: 1px solid #000;"></td>
 						<td style="border-bottom: 1px solid #000;"></td>
 						<td style="border-bottom: 1px solid #000;">
 							<br><br><br>
-							<div class="text-center">${taxRate}%<br>${taxRate}%</div>
+							<div class="text-center">${cgstRate}%<br>${sgstRate}%</div>
 						</td>
 						<td style="border-bottom: 1px solid #000;">
 							<br><br><br>
@@ -420,9 +422,9 @@ function generateInvoiceHtml(
 				<tr>
 					<td>${escapeHtml(hsnSac)}</td>
 					<td>${taxableValue.toFixed(2)}</td>
-					<td>${taxRate}%</td>
+					<td>${cgstRate}%</td>
 					<td>${cgstAmount.toFixed(2)}</td>
-					<td>${taxRate}%</td>
+					<td>${sgstRate}%</td>
 					<td>${sgstAmount.toFixed(2)}</td>
 					<td>${(cgstAmount + sgstAmount).toFixed(2)}</td>
 				</tr>
@@ -694,7 +696,8 @@ export default function Billing() {
 		paymentMode: string;
 		referenceNo: string;
 		hsnSac: string;
-		taxRate: number;
+		cgstRate: number;
+		sgstRate: number;
 		companyBankDetails?: string;
 	} | null>(null);
 	const [previewHtml, setPreviewHtml] = useState('');
@@ -1337,7 +1340,8 @@ export default function Billing() {
 				paymentMode: bill.paymentMode || 'Cash',
 				referenceNo: bill.appointmentId || '',
 				hsnSac: '9993',
-				taxRate: 5, // Default 5% CGST/SGST
+				cgstRate: 5, // Default 5% CGST
+				sgstRate: 5, // Default 5% SGST
 				companyBankDetails: details.companyBankDetails || 'A/c Holder\'s Name: Six Sports & Business Solutions INC\nBank Name: Canara Bank\nA/c No.: 0284201007444\nBranch & IFS Code: CNRB0000444',
 			});
 			setSelectedBill(bill);
@@ -1376,7 +1380,8 @@ export default function Billing() {
 				patientCity: editableInvoice.patientCity,
 				description: editableInvoice.description,
 				hsnSac: editableInvoice.hsnSac,
-				taxRate: editableInvoice.taxRate,
+				cgstRate: editableInvoice.cgstRate,
+				sgstRate: editableInvoice.sgstRate,
 				companyBankDetails: editableInvoice.companyBankDetails,
 			});
 
@@ -1405,7 +1410,8 @@ export default function Billing() {
 				patientCity: editableInvoice.patientCity,
 				description: editableInvoice.description,
 				hsnSac: editableInvoice.hsnSac,
-				taxRate: editableInvoice.taxRate,
+				cgstRate: editableInvoice.cgstRate,
+				sgstRate: editableInvoice.sgstRate,
 				companyBankDetails: editableInvoice.companyBankDetails,
 			});
 
@@ -1544,7 +1550,8 @@ export default function Billing() {
 			paymentMode: bill.paymentMode || 'Cash',
 			referenceNo: bill.appointmentId || '',
 			hsnSac: '9993',
-			taxRate: 5, // Default 5% CGST/SGST
+			cgstRate: 5, // Default 5% CGST
+			sgstRate: 5, // Default 5% SGST
 			companyBankDetails: 'A/c Holder\'s Name: Six Sports & Business Solutions INC\nBank Name: Canara Bank\nA/c No.: 0284201007444\nBranch & IFS Code: CNRB0000444',
 		});
 		setSelectedBill(bill);
@@ -2274,13 +2281,26 @@ export default function Billing() {
 												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 											/>
 										</div>
+									</div>
+
+									<div className="grid grid-cols-2 gap-4">
 										<div>
-											<label className="block text-sm font-medium text-slate-700 mb-1">Tax Rate (%)</label>
+											<label className="block text-sm font-medium text-slate-700 mb-1">CGST Tax Rate (%)</label>
 											<input
 												type="number"
 												step="0.01"
-												value={editableInvoice.taxRate}
-												onChange={e => setEditableInvoice({ ...editableInvoice, taxRate: parseFloat(e.target.value) || 5 })}
+												value={editableInvoice.cgstRate}
+												onChange={e => setEditableInvoice({ ...editableInvoice, cgstRate: parseFloat(e.target.value) || 5 })}
+												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+											/>
+										</div>
+										<div>
+											<label className="block text-sm font-medium text-slate-700 mb-1">SGST Tax Rate (%)</label>
+											<input
+												type="number"
+												step="0.01"
+												value={editableInvoice.sgstRate}
+												onChange={e => setEditableInvoice({ ...editableInvoice, sgstRate: parseFloat(e.target.value) || 5 })}
 												className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
 											/>
 										</div>
