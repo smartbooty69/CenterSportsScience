@@ -9,7 +9,8 @@
     "build:staging": "cross-env NEXT_PUBLIC_ENVIRONMENT=staging next build",
     "start": "next start",
     "start:staging": "cross-env NEXT_PUBLIC_ENVIRONMENT=staging next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:firebase-connectivity": "node scripts/test-firebase-connectivity.js"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.19",
