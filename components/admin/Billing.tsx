@@ -51,6 +51,7 @@ interface BillingRecord {
 	doctor?: string;
 	amount: number;
 	packageAmount?: number;
+	concessionPercent?: number | null;
 	installmentCount?: number;
 	installmentAmount?: number;
 	installmentsPaid?: number;
@@ -873,6 +874,12 @@ export default function Billing() {
 								: data.packageAmount
 									? Number(data.packageAmount)
 									: undefined,
+						concessionPercent:
+							typeof data.concessionPercent === 'number'
+								? data.concessionPercent
+								: data.concessionPercent
+									? Number(data.concessionPercent)
+									: undefined,
 						installmentCount:
 							typeof data.installmentCount === 'number'
 								? data.installmentCount
@@ -976,21 +983,12 @@ export default function Billing() {
 							// Without concession: standard amount
 							billAmount = standardAmount;
 						}
-					} else if (patientType === 'Dyes') {
-						// Dyes: Only create bill if count >= 500
-						// Count existing billing records for this patient (appointments with billing info)
-						const existingBillCount = appointments.filter(
-							a => a.patientId === appt.patientId && a.billing
-						).length;
-						
-						if (existingBillCount >= 500) {
-							shouldCreateBill = true;
-							billAmount = standardAmount;
-						} else {
-							// Skip creating bill if count < 500
-							console.log(`Skipping bill for Dyes patient ${appt.patientId}: count is ${existingBillCount} (< 500)`);
-							continue;
-						}
+					} else if (patientType === 'Dyes' || patientType === 'DYES') {
+						// DYES: Always create bill with status Pending (no paywall)
+						// Bills will have invoice and bill available when pending
+						// When billed (status changes to Completed), invoice and receipt will be available
+						shouldCreateBill = true;
+						billAmount = standardAmount;
 					} else if (patientType === 'Gethhma') {
 						// Gethhma: Treat as "Paid" without concession
 						shouldCreateBill = true;

@@ -815,20 +815,12 @@ export default function Billing() {
 							// Without concession: standard amount
 							billAmount = standardAmount;
 						}
-					} else if (patientType === 'Dyes') {
-						// Dyes: Only create bill if count >= 500
-						const billingQuery = query(collection(db, 'billing'), where('patientId', '==', appt.patientId));
-						const billingSnapshot = await getDocs(billingQuery);
-						const existingBillCount = billingSnapshot.size;
-
-						if (existingBillCount >= 500) {
-							shouldCreateBill = true;
-							billAmount = standardAmount;
-						} else {
-							// Skip creating bill if count < 500
-							console.log(`Skipping bill for Dyes patient ${appt.patientId}: count is ${existingBillCount} (< 500)`);
-							continue;
-						}
+					} else if (patientType === 'Dyes' || patientType === 'DYES') {
+						// DYES: Always create bill with status Pending (no paywall)
+						// Bills will have invoice and bill available when pending
+						// When billed (status changes to Completed), invoice and receipt will be available
+						shouldCreateBill = true;
+						billAmount = standardAmount;
 					} else if (patientType === 'Gethhma') {
 						// Gethhma: Treat as "Paid" without concession
 						shouldCreateBill = true;
@@ -1002,6 +994,7 @@ export default function Billing() {
 						diagnosis: data.diagnosis ? String(data.diagnosis) : '',
 						treatmentProvided: data.treatmentProvided ? String(data.treatmentProvided) : '',
 						progressNotes: data.progressNotes ? String(data.progressNotes) : '',
+						patientType: data.patientType ? String(data.patientType) : '',
 					};
 				});
 				setPatients(mapped);
@@ -1460,7 +1453,7 @@ export default function Billing() {
 					</section>
 				) : (
 					<>
-						<section className="section-card mx-auto mt-8 grid max-w-6xl gap-6 lg:grid-cols-2">
+						<section className="section-card mx-auto mt-8 flex max-w-6xl flex-col gap-6">
 							{/* Pending Payments */}
 							<div className="rounded-2xl border border-amber-200 bg-white shadow-sm">
 								<div className="border-b border-amber-200 bg-amber-50 px-6 py-4">
@@ -1491,8 +1484,12 @@ export default function Billing() {
 													</tr>
 												</thead>
 												<tbody className="divide-y divide-slate-100">
-													{pending.map(bill => (
-														<tr key={bill.billingId}>
+													{pending.map(bill => {
+														const patientType = patients.find(p => p.patientId === bill.patientId)?.patientType;
+														const isDyes = (patientType || '').toUpperCase() === 'DYES';
+														const payLabel = isDyes ? 'Bill' : 'Pay';
+														return (
+															<tr key={bill.billingId}>
 															<td className="px-3 py-3 text-sm font-medium text-slate-800">
 																{bill.billingId}
 															</td>
@@ -1505,17 +1502,29 @@ export default function Billing() {
 															<td className="px-3 py-3 text-sm text-slate-600">
 																{bill.date}
 															</td>
-															<td className="px-3 py-3 text-right">
-																<button
-																	type="button"
-																	onClick={() => handlePay(bill)}
-																	className="inline-flex items-center rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
-																>
-																	Pay
-																</button>
+															<td className="px-3 py-3">
+																<div className="flex items-center justify-end gap-2">
+																	{isDyes && (
+																		<button
+																			type="button"
+																			onClick={() => handleShowInvoicePreview(bill)}
+																			className="inline-flex items-center rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+																		>
+																			Invoice
+																		</button>
+																	)}
+																	<button
+																		type="button"
+																		onClick={() => handlePay(bill)}
+																		className="inline-flex items-center rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
+																	>
+																		{payLabel}
+																	</button>
+																</div>
 															</td>
-														</tr>
-													))}
+															</tr>
+														);
+													})}
 												</tbody>
 											</table>
 										</div>

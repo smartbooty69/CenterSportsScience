@@ -185,6 +185,7 @@ interface FrontdeskPatient {
 	patientType: PatientTypeOption;
 	paymentType: PaymentTypeOption;
 	paymentDescription?: string;
+	concessionPercent?: number | null;
 	assignedDoctor?: string;
 	totalSessionsRequired?: number;
 	remainingSessions?: number;
@@ -192,7 +193,6 @@ interface FrontdeskPatient {
 	assignedFrontdeskName?: string;
 	assignedFrontdeskEmail?: string;
 	packageAmount?: number | null;
-	installmentCount?: number | null;
 	readyForNewAppointment?: boolean;
 }
 
@@ -240,9 +240,7 @@ interface BillingRecord {
 	paymentMode?: string;
 	utr?: string;
 	packageAmount?: number | null;
-	installmentCount?: number | null;
-	installmentAmount?: number | null;
-	installmentsPaid?: number;
+	concessionPercent?: number | null;
 	amountPaid?: number;
 }
 
@@ -270,7 +268,7 @@ interface PackageSetupFormState {
 	paymentType: PaymentTypeOption | '';
 	paymentDescription: string;
 	packageAmount: string;
-	installmentCount: string;
+	concessionPercent: string;
 }
 
 interface RegisterNotice {
@@ -316,19 +314,19 @@ const PAYMENT_OPTIONS: Array<{ value: PaymentTypeOption; label: string }> = [
 	{ value: 'without', label: 'Without Concession' },
 ];
 
-const INSTALLMENT_OPTIONS = [
-	{ value: '1', label: '1 installment (full payment)' },
-	{ value: '2', label: '2 installments' },
-	{ value: '3', label: '3 installments' },
-	{ value: '4', label: '4 installments' },
-	{ value: '6', label: '6 installments' },
-	{ value: '12', label: '12 installments' },
-];
-
 const PHONE_REGEX = /^[0-9]{10,15}$/;
 const SLOT_INTERVAL_MINUTES = 30;
 const MAX_BLOCK_DURATION_MINUTES = 120;
-const APPOINTMENT_BOOKING_CHARGE = 500;
+const APPOINTMENT_BOOKING_CHARGE = 1500;
+
+function hasSixMonthsElapsed(dateString?: string | null): boolean {
+	if (!dateString) return false;
+	const date = new Date(dateString);
+	if (Number.isNaN(date.getTime())) return false;
+	const sixMonthsLater = new Date(date);
+	sixMonthsLater.setMonth(sixMonthsLater.getMonth() + 6);
+	return new Date() >= sixMonthsLater;
+}
 
 const REGISTER_FORM_INITIAL_STATE: RegisterFormState = {
 	fullName: '',
@@ -345,7 +343,7 @@ const PACKAGE_FORM_INITIAL_STATE: PackageSetupFormState = {
 	paymentType: '',
 	paymentDescription: '',
 	packageAmount: '',
-	installmentCount: '',
+	concessionPercent: '',
 };
 
 async function generatePatientId(): Promise<string> {
@@ -513,6 +511,12 @@ export default function Patients() {
 						patientType: (data.patientType as PatientTypeOption) || '',
 						paymentType: (data.paymentType as PaymentTypeOption) || 'without',
 						paymentDescription: data.paymentDescription ? String(data.paymentDescription) : undefined,
+						concessionPercent:
+							typeof data.concessionPercent === 'number'
+								? data.concessionPercent
+								: data.concessionPercent
+									? Number(data.concessionPercent)
+									: null,
 						assignedDoctor: data.assignedDoctor ? String(data.assignedDoctor) : undefined,
 						assignedFrontdeskId: data.assignedFrontdeskId ? String(data.assignedFrontdeskId) : undefined,
 						assignedFrontdeskName: data.assignedFrontdeskName ? String(data.assignedFrontdeskName) : undefined,
@@ -523,11 +527,11 @@ export default function Patients() {
 								: data.packageAmount
 									? Number(data.packageAmount)
 									: null,
-						installmentCount:
-							typeof data.installmentCount === 'number'
-								? data.installmentCount
-								: data.installmentCount
-									? Number(data.installmentCount)
+						concessionPercent:
+							typeof data.concessionPercent === 'number'
+								? data.concessionPercent
+								: data.concessionPercent
+									? Number(data.concessionPercent)
 									: null,
 						totalSessionsRequired:
 							typeof data.totalSessionsRequired === 'number'
@@ -646,24 +650,6 @@ export default function Patients() {
 								: data.packageAmount
 									? Number(data.packageAmount)
 									: null,
-						installmentCount:
-							typeof data.installmentCount === 'number'
-								? data.installmentCount
-								: data.installmentCount
-									? Number(data.installmentCount)
-									: null,
-						installmentAmount:
-							typeof data.installmentAmount === 'number'
-								? data.installmentAmount
-								: data.installmentAmount
-									? Number(data.installmentAmount)
-									: null,
-						installmentsPaid:
-							typeof data.installmentsPaid === 'number'
-								? data.installmentsPaid
-								: data.installmentsPaid
-									? Number(data.installmentsPaid)
-									: 0,
 						amountPaid:
 							typeof data.amountPaid === 'number'
 								? data.amountPaid
@@ -710,19 +696,31 @@ export default function Patients() {
 	};
 
 	// Check if patient can book a new consultation
-	// Only allow if no consultation exists, or if patient has been reset via "New Appointment"
+	// Only allow if no consultation exists, or if patient has been reset / waiting period elapsed
 	const canBookNewConsultation = (patientId: string, patient?: FrontdeskPatient): boolean => {
+		const isDYES = (patient?.patientType || '').toUpperCase() === 'DYES';
 		const consultationBill = getConsultationBill(patientId);
 		// If no consultation bill exists, can book
 		if (!consultationBill) return true;
 		
-		// If consultation is completed, only allow booking if patient was reset via "New Appointment"
+		// DYES patients: no paywall, but must wait six months between consultations
+		if (isDYES) {
+			if (patient?.readyForNewAppointment === true) return true;
+			if (hasSixMonthsElapsed(consultationBill.date)) return true;
+			return false;
+		}
+		
+		// If consultation is completed, only allow booking if patient was reset or six months have elapsed
 		if (consultationBill.status === 'Completed') {
-			// Check if patient has the readyForNewAppointment flag (set when "New Appointment" is clicked)
 			if (patient?.readyForNewAppointment === true) {
 				return true;
 			}
-			// Consultation completed but not reset - don't allow booking
+
+			if (hasSixMonthsElapsed(consultationBill.date)) {
+				return true;
+			}
+
+			// Consultation completed but waiting period not finished
 			return false;
 		}
 		
@@ -804,7 +802,7 @@ export default function Patients() {
 
 	const patientHasPackagePlan = (patientId: string, patient?: FrontdeskPatient) => {
 		// Check if patient has package fields set (current cycle)
-		// After "New Appointment", package fields are reset, so this will return false even if old bills exist
+		// After an automatic reset, package fields are cleared, so this will return false even if old bills exist
 		// This is the primary check - if patient has packageAmount set, they have a package plan
 		if (patient && (patient.packageAmount != null && patient.packageAmount > 0)) {
 			return true;
@@ -820,6 +818,67 @@ export default function Patients() {
 			bill => bill.patientId === patientId && typeof bill.packageAmount === 'number' && bill.packageAmount > 0
 		);
 	};
+
+	useEffect(() => {
+		if (!patients.length) return;
+
+		const autoResetEligiblePatients = patients.filter(patient => {
+			if (!patient.id) return false;
+			if (patient.readyForNewAppointment) return false;
+
+			const consultationBill = getConsultationBill(patient.patientId);
+			if (!consultationBill) return false;
+
+			const isDYES = (patient.patientType || '').toUpperCase() === 'DYES';
+
+			if (isDYES) {
+				return hasSixMonthsElapsed(consultationBill.date);
+			}
+
+			if (consultationBill.status !== 'Completed') return false;
+
+			return hasSixMonthsElapsed(consultationBill.date);
+		});
+
+		if (autoResetEligiblePatients.length === 0) {
+			return;
+		}
+
+		const autoResetPatients = async () => {
+			for (const patient of autoResetEligiblePatients) {
+				if (!patient.id) continue;
+				try {
+					const patientRef = doc(db, 'patients', patient.id);
+					await updateDoc(patientRef, {
+						paymentType: 'without' as PaymentTypeOption,
+						paymentDescription: null,
+						packageAmount: null,
+						concessionPercent: null,
+						readyForNewAppointment: true,
+					});
+
+					setPatients(prev =>
+						prev.map(p =>
+							p.id === patient.id
+								? {
+										...p,
+										paymentType: 'without' as PaymentTypeOption,
+										paymentDescription: undefined,
+										packageAmount: null,
+										concessionPercent: null,
+										readyForNewAppointment: true,
+								  }
+								: p
+						)
+					);
+				} catch (error) {
+					console.error('Failed to auto-reset patient for new appointment', error);
+				}
+			}
+		};
+
+		void autoResetPatients();
+	}, [patients, billing]);
 
 	// Check if patient has pending package payment
 	const getPendingPackageBill = (patientId: string, patient?: FrontdeskPatient): BillingRecord | null => {
@@ -838,12 +897,6 @@ export default function Patients() {
 					typeof bill.packageAmount === 'number' &&
 					bill.packageAmount > 0
 				) {
-					// For installments, check if all are paid
-					if (bill.installmentCount != null && bill.installmentCount > 1) {
-						const installmentsPaid = bill.installmentsPaid ?? 0;
-						return installmentsPaid < bill.installmentCount;
-					}
-					// For single payment, check status
 					return bill.status === 'Pending';
 				}
 				return false;
@@ -875,12 +928,6 @@ export default function Patients() {
 					typeof bill.packageAmount === 'number' &&
 					bill.packageAmount > 0
 				) {
-					// For installments, check if all are paid
-					if (bill.installmentCount != null && bill.installmentCount > 1) {
-						const installmentsPaid = bill.installmentsPaid ?? 0;
-						return installmentsPaid >= bill.installmentCount;
-					}
-					// For single payment, check status
 					return bill.status === 'Completed';
 				}
 				return false;
@@ -939,50 +986,15 @@ export default function Patients() {
 		setProcessingPayment(true);
 		try {
 			const billingRef = doc(db, 'billing', selectedPaymentBill.id);
-			
-			// Check if this is a package payment with installments
-			const isPackagePayment = selectedPaymentBill.billingId.startsWith('PKG-');
-			const hasInstallments = 
-				isPackagePayment &&
-				selectedPaymentBill.installmentCount != null &&
-				selectedPaymentBill.installmentCount > 1 &&
-				selectedPaymentBill.installmentAmount != null;
 
-			if (hasInstallments) {
-				// Handle installment payment
-				const currentInstallmentsPaid = selectedPaymentBill.installmentsPaid ?? 0;
-				const currentAmountPaid = selectedPaymentBill.amountPaid ?? 0;
-				const installmentAmount = selectedPaymentBill.installmentAmount ?? 0;
-				const totalInstallments = selectedPaymentBill.installmentCount ?? 1;
-				
-				const newInstallmentsPaid = currentInstallmentsPaid + 1;
-				const newAmountPaid = currentAmountPaid + installmentAmount;
-				const allInstallmentsPaid = newInstallmentsPaid >= totalInstallments;
-
-				await updateDoc(billingRef, {
-					installmentsPaid: newInstallmentsPaid,
-					amountPaid: newAmountPaid,
-					status: allInstallmentsPaid ? 'Completed' : 'Pending',
-					paymentMode: allInstallmentsPaid ? paymentMode : (selectedPaymentBill.paymentMode || paymentMode),
-					utr: allInstallmentsPaid && paymentMode === 'UPI/Card' ? utr.trim() : (selectedPaymentBill.utr || (paymentMode === 'UPI/Card' ? utr.trim() : null)),
-					updatedAt: serverTimestamp(),
-				});
-
-				if (allInstallmentsPaid) {
-					alert(`Payment processed successfully! All ${totalInstallments} installments have been paid.`);
-				} else {
-					alert(`Installment ${newInstallmentsPaid} of ${totalInstallments} paid successfully. Amount: ₹${installmentAmount}`);
-				}
-			} else {
-				// Handle full payment (consultation or single payment package)
-				await updateDoc(billingRef, {
-					status: 'Completed',
-					paymentMode,
-					utr: paymentMode === 'UPI/Card' ? utr.trim() : null,
-					updatedAt: serverTimestamp(),
-				});
-				alert('Payment processed successfully!');
-			}
+			await updateDoc(billingRef, {
+				status: 'Completed',
+				paymentMode,
+				utr: paymentMode === 'UPI/Card' ? utr.trim() : null,
+				amountPaid: selectedPaymentBill.amount,
+				updatedAt: serverTimestamp(),
+			});
+			alert('Payment processed successfully!');
 			
 			handleClosePaymentModal();
 		} catch (error) {
@@ -1000,7 +1012,7 @@ export default function Patients() {
 			paymentType: patient.paymentType ?? '',
 			paymentDescription: patient.paymentDescription ?? '',
 			packageAmount: patient.packageAmount ? String(patient.packageAmount) : '',
-			installmentCount: patient.installmentCount ? String(patient.installmentCount) : '',
+			concessionPercent: patient.concessionPercent != null ? String(patient.concessionPercent) : '',
 		});
 		setPackageFormErrors({});
 		setShowPackageModal(true);
@@ -1019,6 +1031,7 @@ export default function Patients() {
 			setPackageForm(prev => ({
 				...prev,
 				[field]: value,
+				...(field === 'paymentType' && value !== 'with' ? { concessionPercent: '' } : {}),
 			}));
 			setPackageFormErrors(prev => ({
 				...prev,
@@ -1038,13 +1051,19 @@ export default function Patients() {
 			errors.paymentType = 'Please select a payment type.';
 		}
 		const packageAmountValue = Number(packageForm.packageAmount);
+		const concessionPercentValue = packageForm.concessionPercent.trim()
+			? Math.min(Math.max(Number(packageForm.concessionPercent), 0), 100)
+			: 0;
 		if (!packageForm.packageAmount.trim()) {
 			errors.packageAmount = 'Please enter the package amount.';
 		} else if (Number.isNaN(packageAmountValue) || packageAmountValue <= 0) {
 			errors.packageAmount = 'Package amount must be greater than 0.';
 		}
-		if (!packageForm.installmentCount) {
-			errors.installmentCount = 'Please select the number of installments.';
+		if (packageForm.concessionPercent.trim()) {
+			const percentValue = Number(packageForm.concessionPercent);
+			if (Number.isNaN(percentValue) || percentValue < 0 || percentValue > 100) {
+				errors.concessionPercent = 'Concession % must be between 0 and 100.';
+			}
 		}
 		setPackageFormErrors(errors);
 		return Object.keys(errors).length === 0;
@@ -1060,14 +1079,12 @@ export default function Patients() {
 
 		const totalSessionsValue = Number(packageForm.totalNoOfSessions);
 		const packageAmountValue = Number(packageForm.packageAmount);
-		const rawInstallmentCount = Number(packageForm.installmentCount);
-		const installmentCountValue = Number.isNaN(rawInstallmentCount) || rawInstallmentCount <= 0 ? 1 : rawInstallmentCount;
-		const installmentAmountValue =
-			packageAmountValue && installmentCountValue
-				? Number((packageAmountValue / installmentCountValue).toFixed(2))
-				: packageAmountValue;
 		const paymentDescriptionValue = packageForm.paymentDescription.trim();
 		const normalizedDescription = paymentDescriptionValue || undefined;
+		const concessionPercentValue =
+			packageForm.paymentType === 'with' && packageForm.concessionPercent.trim()
+				? Math.min(Math.max(Number(packageForm.concessionPercent), 0), 100)
+				: null;
 
 		setPackageSubmitting(true);
 		try {
@@ -1077,19 +1094,22 @@ export default function Patients() {
 				paymentType: packageForm.paymentType as PaymentTypeOption,
 				paymentDescription: paymentDescriptionValue || null,
 				packageAmount: packageAmountValue,
-				installmentCount: installmentCountValue,
+				concessionPercent: concessionPercentValue,
 			});
 
 			const billingId = `PKG-${packageModalPatient.patientId}-${Date.now()}`;
+			const payableAmount =
+				typeof concessionPercentValue === 'number' && concessionPercentValue > 0
+					? Number((packageAmountValue * (1 - concessionPercentValue / 100)).toFixed(2))
+					: packageAmountValue;
+
 			await addDoc(collection(db, 'billing'), {
 				billingId,
 				patient: packageModalPatient.name,
 				patientId: packageModalPatient.patientId,
-				amount: packageAmountValue,
+				amount: payableAmount,
 				packageAmount: packageAmountValue,
-				installmentCount: installmentCountValue,
-				installmentAmount: installmentAmountValue,
-				installmentsPaid: 0,
+				concessionPercent: concessionPercentValue,
 				amountPaid: 0,
 				date: new Date().toISOString().split('T')[0],
 				status: 'Pending',
@@ -1108,7 +1128,7 @@ export default function Patients() {
 								paymentType: packageForm.paymentType as PaymentTypeOption,
 								paymentDescription: normalizedDescription,
 								packageAmount: packageAmountValue,
-								installmentCount: installmentCountValue,
+								concessionPercent: concessionPercentValue,
 						  }
 						: p
 				)
@@ -1122,7 +1142,7 @@ export default function Patients() {
 							paymentType: packageForm.paymentType as PaymentTypeOption,
 							paymentDescription: normalizedDescription,
 							packageAmount: packageAmountValue,
-							installmentCount: installmentCountValue,
+							concessionPercent: concessionPercentValue,
 					  }
 					: prev
 			);
@@ -1312,21 +1332,25 @@ export default function Patients() {
 
 	const handleBookFirstAppointment = (patientId: string) => {
 		const patient = patients.find(p => p.patientId === patientId);
+		const isDYES = patient?.patientType === 'DYES' || patient?.patientType === 'Dyes';
 		
-		// Check if there's a pending consultation - if so, don't allow new booking
-		if (hasPendingConsultation(patientId)) {
-			alert(
-				'This patient has a pending consultation payment. Please complete the payment before booking a new consultation.'
-			);
-			return;
-		}
+		// DYES patients: No paywall - skip payment checks
+		if (!isDYES) {
+			// Check if there's a pending consultation - if so, don't allow new booking
+			if (hasPendingConsultation(patientId)) {
+				alert(
+					'This patient has a pending consultation payment. Please complete the payment before booking a new consultation.'
+				);
+				return;
+			}
 
-		// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
-		if (!canBookNewConsultation(patientId, patient)) {
-			alert(
-				'This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.'
-			);
-			return;
+			// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
+			if (!canBookNewConsultation(patientId, patient)) {
+				alert(
+					'This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.'
+				);
+				return;
+			}
 		}
 		setBookingForm({
 			patientId,
@@ -1430,7 +1454,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			paymentType: 'without' as PaymentTypeOption,
 			paymentDescription: null,
 			packageAmount: null,
-			installmentCount: null,
 			sessionAllowance: registerForm.patientType === 'DYES' ? createInitialSessionAllowance() : null,
 		};
 
@@ -1515,16 +1538,21 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			return;
 		}
 
-		// Check if there's a pending consultation - if so, don't allow new booking
-		if (hasPendingConsultation(selectedPatient.patientId)) {
-			alert('This patient has a pending consultation payment. Please complete the payment before booking a new consultation.');
-			return;
-		}
+		const isDYES = selectedPatient.patientType === 'DYES' || selectedPatient.patientType === 'Dyes';
+		
+		// DYES patients: No paywall - skip payment checks
+		if (!isDYES) {
+			// Check if there's a pending consultation - if so, don't allow new booking
+			if (hasPendingConsultation(selectedPatient.patientId)) {
+				alert('This patient has a pending consultation payment. Please complete the payment before booking a new consultation.');
+				return;
+			}
 
-		// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
-		if (!canBookNewConsultation(selectedPatient.patientId, selectedPatient)) {
-			alert('This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.');
-			return;
+			// Allow booking only if no consultation exists or patient has been reset via "New Appointment"
+			if (!canBookNewConsultation(selectedPatient.patientId, selectedPatient)) {
+				alert('This patient already has a consultation. Please use "New Appointment" from the dropdown menu to reset for a new appointment cycle.');
+				return;
+			}
 		}
 
 		if (!staffMember) {
@@ -1561,6 +1589,8 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 		}
 
 		setBookingLoading(true);
+		let updatedPatientState: FrontdeskPatient | null = null;
+		let newRemainingValue: number | undefined = selectedPatient.remainingSessions;
 		try {
 			const appointmentId = `APT${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 			await addDoc(collection(db, 'appointments'), {
@@ -1586,9 +1616,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 					patientId: selectedPatient.patientId,
 					doctor: bookingForm.doctor,
 					amount: APPOINTMENT_BOOKING_CHARGE,
-					installmentCount: 1,
-					installmentAmount: APPOINTMENT_BOOKING_CHARGE,
-					installmentsPaid: 0,
 					amountPaid: 0,
 					date: bookingForm.date,
 					status: 'Pending',
@@ -1607,18 +1634,14 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 				).length;
 				const newRemaining = Math.max(0, selectedPatient.totalSessionsRequired - 1 - completedCount);
 
-				if (selectedPatient.id) {
-					const patientRef = doc(db, 'patients', selectedPatient.id);
-					await updateDoc(patientRef, {
-						remainingSessions: newRemaining,
-					});
-				}
+			if (selectedPatient.id) {
+				const patientRef = doc(db, 'patients', selectedPatient.id);
+				await updateDoc(patientRef, {
+					remainingSessions: newRemaining,
+				});
+			}
 
-				setPatients(prev =>
-					prev.map(p =>
-						p.id === selectedPatient.id ? { ...p, remainingSessions: newRemaining } : p
-					)
-				);
+			newRemainingValue = newRemaining;
 			}
 
 			if (selectedPatient.id) {
@@ -1640,15 +1663,44 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 
 					await updateDoc(patientRef, patientUpdate);
 					
-					// Update local state
+					const updatedStatus =
+						selectedPatient.status && selectedPatient.status !== 'pending'
+							? selectedPatient.status
+							: 'ongoing';
+
+					updatedPatientState = {
+						...selectedPatient,
+						assignedDoctor: bookingForm.doctor,
+						readyForNewAppointment: false,
+						status: updatedStatus,
+						remainingSessions: newRemainingValue,
+					};
+
 					setPatients(prev =>
-						prev.map(p =>
-							p.id === selectedPatient.id ? { ...p, readyForNewAppointment: false } : p
-						)
+						prev.map(p => (p.id === selectedPatient.id ? updatedPatientState! : p))
 					);
 				} catch (patientUpdateError) {
 					console.error('Failed to update patient assignment', patientUpdateError);
 				}
+			} else {
+			const updatedStatus =
+				selectedPatient.status && selectedPatient.status !== 'pending'
+					? selectedPatient.status
+					: 'ongoing';
+
+			updatedPatientState = {
+				...selectedPatient,
+				assignedDoctor: bookingForm.doctor,
+				readyForNewAppointment: false,
+				status: updatedStatus,
+				remainingSessions: newRemainingValue,
+			};
+
+			setPatients(prev =>
+				prev.map(p =>
+					p.patientId === selectedPatient.patientId ? updatedPatientState! : p
+				)
+			);
 			}
 
 			if (selectedPatient.email) {
@@ -1715,6 +1767,11 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 
 			alert('Appointment booked successfully.');
 			handleCloseBookingModal();
+
+			const patientForPackage = updatedPatientState ?? selectedPatient;
+			if (isDYES) {
+				handleOpenPackageModal(patientForPackage);
+			}
 		} catch (error) {
 			console.error('Failed to create appointment', error);
 			alert(`Failed to create appointment: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1923,49 +1980,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 			alert(`Failed to delete patient: ${error instanceof Error ? error.message : 'Unknown error'}`);
 		} finally {
 			setDeletingId(null);
-		}
-	};
-
-	const handleNewAppointment = async (patient: FrontdeskPatient) => {
-		if (!patient.id) return;
-
-		const confirmed = window.confirm(
-			`Reset patient "${patient.name}" (ID: ${patient.patientId}) for a new appointment? This will reset package-related fields but will keep all billing records, reports, and history.`
-		);
-		if (!confirmed) return;
-
-		try {
-			// Reset patient's package-related fields and mark as ready for new appointment
-			const patientRef = doc(db, 'patients', patient.id);
-			await updateDoc(patientRef, {
-				paymentType: 'without' as PaymentTypeOption,
-				paymentDescription: null,
-				packageAmount: null,
-				installmentCount: null,
-				readyForNewAppointment: true, // Flag to indicate patient was reset
-			});
-
-			// Update local state immediately
-			setPatients(prev =>
-				prev.map(p =>
-					p.id === patient.id
-						? {
-								...p,
-								paymentType: 'without' as PaymentTypeOption,
-								paymentDescription: undefined,
-								packageAmount: null,
-								installmentCount: null,
-								readyForNewAppointment: true,
-						  }
-						: p
-				)
-			);
-
-			setOpenMenuId(null);
-			alert(`Patient "${patient.name}" has been reset for a new appointment. Package fields have been cleared.`);
-		} catch (error) {
-			console.error('Failed to reset patient for new appointment', error);
-			alert(`Failed to reset patient: ${error instanceof Error ? error.message : 'Unknown error'}`);
 		}
 	};
 
@@ -2240,8 +2254,12 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 								</thead>
 								<tbody className="divide-y divide-slate-100">
 									{filteredPatients.map(patient => {
+										const isDyesPatient = (patient.patientType || '').toUpperCase() === 'DYES';
 										const consultationBill = getConsultationBill(patient.patientId);
-										const pendingConsultationBill = consultationBill?.status === 'Pending' ? consultationBill : null;
+										const pendingConsultationBill =
+											!isDyesPatient && consultationBill?.status === 'Pending'
+												? consultationBill
+												: null;
 										const consultationPaid = consultationBill?.status === 'Completed';
 										const canBook = canBookNewConsultation(patient.patientId, patient);
 										const pendingPackageBill = getPendingPackageBill(patient.patientId, patient);
@@ -2253,6 +2271,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 										const showPackageSetupButton =
 											!pendingConsultationBill && 
 											consultationPaid && 
+											patient.patientType !== 'DYES' &&
 											!patientHasPackagePlan(patient.patientId, patient);
 										const bookingButtonClasses = [
 											'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold',
@@ -2274,7 +2293,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 														type="button"
 														onClick={() => handleBookFirstAppointment(patient.patientId)}
 														className={bookingButtonClasses}
-														disabled={!canBook || !!pendingConsultationBill}
+														disabled={!canBook || (!!pendingConsultationBill && !isDyesPatient)}
 													>
 														<i className="fas fa-calendar-plus text-[10px]" aria-hidden="true" />
 														{canBook && !pendingConsultationBill ? 'Book' : 'Booked'}
@@ -2299,7 +2318,7 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 															Setup Package
 														</button>
 													)}
-													{pendingPackageBill && (
+													{pendingPackageBill && patient.patientType !== 'DYES' && (
 														<button
 															type="button"
 															onClick={() => handlePayPackage(patient)}
@@ -2368,18 +2387,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 																>
 																	<i className="fas fa-edit text-xs" aria-hidden="true" />
 																	Edit
-																</button>
-																<button
-																	type="button"
-																	onClick={event => {
-																		event.stopPropagation();
-																		setOpenMenuId(null);
-																		handleNewAppointment(patient);
-																	}}
-																	className="flex w-full items-center gap-2 px-4 py-2 text-sky-600 transition hover:bg-sky-50 hover:text-sky-700"
-																>
-																	<i className="fas fa-calendar-plus text-xs" aria-hidden="true" />
-																	New Appointment
 																</button>
 																<button
 																	type="button"
@@ -2713,20 +2720,20 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 										</p>
 									</div>
 									<div>
-										<p className="text-xs text-slate-500">Installments</p>
-										<p className="text-sm font-medium text-slate-900">
-											{typeof viewingPatient.installmentCount === 'number'
-												? viewingPatient.installmentCount
-												: '—'}
-										</p>
-									</div>
-									<div>
 										<p className="text-xs text-slate-500">Payment Type</p>
 										<p className="text-sm font-medium text-slate-900">{viewingPatient.paymentType || '—'}</p>
 									</div>
 									<div>
 										<p className="text-xs text-slate-500">Payment Notes</p>
 										<p className="text-sm font-medium text-slate-900">{viewingPatient.paymentDescription || '—'}</p>
+									</div>
+									<div>
+										<p className="text-xs text-slate-500">Concession %</p>
+										<p className="text-sm font-medium text-slate-900">
+											{typeof viewingPatient.concessionPercent === 'number'
+												? `${viewingPatient.concessionPercent}%`
+												: '—'}
+										</p>
 									</div>
 								</div>
 							</section>
@@ -3219,49 +3226,43 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 								</div>
 								{(() => {
 									const isPackagePayment = selectedPaymentBill.billingId.startsWith('PKG-');
-									const hasInstallments = 
-										isPackagePayment &&
-										selectedPaymentBill.installmentCount != null &&
-										selectedPaymentBill.installmentCount > 1 &&
-										selectedPaymentBill.installmentAmount != null;
-									
-									if (hasInstallments) {
-										const installmentsPaid = selectedPaymentBill.installmentsPaid ?? 0;
-										const totalInstallments = selectedPaymentBill.installmentCount ?? 1;
-										const installmentAmount = selectedPaymentBill.installmentAmount ?? 0;
-										const amountPaid = selectedPaymentBill.amountPaid ?? 0;
-										const totalAmount = selectedPaymentBill.packageAmount ?? selectedPaymentBill.amount;
-										
-										return (
-											<>
+									const totalAmount = isPackagePayment
+										? selectedPaymentBill.packageAmount ?? selectedPaymentBill.amount
+										: selectedPaymentBill.amount;
+									const amountPaid =
+										selectedPaymentBill.amountPaid ??
+										(selectedPaymentBill.status === 'Completed' ? totalAmount : 0);
+									const amountDue = Math.max(totalAmount - amountPaid, 0);
+
+									return (
+										<>
+											<div className="flex justify-between items-center mb-2">
+												<span className="text-slate-500">
+													{isPackagePayment ? 'Package Amount:' : 'Amount:'}
+												</span>
+												<span className="font-medium text-slate-900">₹{totalAmount}</span>
+											</div>
+											{isPackagePayment && selectedPaymentBill.concessionPercent ? (
 												<div className="flex justify-between items-center mb-2">
-													<span className="text-slate-500">Total Package Amount:</span>
-													<span className="font-medium text-slate-900">₹{totalAmount}</span>
-												</div>
-												<div className="flex justify-between items-center mb-2">
-													<span className="text-slate-500">Installments:</span>
+													<span className="text-slate-500">Concession:</span>
 													<span className="font-medium text-slate-900">
-														{installmentsPaid} of {totalInstallments} paid
+														{selectedPaymentBill.concessionPercent}% (
+														₹{Number((totalAmount - selectedPaymentBill.amount).toFixed(2))} off)
 													</span>
 												</div>
+											) : null}
+											{amountPaid > 0 && (
 												<div className="flex justify-between items-center mb-2">
 													<span className="text-slate-500">Amount Paid:</span>
 													<span className="font-medium text-slate-900">₹{amountPaid}</span>
 												</div>
-												<div className="flex justify-between items-center border-t border-slate-300 pt-2 mt-2">
-													<span className="text-slate-700 font-semibold">This Payment:</span>
-													<span className="font-bold text-lg text-slate-900">₹{installmentAmount}</span>
-												</div>
-											</>
-										);
-									} else {
-										return (
-											<div className="flex justify-between items-center">
-												<span className="text-slate-500">Amount:</span>
-												<span className="font-bold text-lg text-slate-900">₹{selectedPaymentBill.amount}</span>
+											)}
+											<div className="flex justify-between items-center border-t border-slate-300 pt-2 mt-2">
+												<span className="text-slate-700 font-semibold">Amount Due:</span>
+												<span className="font-bold text-lg text-slate-900">₹{amountDue}</span>
 											</div>
-										);
-									}
+										</>
+									);
 								})()}
 							</div>
 
@@ -3434,6 +3435,27 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 										disabled={packageSubmitting}
 									/>
 								</div>
+								{packageForm.paymentType === 'with' && (
+									<div className="md:col-span-6">
+										<label className="block text-sm font-medium text-slate-700">
+											Concession (%) <span className="text-slate-500 text-xs font-normal">(optional)</span>
+										</label>
+										<input
+											type="number"
+											min="0"
+											max="100"
+											step="0.01"
+											value={packageForm.concessionPercent ?? ''}
+											onChange={handlePackageFormChange('concessionPercent')}
+											className="input-base mt-2"
+											placeholder="Enter percentage discount"
+											disabled={packageSubmitting}
+										/>
+										{packageFormErrors.concessionPercent && (
+											<p className="mt-1 text-xs text-rose-500">{packageFormErrors.concessionPercent}</p>
+										)}
+									</div>
+								)}
 							</div>
 
 							<div className="grid gap-4 md:grid-cols-12">
@@ -3459,28 +3481,6 @@ const handleRegisterPatient = async (event: React.FormEvent<HTMLFormElement>) =>
 									</div>
 									{packageFormErrors.packageAmount && (
 										<p className="mt-1 text-xs text-rose-500">{packageFormErrors.packageAmount}</p>
-									)}
-								</div>
-								<div className="md:col-span-6">
-									<label className="block text-sm font-medium text-slate-700">
-										Installments <span className="text-rose-600">*</span>
-									</label>
-									<select
-										value={packageForm.installmentCount}
-										onChange={handlePackageFormChange('installmentCount')}
-										className="select-base mt-2"
-										required
-										disabled={packageSubmitting}
-									>
-										<option value="">Select</option>
-										{INSTALLMENT_OPTIONS.map(option => (
-											<option key={option.value} value={option.value}>
-												{option.label}
-											</option>
-										))}
-									</select>
-									{packageFormErrors.installmentCount && (
-										<p className="mt-1 text-xs text-rose-500">{packageFormErrors.installmentCount}</p>
 									)}
 								</div>
 							</div>

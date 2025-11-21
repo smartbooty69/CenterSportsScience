@@ -224,9 +224,7 @@ export interface BillingRecord {
 	patient: string;
 	amount: number;
 	packageAmount?: number;
-	installmentCount?: number;
-	installmentAmount?: number;
-	installmentsPaid?: number;
+	concessionPercent?: number;
 	amountPaid?: number;
 	status: 'pending' | 'completed';
 	date: string;
