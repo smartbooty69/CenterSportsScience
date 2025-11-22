@@ -1624,7 +1624,6 @@ export default function EditReport() {
 											<th className="px-4 py-3 font-semibold">Patient ID</th>
 											<th className="px-4 py-3 font-semibold">Name</th>
 											<th className="px-4 py-3 font-semibold">Status</th>
-											<th className="px-4 py-3 font-semibold">Assigned Doctor</th>
 											<th className="px-4 py-3 font-semibold text-right">Actions</th>
 										</tr>
 									</thead>
@@ -1652,7 +1651,6 @@ export default function EditReport() {
 														)}
 													</div>
 												</td>
-												<td className="px-4 py-4 text-sm text-slate-600">{patient.assignedDoctor || 'Unassigned'}</td>
 												<td className="px-4 py-4 text-right">
 													<div className="flex items-center justify-end gap-2">
 														{patient.patientId && (
@@ -1668,22 +1666,6 @@ export default function EditReport() {
 																Report
 															</button>
 														)}
-														<button
-															type="button"
-															onClick={() => handleSelectPatient(patient)}
-															className="btn-primary"
-														>
-															<i className="fas fa-edit text-xs" aria-hidden="true" />
-															Edit Report
-														</button>
-														<button
-															type="button"
-															onClick={() => handleStrengthConditioningReport(patient.patientId)}
-															className="btn-secondary"
-														>
-															<i className="fas fa-dumbbell text-xs" aria-hidden="true" />
-															Strength & Conditioning
-														</button>
 													</div>
 												</td>
 											</tr>
@@ -1940,15 +1922,6 @@ export default function EditReport() {
 								<input
 									type="date"
 									value={selectedPatient.dob}
-									readOnly
-									className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-								/>
-							</div>
-							<div>
-								<label className="block text-xs font-medium text-slate-500">Assigned Doctor</label>
-								<input
-									type="text"
-									value={selectedPatient.assignedDoctor || ''}
 									readOnly
 									className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 								/>
@@ -3166,15 +3139,6 @@ export default function EditReport() {
 											<input
 												type="date"
 												value={selectedPatient.dob}
-												readOnly
-												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-											/>
-										</div>
-										<div>
-											<label className="block text-xs font-medium text-slate-500">Assigned Doctor</label>
-											<input
-												type="text"
-												value={selectedPatient.assignedDoctor || ''}
 												readOnly
 												className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
 											/>
